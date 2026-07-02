@@ -3,7 +3,7 @@
 //   app-main  : EC2-1 배포용 — 핵심 REST API + WebSocket + SSE
 //   app-ai    : EC2-2 배포용 — AI 전용
 plugins {
-	id("org.springframework.boot") version "4.0.8-SNAPSHOT" apply false
+	id("org.springframework.boot") version "4.0.7" apply false
 	id("io.spring.dependency-management") version "1.1.7" apply false
 }
 
@@ -13,6 +13,5 @@ allprojects {
 
 	repositories {
 		mavenCentral()
-		maven { url = uri("https://repo.spring.io/snapshot") }
 	}
 }

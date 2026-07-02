@@ -17,7 +17,7 @@ dependencies {
 	implementation(project(":common"))
 
 	implementation("org.springframework.boot:spring-boot-starter-webmvc")
-	// WebSocket. Boot 4.0-SNAPSHOT 에서 아티팩트명이 다르면 조정 필요 (SSE 자체는 webmvc 만으로 동작).
+	// WebSocket (SSE 자체는 webmvc 만으로 동작)
 	implementation("org.springframework.boot:spring-boot-starter-websocket")
 	implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.2")
 
