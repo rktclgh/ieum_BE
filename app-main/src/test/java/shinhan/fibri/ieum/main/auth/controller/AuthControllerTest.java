@@ -8,10 +8,12 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockCookie;
 import org.springframework.test.web.servlet.MockMvc;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.main.auth.dto.LoginRequest;
 import shinhan.fibri.ieum.main.auth.dto.LoginResponse;
+import shinhan.fibri.ieum.main.auth.dto.RefreshResponse;
 import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationResponse;
 import shinhan.fibri.ieum.main.auth.dto.SignupRequest;
@@ -26,6 +28,8 @@ import shinhan.fibri.ieum.main.auth.exception.NicknameTakenException;
 import shinhan.fibri.ieum.main.auth.service.EmailVerificationService;
 import shinhan.fibri.ieum.main.auth.service.LoginResult;
 import shinhan.fibri.ieum.main.auth.service.LoginService;
+import shinhan.fibri.ieum.main.auth.service.RefreshResult;
+import shinhan.fibri.ieum.main.auth.service.RefreshService;
 import shinhan.fibri.ieum.main.auth.service.SignupService;
 import shinhan.fibri.ieum.main.auth.session.AuthCookieWriter;
 import shinhan.fibri.ieum.main.auth.session.AuthSessionProperties;
@@ -54,6 +58,9 @@ class AuthControllerTest {
 
 	@Autowired
 	private LoginService loginService;
+
+	@Autowired
+	private RefreshService refreshService;
 
 	@Test
 	void sendEmailVerificationCodeReturnsExpirySeconds() throws Exception {
@@ -235,6 +242,27 @@ class AuthControllerTest {
 				.anySatisfy(cookie -> assertThat(cookie).contains("access_token=access-token"))
 				.anySatisfy(cookie -> assertThat(cookie).contains("refresh_token=refresh-token"))
 				.anySatisfy(cookie -> assertThat(cookie).contains("csrf_token=csrf-token")));
+	}
+
+	@Test
+	void refreshReturnsUserSummaryAndRotatedAuthCookies() throws Exception {
+		when(refreshService.refresh("refresh-token"))
+			.thenReturn(new RefreshResult(
+				new RefreshResponse(42L, UserRole.user),
+				"new-access-token",
+				"new-refresh-token",
+				"new-csrf-token"
+			));
+
+		mockMvc.perform(post("/api/v1/auth/refresh")
+				.cookie(new MockCookie("refresh_token", "refresh-token")))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.userId", is(42)))
+			.andExpect(jsonPath("$.role", is("user")))
+			.andExpect(result -> assertThat(result.getResponse().getHeaders(HttpHeaders.SET_COOKIE))
+				.anySatisfy(cookie -> assertThat(cookie).contains("access_token=new-access-token"))
+				.anySatisfy(cookie -> assertThat(cookie).contains("refresh_token=new-refresh-token"))
+				.anySatisfy(cookie -> assertThat(cookie).contains("csrf_token=new-csrf-token")));
 	}
 
 	@Test
@@ -443,6 +471,12 @@ class AuthControllerTest {
 		@Primary
 		LoginService loginService() {
 			return mock(LoginService.class);
+		}
+
+		@Bean
+		@Primary
+		RefreshService refreshService() {
+			return mock(RefreshService.class);
 		}
 
 		@Bean

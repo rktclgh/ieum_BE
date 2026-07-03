@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -13,6 +14,7 @@ import shinhan.fibri.ieum.main.auth.dto.CheckNicknameDuplicateRequest;
 import shinhan.fibri.ieum.main.auth.dto.DuplicateCheckResponse;
 import shinhan.fibri.ieum.main.auth.dto.LoginRequest;
 import shinhan.fibri.ieum.main.auth.dto.LoginResponse;
+import shinhan.fibri.ieum.main.auth.dto.RefreshResponse;
 import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationResponse;
 import shinhan.fibri.ieum.main.auth.dto.SignupRequest;
@@ -22,6 +24,8 @@ import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationResponse;
 import shinhan.fibri.ieum.main.auth.service.EmailVerificationService;
 import shinhan.fibri.ieum.main.auth.service.LoginResult;
 import shinhan.fibri.ieum.main.auth.service.LoginService;
+import shinhan.fibri.ieum.main.auth.service.RefreshResult;
+import shinhan.fibri.ieum.main.auth.service.RefreshService;
 import shinhan.fibri.ieum.main.auth.service.SignupService;
 import shinhan.fibri.ieum.main.auth.session.AuthCookieWriter;
 import jakarta.servlet.http.HttpServletResponse;
@@ -34,6 +38,7 @@ public class AuthController {
 	private final EmailVerificationService emailVerificationService;
 	private final SignupService signupService;
 	private final LoginService loginService;
+	private final RefreshService refreshService;
 	private final AuthCookieWriter authCookieWriter;
 
 	@PostMapping("/email/send-code")
@@ -78,6 +83,21 @@ public class AuthController {
 		HttpServletResponse response
 	) {
 		LoginResult result = loginService.login(request);
+		authCookieWriter.writeLoginCookies(
+			response,
+			result.accessToken(),
+			result.refreshToken(),
+			result.csrfToken()
+		);
+		return ResponseEntity.ok(result.response());
+	}
+
+	@PostMapping("/refresh")
+	public ResponseEntity<RefreshResponse> refresh(
+		@CookieValue("refresh_token") String refreshToken,
+		HttpServletResponse response
+	) {
+		RefreshResult result = refreshService.refresh(refreshToken);
 		authCookieWriter.writeLoginCookies(
 			response,
 			result.accessToken(),
