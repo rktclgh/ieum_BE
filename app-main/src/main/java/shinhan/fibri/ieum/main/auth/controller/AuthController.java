@@ -24,6 +24,7 @@ import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationResponse;
 import shinhan.fibri.ieum.main.auth.service.EmailVerificationService;
 import shinhan.fibri.ieum.main.auth.service.LoginResult;
 import shinhan.fibri.ieum.main.auth.service.LoginService;
+import shinhan.fibri.ieum.main.auth.service.LogoutService;
 import shinhan.fibri.ieum.main.auth.service.RefreshResult;
 import shinhan.fibri.ieum.main.auth.service.RefreshService;
 import shinhan.fibri.ieum.main.auth.service.SignupService;
@@ -39,6 +40,7 @@ public class AuthController {
 	private final SignupService signupService;
 	private final LoginService loginService;
 	private final RefreshService refreshService;
+	private final LogoutService logoutService;
 	private final AuthCookieWriter authCookieWriter;
 
 	@PostMapping("/email/send-code")
@@ -105,5 +107,17 @@ public class AuthController {
 			result.csrfToken()
 		);
 		return ResponseEntity.ok(result.response());
+	}
+
+	@PostMapping("/logout")
+	public ResponseEntity<Void> logout(
+		@CookieValue(value = "refresh_token", required = false) String refreshToken,
+		HttpServletResponse response
+	) {
+		if (refreshToken != null) {
+			logoutService.logout(refreshToken);
+		}
+		authCookieWriter.writeExpiredAuthCookies(response);
+		return ResponseEntity.noContent().build();
 	}
 }

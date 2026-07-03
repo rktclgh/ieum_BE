@@ -28,6 +28,7 @@ import shinhan.fibri.ieum.main.auth.exception.NicknameTakenException;
 import shinhan.fibri.ieum.main.auth.service.EmailVerificationService;
 import shinhan.fibri.ieum.main.auth.service.LoginResult;
 import shinhan.fibri.ieum.main.auth.service.LoginService;
+import shinhan.fibri.ieum.main.auth.service.LogoutService;
 import shinhan.fibri.ieum.main.auth.service.RefreshResult;
 import shinhan.fibri.ieum.main.auth.service.RefreshService;
 import shinhan.fibri.ieum.main.auth.service.SignupService;
@@ -39,6 +40,7 @@ import static org.hamcrest.Matchers.is;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -61,6 +63,9 @@ class AuthControllerTest {
 
 	@Autowired
 	private RefreshService refreshService;
+
+	@Autowired
+	private LogoutService logoutService;
 
 	@Test
 	void sendEmailVerificationCodeReturnsExpirySeconds() throws Exception {
@@ -271,6 +276,35 @@ class AuthControllerTest {
 			.andExpect(status().isUnauthorized())
 			.andExpect(jsonPath("$.code", is("INVALID_REFRESH_TOKEN")))
 			.andExpect(jsonPath("$.message", is("Invalid refresh token")));
+	}
+
+	@Test
+	void logoutRevokesSessionAndExpiresAuthCookies() throws Exception {
+		mockMvc.perform(post("/api/v1/auth/logout")
+				.cookie(new MockCookie("refresh_token", "refresh-token")))
+			.andExpect(status().isNoContent())
+			.andExpect(result -> assertThat(result.getResponse().getHeaders(HttpHeaders.SET_COOKIE))
+				.anySatisfy(cookie -> assertThat(cookie)
+					.contains("access_token=")
+					.contains("Max-Age=0"))
+				.anySatisfy(cookie -> assertThat(cookie)
+					.contains("refresh_token=")
+					.contains("Max-Age=0"))
+				.anySatisfy(cookie -> assertThat(cookie)
+					.contains("csrf_token=")
+					.contains("Max-Age=0")));
+
+		verify(logoutService).logout("refresh-token");
+	}
+
+	@Test
+	void logoutIsNoContentWhenRefreshCookieIsMissing() throws Exception {
+		mockMvc.perform(post("/api/v1/auth/logout"))
+			.andExpect(status().isNoContent())
+			.andExpect(result -> assertThat(result.getResponse().getHeaders(HttpHeaders.SET_COOKIE))
+				.anySatisfy(cookie -> assertThat(cookie).contains("access_token=").contains("Max-Age=0"))
+				.anySatisfy(cookie -> assertThat(cookie).contains("refresh_token=").contains("Max-Age=0"))
+				.anySatisfy(cookie -> assertThat(cookie).contains("csrf_token=").contains("Max-Age=0")));
 	}
 
 	@Test
@@ -485,6 +519,12 @@ class AuthControllerTest {
 		@Primary
 		RefreshService refreshService() {
 			return mock(RefreshService.class);
+		}
+
+		@Bean
+		@Primary
+		LogoutService logoutService() {
+			return mock(LogoutService.class);
 		}
 
 		@Bean
