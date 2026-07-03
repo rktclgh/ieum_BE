@@ -53,3 +53,7 @@ out/
 
 ### Tooling junk ###
 .omc/
+
+### Agent local specs and memory ###
+**/spec.md
+**/memory.md
