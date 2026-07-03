@@ -9,6 +9,7 @@ import java.security.NoSuchAlgorithmException;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import shinhan.fibri.ieum.main.auth.session.AuthSecretValidator;
 
 @Component
 public class Sha256VerificationCodeHasher implements VerificationCodeHasher {
@@ -20,7 +21,11 @@ public class Sha256VerificationCodeHasher implements VerificationCodeHasher {
 	public Sha256VerificationCodeHasher(
 		@Value("${app.auth.email-verification-hmac-secret}") String secret
 	) {
-		this.secretKeySpec = new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), HMAC_ALGORITHM);
+		String validatedSecret = AuthSecretValidator.requireAtLeast32Bytes(
+			secret,
+			"app.auth.email-verification-hmac-secret"
+		);
+		this.secretKeySpec = new SecretKeySpec(validatedSecret.getBytes(StandardCharsets.UTF_8), HMAC_ALGORITHM);
 	}
 
 	@Override

@@ -9,6 +9,7 @@ import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import shinhan.fibri.ieum.main.auth.session.AccessTokenIssuer;
+import shinhan.fibri.ieum.main.auth.session.AuthSecretValidator;
 import shinhan.fibri.ieum.main.auth.session.AuthCookieWriter;
 import shinhan.fibri.ieum.main.auth.session.AuthSessionProperties;
 import shinhan.fibri.ieum.main.auth.session.OpaqueTokenGenerator;
@@ -37,8 +38,9 @@ public class AuthSessionConfig {
 
 	@Bean
 	JwtDecoder jwtDecoder(@Value("${app.jwt.secret}") String secret) {
+		String validatedSecret = AuthSecretValidator.requireAtLeast32Bytes(secret, "app.jwt.secret");
 		return NimbusJwtDecoder
-			.withSecretKey(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"))
+			.withSecretKey(new SecretKeySpec(validatedSecret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"))
 			.macAlgorithm(MacAlgorithm.HS256)
 			.build();
 	}

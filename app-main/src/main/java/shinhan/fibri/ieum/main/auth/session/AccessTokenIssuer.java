@@ -18,7 +18,8 @@ public class AccessTokenIssuer {
 	private final int ttlMinutes;
 
 	public AccessTokenIssuer(String secret, int ttlMinutes) {
-		SecretKeySpec secretKey = new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
+		String validatedSecret = AuthSecretValidator.requireAtLeast32Bytes(secret, "app.jwt.secret");
+		SecretKeySpec secretKey = new SecretKeySpec(validatedSecret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
 		this.encoder = new NimbusJwtEncoder(new ImmutableSecret<SecurityContext>(secretKey));
 		this.ttlMinutes = ttlMinutes;
 	}
