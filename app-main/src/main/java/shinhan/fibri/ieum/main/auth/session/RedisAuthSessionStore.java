@@ -35,6 +35,7 @@ public class RedisAuthSessionStore {
 		redisTemplate.opsForHash().put(sessionKey, "prevRefreshTokenHash", session.refreshTokenHash());
 		redisTemplate.opsForHash().put(sessionKey, "refreshTokenHash", newRefreshTokenHash);
 		deleteRefreshKey(session.prevRefreshTokenHash());
+		// Keep the immediately previous refresh index alive so reuse can be detected and escalated.
 		redisTemplate.opsForValue().set(refreshKey(session.refreshTokenHash()), session.sessionId(), SESSION_TTL);
 		redisTemplate.opsForValue().set(refreshKey(newRefreshTokenHash), session.sessionId(), SESSION_TTL);
 		redisTemplate.expire(sessionKey, SESSION_TTL);
