@@ -10,6 +10,7 @@ import java.util.Properties;
 
 import jakarta.servlet.Filter;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
@@ -17,6 +18,7 @@ import org.springframework.security.web.FilterChainProxy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.csrf.CsrfFilter;
 import shinhan.fibri.ieum.main.auth.session.CsrfDoubleSubmitFilter;
+import shinhan.fibri.ieum.main.auth.session.JwtAuthenticationFilter;
 
 @SpringBootTest
 class MainApplicationTests {
@@ -42,6 +44,25 @@ class MainApplicationTests {
 
 		assertThat(filters).anyMatch(CsrfDoubleSubmitFilter.class::isInstance);
 		assertThat(filters).noneMatch(CsrfFilter.class::isInstance);
+	}
+
+	@Test
+	void securityFiltersAreNotRegisteredAsServletFilters() {
+		List<FilterRegistrationBean> registrations = applicationContext
+			.getBeansOfType(FilterRegistrationBean.class)
+			.values()
+			.stream()
+			.toList();
+
+		assertThat(registrations)
+			.anySatisfy(registration -> {
+				assertThat(registration.getFilter()).isInstanceOf(JwtAuthenticationFilter.class);
+				assertThat(registration.isEnabled()).isFalse();
+			})
+			.anySatisfy(registration -> {
+				assertThat(registration.getFilter()).isInstanceOf(CsrfDoubleSubmitFilter.class);
+				assertThat(registration.isEnabled()).isFalse();
+			});
 	}
 
 	@Test
