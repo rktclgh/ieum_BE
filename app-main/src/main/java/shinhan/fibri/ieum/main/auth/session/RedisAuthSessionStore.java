@@ -1,11 +1,15 @@
 package shinhan.fibri.ieum.main.auth.session;
 
 import java.time.Duration;
+import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
+import shinhan.fibri.ieum.common.auth.domain.UserRole;
+import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 
 @Component
 public class RedisAuthSessionStore {
@@ -34,6 +38,28 @@ public class RedisAuthSessionStore {
 		redisTemplate.opsForValue().set(refreshKey(newRefreshTokenHash), session.sessionId(), SESSION_TTL);
 		redisTemplate.expire(sessionKey, SESSION_TTL);
 		redisTemplate.expire(userSessionsKey(session.userId()), SESSION_TTL);
+	}
+
+	public Optional<AuthSession> findByRefreshTokenHash(String refreshTokenHash) {
+		String sessionId = redisTemplate.opsForValue().get(refreshKey(refreshTokenHash));
+		if (sessionId == null) {
+			return Optional.empty();
+		}
+
+		Map<Object, Object> session = redisTemplate.opsForHash().entries(sessionKey(sessionId));
+		if (session.isEmpty()) {
+			return Optional.empty();
+		}
+
+		return Optional.of(new AuthSession(
+			sessionId,
+			Long.valueOf(session.get("userId").toString()),
+			session.get("refreshTokenHash").toString(),
+			nullableString(session.get("prevRefreshTokenHash")),
+			UserRole.valueOf(session.get("role").toString()),
+			UserStatus.valueOf(session.get("status").toString()),
+			OffsetDateTime.parse(session.get("createdAt").toString())
+		));
 	}
 
 	public void revokeSession(String sessionId) {
@@ -74,6 +100,10 @@ public class RedisAuthSessionStore {
 		if (refreshTokenHash != null) {
 			redisTemplate.delete(refreshKey(refreshTokenHash.toString()));
 		}
+	}
+
+	private String nullableString(Object value) {
+		return value == null ? null : value.toString();
 	}
 
 	private String sessionKey(String sessionId) {

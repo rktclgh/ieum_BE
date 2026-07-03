@@ -1,11 +1,13 @@
 package shinhan.fibri.ieum.main.auth.session;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.HashOperations;
@@ -81,6 +83,66 @@ class RedisAuthSessionStoreTest {
 		verify(valueOps).set("auth:refresh:new-hash", "sid-1", SESSION_TTL);
 		verify(redisTemplate).expire("auth:session:sid-1", SESSION_TTL);
 		verify(redisTemplate).expire("auth:user:42:sessions", SESSION_TTL);
+	}
+
+	@Test
+	void findByRefreshTokenHashReturnsSessionFromRefreshIndex() {
+		StringRedisTemplate redisTemplate = org.mockito.Mockito.mock(StringRedisTemplate.class);
+		HashOperations<String, Object, Object> hashOps = org.mockito.Mockito.mock(HashOperations.class);
+		ValueOperations<String, String> valueOps = org.mockito.Mockito.mock(ValueOperations.class);
+		when(redisTemplate.opsForHash()).thenReturn(hashOps);
+		when(redisTemplate.opsForValue()).thenReturn(valueOps);
+		when(valueOps.get("auth:refresh:refresh-hash")).thenReturn("sid-1");
+		when(hashOps.entries("auth:session:sid-1")).thenReturn(Map.of(
+			"userId", "42",
+			"refreshTokenHash", "refresh-hash",
+			"prevRefreshTokenHash", "previous-hash",
+			"role", "user",
+			"status", "active",
+			"createdAt", "2026-07-03T00:00Z"
+		));
+		RedisAuthSessionStore store = new RedisAuthSessionStore(redisTemplate);
+
+		Optional<AuthSession> session = store.findByRefreshTokenHash("refresh-hash");
+
+		assertThat(session).hasValue(new AuthSession(
+			"sid-1",
+			42L,
+			"refresh-hash",
+			"previous-hash",
+			UserRole.user,
+			UserStatus.active,
+			OffsetDateTime.parse("2026-07-03T00:00Z")
+		));
+	}
+
+	@Test
+	void findByRefreshTokenHashReturnsEmptyWhenRefreshIndexDoesNotExist() {
+		StringRedisTemplate redisTemplate = org.mockito.Mockito.mock(StringRedisTemplate.class);
+		ValueOperations<String, String> valueOps = org.mockito.Mockito.mock(ValueOperations.class);
+		when(redisTemplate.opsForValue()).thenReturn(valueOps);
+		when(valueOps.get("auth:refresh:missing-hash")).thenReturn(null);
+		RedisAuthSessionStore store = new RedisAuthSessionStore(redisTemplate);
+
+		Optional<AuthSession> session = store.findByRefreshTokenHash("missing-hash");
+
+		assertThat(session).isEmpty();
+	}
+
+	@Test
+	void findByRefreshTokenHashReturnsEmptyWhenSessionDoesNotExist() {
+		StringRedisTemplate redisTemplate = org.mockito.Mockito.mock(StringRedisTemplate.class);
+		HashOperations<String, Object, Object> hashOps = org.mockito.Mockito.mock(HashOperations.class);
+		ValueOperations<String, String> valueOps = org.mockito.Mockito.mock(ValueOperations.class);
+		when(redisTemplate.opsForHash()).thenReturn(hashOps);
+		when(redisTemplate.opsForValue()).thenReturn(valueOps);
+		when(valueOps.get("auth:refresh:orphan-hash")).thenReturn("sid-1");
+		when(hashOps.entries("auth:session:sid-1")).thenReturn(Map.of());
+		RedisAuthSessionStore store = new RedisAuthSessionStore(redisTemplate);
+
+		Optional<AuthSession> session = store.findByRefreshTokenHash("orphan-hash");
+
+		assertThat(session).isEmpty();
 	}
 
 	@Test
