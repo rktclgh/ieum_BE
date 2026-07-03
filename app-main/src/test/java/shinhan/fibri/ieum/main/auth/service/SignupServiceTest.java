@@ -4,13 +4,16 @@ import org.junit.jupiter.api.Test;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.test.util.ReflectionTestUtils;
+import shinhan.fibri.ieum.common.auth.domain.AuthProvider;
 import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.auth.domain.UserSettings;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
 import shinhan.fibri.ieum.common.auth.repository.UserSettingsRepository;
 import shinhan.fibri.ieum.main.auth.dto.SignupRequest;
 import shinhan.fibri.ieum.main.auth.dto.SignupResponse;
+import shinhan.fibri.ieum.main.auth.exception.EmailTakenException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationTokenException;
+import shinhan.fibri.ieum.main.auth.exception.NicknameTakenException;
 
 import java.time.LocalDate;
 import java.util.Optional;
@@ -159,6 +162,68 @@ class SignupServiceTest {
 			"verification-token"
 		))).isInstanceOf(InvalidEmailVerificationTokenException.class);
 
+		verify(userRepository, never()).save(any(User.class));
+		verify(userSettingsRepository, never()).save(any(UserSettings.class));
+		verify(codeStore, never()).deleteSignupVerificationToken("verification-token");
+	}
+
+	@Test
+	void signupThrowsWhenEmailAlreadyExists() {
+		EmailVerificationCodeStore codeStore = mock(EmailVerificationCodeStore.class);
+		UserRepository userRepository = mock(UserRepository.class);
+		UserSettingsRepository userSettingsRepository = mock(UserSettingsRepository.class);
+		PasswordHasher passwordHasher = mock(PasswordHasher.class);
+		SignupService service = new SignupService(
+			codeStore,
+			userRepository,
+			userSettingsRepository,
+			passwordHasher
+		);
+		when(codeStore.findSignupVerificationEmail("verification-token"))
+			.thenReturn(Optional.of("user@example.com"));
+		when(userRepository.existsByEmailAndProviderAndDeletedAtIsNull("user@example.com", AuthProvider.email))
+			.thenReturn(true);
+
+		assertThatThrownBy(() -> service.signup(new SignupRequest(
+			"user@example.com",
+			"password123",
+			"nickname",
+			LocalDate.of(2000, 1, 1),
+			"verification-token"
+		))).isInstanceOf(EmailTakenException.class);
+
+		verify(passwordHasher, never()).hash("password123");
+		verify(userRepository, never()).save(any(User.class));
+		verify(userSettingsRepository, never()).save(any(UserSettings.class));
+		verify(codeStore, never()).deleteSignupVerificationToken("verification-token");
+	}
+
+	@Test
+	void signupThrowsWhenNicknameAlreadyExists() {
+		EmailVerificationCodeStore codeStore = mock(EmailVerificationCodeStore.class);
+		UserRepository userRepository = mock(UserRepository.class);
+		UserSettingsRepository userSettingsRepository = mock(UserSettingsRepository.class);
+		PasswordHasher passwordHasher = mock(PasswordHasher.class);
+		SignupService service = new SignupService(
+			codeStore,
+			userRepository,
+			userSettingsRepository,
+			passwordHasher
+		);
+		when(codeStore.findSignupVerificationEmail("verification-token"))
+			.thenReturn(Optional.of("user@example.com"));
+		when(userRepository.existsByNicknameAndDeletedAtIsNull("nickname"))
+			.thenReturn(true);
+
+		assertThatThrownBy(() -> service.signup(new SignupRequest(
+			"user@example.com",
+			"password123",
+			"nickname",
+			LocalDate.of(2000, 1, 1),
+			"verification-token"
+		))).isInstanceOf(NicknameTakenException.class);
+
+		verify(passwordHasher, never()).hash("password123");
 		verify(userRepository, never()).save(any(User.class));
 		verify(userSettingsRepository, never()).save(any(UserSettings.class));
 		verify(codeStore, never()).deleteSignupVerificationToken("verification-token");

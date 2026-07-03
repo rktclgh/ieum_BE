@@ -15,8 +15,10 @@ import shinhan.fibri.ieum.main.auth.dto.SignupRequest;
 import shinhan.fibri.ieum.main.auth.dto.SignupResponse;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationResponse;
+import shinhan.fibri.ieum.main.auth.exception.EmailTakenException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationCodeException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationTokenException;
+import shinhan.fibri.ieum.main.auth.exception.NicknameTakenException;
 import shinhan.fibri.ieum.main.auth.service.EmailVerificationService;
 import shinhan.fibri.ieum.main.auth.service.SignupService;
 
@@ -135,6 +137,50 @@ class AuthControllerTest {
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code", is("INVALID_EMAIL_VERIFICATION_TOKEN")))
 			.andExpect(jsonPath("$.message", is("Invalid email verification token")));
+	}
+
+	@Test
+	void signupReturnsConflictWhenEmailIsTaken() throws Exception {
+		doThrow(new EmailTakenException())
+			.when(signupService)
+			.signup(any(SignupRequest.class));
+
+		mockMvc.perform(post("/api/v1/auth/signup")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email": "USER@example.com",
+					  "password": "password123",
+					  "nickname": "nickname",
+					  "birthDate": "2000-01-01",
+					  "emailVerificationToken": "verification-token"
+					}
+					"""))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code", is("EMAIL_TAKEN")))
+			.andExpect(jsonPath("$.message", is("Email is already taken")));
+	}
+
+	@Test
+	void signupReturnsConflictWhenNicknameIsTaken() throws Exception {
+		doThrow(new NicknameTakenException())
+			.when(signupService)
+			.signup(any(SignupRequest.class));
+
+		mockMvc.perform(post("/api/v1/auth/signup")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email": "USER@example.com",
+					  "password": "password123",
+					  "nickname": "nickname",
+					  "birthDate": "2000-01-01",
+					  "emailVerificationToken": "verification-token"
+					}
+					"""))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code", is("NICKNAME_TAKEN")))
+			.andExpect(jsonPath("$.message", is("Nickname is already taken")));
 	}
 
 	@TestConfiguration

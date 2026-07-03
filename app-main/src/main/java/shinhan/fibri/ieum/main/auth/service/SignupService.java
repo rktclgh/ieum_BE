@@ -5,13 +5,16 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import shinhan.fibri.ieum.common.auth.domain.AuthProvider;
 import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.auth.domain.UserSettings;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
 import shinhan.fibri.ieum.common.auth.repository.UserSettingsRepository;
 import shinhan.fibri.ieum.main.auth.dto.SignupRequest;
 import shinhan.fibri.ieum.main.auth.dto.SignupResponse;
+import shinhan.fibri.ieum.main.auth.exception.EmailTakenException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationTokenException;
+import shinhan.fibri.ieum.main.auth.exception.NicknameTakenException;
 
 import java.util.Locale;
 
@@ -31,6 +34,12 @@ public class SignupService {
 			.orElseThrow(InvalidEmailVerificationTokenException::new);
 		if (!verifiedEmail.equals(email)) {
 			throw new InvalidEmailVerificationTokenException();
+		}
+		if (userRepository.existsByEmailAndProviderAndDeletedAtIsNull(email, AuthProvider.email)) {
+			throw new EmailTakenException();
+		}
+		if (userRepository.existsByNicknameAndDeletedAtIsNull(request.nickname())) {
+			throw new NicknameTakenException();
 		}
 
 		User user = User.createEmailUser(
