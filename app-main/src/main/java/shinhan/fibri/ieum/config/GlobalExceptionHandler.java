@@ -7,6 +7,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
@@ -30,6 +31,14 @@ public class GlobalExceptionHandler {
 	public ResponseEntity<AuthErrorResponse> handleMethodNotSupported(HttpRequestMethodNotSupportedException exception) {
 		return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED)
 			.body(new AuthErrorResponse("METHOD_NOT_ALLOWED", "Method not allowed"));
+	}
+
+	@ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+	public ResponseEntity<AuthErrorResponse> handleUnsupportedMediaType(
+		HttpMediaTypeNotSupportedException exception
+	) {
+		return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
+			.body(new AuthErrorResponse("UNSUPPORTED_MEDIA_TYPE", "Unsupported media type"));
 	}
 
 	@ExceptionHandler({
