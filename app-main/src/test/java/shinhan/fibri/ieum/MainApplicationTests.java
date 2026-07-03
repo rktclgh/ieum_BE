@@ -12,15 +12,23 @@ import jakarta.servlet.Filter;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
+import org.springframework.http.HttpHeaders;
+import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.security.web.FilterChainProxy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.csrf.CsrfFilter;
 import shinhan.fibri.ieum.main.auth.session.CsrfDoubleSubmitFilter;
 import shinhan.fibri.ieum.main.auth.session.JwtAuthenticationFilter;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
 @SpringBootTest
+@AutoConfigureMockMvc
 class MainApplicationTests {
 
 	@Autowired
@@ -28,6 +36,9 @@ class MainApplicationTests {
 
 	@Autowired
 	private FilterChainProxy springSecurityFilterChain;
+
+	@Autowired
+	private MockMvc mockMvc;
 
 	@Test
 	void contextLoads() {
@@ -75,6 +86,17 @@ class MainApplicationTests {
 
 		assertThat(properties.getProperty("spring.config.import"))
 			.contains("optional:file:./app-main/.env[.properties]");
+	}
+
+	@Test
+	void corsAllowsNextDevServerWithCredentials() throws Exception {
+		mockMvc.perform(options("/api/v1/auth/login")
+				.header(HttpHeaders.ORIGIN, "http://localhost:3000")
+				.header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST")
+				.header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "content-type,x-csrf-token"))
+			.andExpect(status().isOk())
+			.andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:3000"))
+			.andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"));
 	}
 
 	private Path applicationPropertiesPath() {
