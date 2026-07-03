@@ -35,4 +35,14 @@ public class RedisEmailVerificationCodeStore implements EmailVerificationCodeSto
 	public void saveSignupVerificationToken(String token, String email, Duration ttl) {
 		redisTemplate.opsForValue().set(SIGNUP_VERIFIED_KEY_PREFIX + token, email, ttl);
 	}
+
+	@Override
+	public Optional<String> findSignupVerificationEmail(String token) {
+		return Optional.ofNullable(redisTemplate.opsForValue().get(SIGNUP_VERIFIED_KEY_PREFIX + token));
+	}
+
+	@Override
+	public void deleteSignupVerificationToken(String token) {
+		redisTemplate.delete(SIGNUP_VERIFIED_KEY_PREFIX + token);
+	}
 }

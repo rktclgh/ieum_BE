@@ -12,4 +12,8 @@ public interface EmailVerificationCodeStore {
 	void deleteSignupCode(String email);
 
 	void saveSignupVerificationToken(String token, String email, Duration ttl);
+
+	Optional<String> findSignupVerificationEmail(String token);
+
+	void deleteSignupVerificationToken(String token);
 }

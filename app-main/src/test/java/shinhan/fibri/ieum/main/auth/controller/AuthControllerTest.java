@@ -11,10 +11,13 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationResponse;
+import shinhan.fibri.ieum.main.auth.dto.SignupRequest;
+import shinhan.fibri.ieum.main.auth.dto.SignupResponse;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationResponse;
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationCodeException;
 import shinhan.fibri.ieum.main.auth.service.EmailVerificationService;
+import shinhan.fibri.ieum.main.auth.service.SignupService;
 
 import static org.hamcrest.Matchers.is;
 import static org.mockito.ArgumentMatchers.any;
@@ -34,6 +37,9 @@ class AuthControllerTest {
 
 	@Autowired
 	private EmailVerificationService emailVerificationService;
+
+	@Autowired
+	private SignupService signupService;
 
 	@Test
 	void sendEmailVerificationCodeReturnsExpirySeconds() throws Exception {
@@ -88,6 +94,26 @@ class AuthControllerTest {
 			.andExpect(jsonPath("$.message", is("Invalid email verification code")));
 	}
 
+	@Test
+	void signupReturnsCreatedUserId() throws Exception {
+		when(signupService.signup(any(SignupRequest.class)))
+			.thenReturn(new SignupResponse(42L));
+
+		mockMvc.perform(post("/api/v1/auth/signup")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email": "USER@example.com",
+					  "password": "password123",
+					  "nickname": "nickname",
+					  "birthDate": "2000-01-01",
+					  "emailVerificationToken": "verification-token"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.userId", is(42)));
+	}
+
 	@TestConfiguration
 	static class TestConfig {
 
@@ -95,6 +121,12 @@ class AuthControllerTest {
 		@Primary
 		EmailVerificationService emailVerificationService() {
 			return mock(EmailVerificationService.class);
+		}
+
+		@Bean
+		@Primary
+		SignupService signupService() {
+			return mock(SignupService.class);
 		}
 	}
 }

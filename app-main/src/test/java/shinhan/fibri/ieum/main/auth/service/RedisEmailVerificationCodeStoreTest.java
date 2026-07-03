@@ -68,4 +68,27 @@ class RedisEmailVerificationCodeStoreTest {
 			Duration.ofMinutes(30)
 		);
 	}
+
+	@Test
+	void findSignupVerificationEmailReadsVerifiedKey() {
+		StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+		@SuppressWarnings("unchecked")
+		ValueOperations<String, String> valueOperations = mock(ValueOperations.class);
+		when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+		when(valueOperations.get("auth:email:signup:verified:verification-token"))
+			.thenReturn("user@example.com");
+		RedisEmailVerificationCodeStore store = new RedisEmailVerificationCodeStore(redisTemplate);
+
+		assertThat(store.findSignupVerificationEmail("verification-token")).contains("user@example.com");
+	}
+
+	@Test
+	void deleteSignupVerificationTokenDeletesVerifiedKey() {
+		StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+		RedisEmailVerificationCodeStore store = new RedisEmailVerificationCodeStore(redisTemplate);
+
+		store.deleteSignupVerificationToken("verification-token");
+
+		verify(redisTemplate).delete("auth:email:signup:verified:verification-token");
+	}
 }

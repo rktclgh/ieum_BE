@@ -9,9 +9,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationResponse;
+import shinhan.fibri.ieum.main.auth.dto.SignupRequest;
+import shinhan.fibri.ieum.main.auth.dto.SignupResponse;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationResponse;
 import shinhan.fibri.ieum.main.auth.service.EmailVerificationService;
+import shinhan.fibri.ieum.main.auth.service.SignupService;
 
 @RestController
 @RequestMapping("/api/v1/auth")
@@ -19,6 +22,7 @@ import shinhan.fibri.ieum.main.auth.service.EmailVerificationService;
 public class AuthController {
 
 	private final EmailVerificationService emailVerificationService;
+	private final SignupService signupService;
 
 	@PostMapping("/email/send")
 	public ResponseEntity<SendEmailVerificationResponse> sendEmailVerificationCode(
@@ -33,6 +37,12 @@ public class AuthController {
 		@Valid @RequestBody VerifyEmailVerificationRequest request
 	) {
 		VerifyEmailVerificationResponse response = emailVerificationService.verifySignupCode(request);
+		return ResponseEntity.ok(response);
+	}
+
+	@PostMapping("/signup")
+	public ResponseEntity<SignupResponse> signup(@Valid @RequestBody SignupRequest request) {
+		SignupResponse response = signupService.signup(request);
 		return ResponseEntity.ok(response);
 	}
 }
