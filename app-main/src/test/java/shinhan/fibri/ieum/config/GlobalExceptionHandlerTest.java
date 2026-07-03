@@ -1,5 +1,6 @@
 package shinhan.fibri.ieum.config;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.containsString;
@@ -10,7 +11,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -23,18 +27,22 @@ import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
 
 @WebMvcTest(GlobalExceptionHandlerTest.FailingController.class)
 @AutoConfigureMockMvc(addFilters = false)
+@ExtendWith(OutputCaptureExtension.class)
 class GlobalExceptionHandlerTest {
 
 	@Autowired
 	private MockMvc mockMvc;
 
 	@Test
-	void unexpectedExceptionReturnsGenericJsonInternalServerError() throws Exception {
+	void unexpectedExceptionReturnsGenericJsonInternalServerError(CapturedOutput output) throws Exception {
 		mockMvc.perform(get("/api/v1/test/fail"))
 			.andExpect(status().isInternalServerError())
 			.andExpect(jsonPath("$.code", is("INTERNAL_SERVER_ERROR")))
 			.andExpect(jsonPath("$.message", is("Internal server error")))
 			.andExpect(content().string(not(containsString("sensitive failure detail"))));
+
+		assertThat(output).contains("Unhandled exception");
+		assertThat(output).contains("sensitive failure detail");
 	}
 
 	@RestController
