@@ -1,22 +1,37 @@
 package shinhan.fibri.ieum.main.auth.service;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
+import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
+
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 
 @Component
 public class Sha256VerificationCodeHasher implements VerificationCodeHasher {
 
+	private static final String HMAC_ALGORITHM = "HmacSHA256";
+
+	private final SecretKeySpec secretKeySpec;
+
+	public Sha256VerificationCodeHasher(
+		@Value("${app.auth.email-verification-hmac-secret}") String secret
+	) {
+		this.secretKeySpec = new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), HMAC_ALGORITHM);
+	}
+
 	@Override
 	public String hash(String email, String code) {
 		try {
-			MessageDigest digest = MessageDigest.getInstance("SHA-256");
-			byte[] hash = digest.digest((email + ":" + code).getBytes(StandardCharsets.UTF_8));
+			Mac mac = Mac.getInstance(HMAC_ALGORITHM);
+			mac.init(secretKeySpec);
+			byte[] hash = mac.doFinal((email + ":" + code).getBytes(StandardCharsets.UTF_8));
 			return toHex(hash);
-		} catch (NoSuchAlgorithmException exception) {
-			throw new IllegalStateException("SHA-256 algorithm is unavailable", exception);
+		} catch (InvalidKeyException | NoSuchAlgorithmException exception) {
+			throw new IllegalStateException("HMAC-SHA256 algorithm is unavailable", exception);
 		}
 	}
 
