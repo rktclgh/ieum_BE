@@ -61,9 +61,10 @@ jobs:
           labels: chore
 
 
-      # 프로젝트에 등록
+      # 백엔드 전용 프로젝트가 설정된 경우에만 자동 추가
       - name: GitHub 프로젝트에 추가
+        if: ${{ vars.BACKEND_PROJECT_URL != '' }}
         uses: actions/add-to-project@v2
         with:
-          project-url: "https://github.com/users/rktclgh/projects/7"
+          project-url: ${{ vars.BACKEND_PROJECT_URL }}
           github-token: ${{ secrets.PROJECT_ACCESS_TOKEN }}
