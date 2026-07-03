@@ -7,7 +7,6 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.MapsId;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
-import jakarta.persistence.Column;
 import java.util.Objects;
 
 @Entity
@@ -22,39 +21,11 @@ public class UserSettings {
 	@JoinColumn(name = "user_id", nullable = false)
 	private User user;
 
-	@Column(nullable = false, length = 5)
-	private String language;
-
-	@Column(name = "camera_permission", nullable = false)
-	private boolean cameraPermission;
-
-	@Column(name = "push_permission", nullable = false)
-	private boolean pushPermission;
-
-	@Column(name = "notify_all", nullable = false)
-	private boolean notifyAll;
-
-	@Column(name = "notify_meeting", nullable = false)
-	private boolean notifyMeeting;
-
-	@Column(name = "notify_question", nullable = false)
-	private boolean notifyQuestion;
-
-	@Column(name = "notify_radius_km", nullable = false)
-	private int notifyRadiusKm;
-
 	protected UserSettings() {
 	}
 
 	private UserSettings(User user) {
 		this.user = Objects.requireNonNull(user, "user must not be null");
-		this.language = "ko";
-		this.cameraPermission = false;
-		this.pushPermission = true;
-		this.notifyAll = true;
-		this.notifyMeeting = true;
-		this.notifyQuestion = true;
-		this.notifyRadiusKm = 5;
 	}
 
 	public static UserSettings defaultFor(User user) {
@@ -67,33 +38,5 @@ public class UserSettings {
 
 	public User getUser() {
 		return user;
-	}
-
-	public String getLanguage() {
-		return language;
-	}
-
-	public boolean isCameraPermission() {
-		return cameraPermission;
-	}
-
-	public boolean isPushPermission() {
-		return pushPermission;
-	}
-
-	public boolean isNotifyAll() {
-		return notifyAll;
-	}
-
-	public boolean isNotifyMeeting() {
-		return notifyMeeting;
-	}
-
-	public boolean isNotifyQuestion() {
-		return notifyQuestion;
-	}
-
-	public int getNotifyRadiusKm() {
-		return notifyRadiusKm;
 	}
 }
