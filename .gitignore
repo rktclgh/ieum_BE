@@ -51,6 +51,5 @@ out/
 ### VS Code ###
 .vscode/
 
-### Tooling junk (oh-my-claudecode 등) ###
+### Tooling junk ###
 .omc/
-.claude/
