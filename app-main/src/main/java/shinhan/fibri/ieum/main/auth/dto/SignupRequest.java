@@ -6,6 +6,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import shinhan.fibri.ieum.common.auth.validation.AuthValidationRules;
+import shinhan.fibri.ieum.main.auth.validation.NoProfanity;
 
 import java.time.LocalDate;
 
@@ -24,6 +25,7 @@ public record SignupRequest(
 		min = AuthValidationRules.MIN_NICKNAME_LENGTH,
 		max = AuthValidationRules.MAX_NICKNAME_LENGTH
 	)
+	@NoProfanity
 	String nickname,
 
 	@NotNull

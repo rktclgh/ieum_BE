@@ -234,6 +234,23 @@ class AuthControllerTest {
 			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")));
 	}
 
+	@Test
+	void signupReturnsBadRequestWhenNicknameContainsProfanity() throws Exception {
+		mockMvc.perform(post("/api/v1/auth/signup")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email": "USER@example.com",
+					  "password": "Passw@rd123",
+					  "nickname": "fuckmaster",
+					  "birthDate": "2000-01-01",
+					  "emailVerificationToken": "verification-token"
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")));
+	}
+
 	@TestConfiguration
 	static class TestConfig {
 
