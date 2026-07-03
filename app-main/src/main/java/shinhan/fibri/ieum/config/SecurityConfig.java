@@ -17,6 +17,7 @@ public class SecurityConfig {
 
 	private final JwtAuthenticationFilter jwtAuthenticationFilter;
 	private final CsrfDoubleSubmitFilter csrfDoubleSubmitFilter;
+	private final JsonAuthenticationEntryPoint jsonAuthenticationEntryPoint;
 
 	@Bean
 	SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -25,6 +26,7 @@ public class SecurityConfig {
 			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 			.formLogin(AbstractHttpConfigurer::disable)
 			.httpBasic(AbstractHttpConfigurer::disable)
+			.exceptionHandling(exception -> exception.authenticationEntryPoint(jsonAuthenticationEntryPoint))
 			.authorizeHttpRequests(authorize -> authorize
 				.requestMatchers(
 					"/api/v1/auth/**",
