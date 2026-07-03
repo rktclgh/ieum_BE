@@ -6,8 +6,12 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import shinhan.fibri.ieum.common.auth.domain.UserRole;
+import shinhan.fibri.ieum.main.auth.dto.LoginRequest;
+import shinhan.fibri.ieum.main.auth.dto.LoginResponse;
 import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationResponse;
 import shinhan.fibri.ieum.main.auth.dto.SignupRequest;
@@ -20,8 +24,13 @@ import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationCodeExcept
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationTokenException;
 import shinhan.fibri.ieum.main.auth.exception.NicknameTakenException;
 import shinhan.fibri.ieum.main.auth.service.EmailVerificationService;
+import shinhan.fibri.ieum.main.auth.service.LoginResult;
+import shinhan.fibri.ieum.main.auth.service.LoginService;
 import shinhan.fibri.ieum.main.auth.service.SignupService;
+import shinhan.fibri.ieum.main.auth.session.AuthCookieWriter;
+import shinhan.fibri.ieum.main.auth.session.AuthSessionProperties;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.is;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -42,6 +51,9 @@ class AuthControllerTest {
 
 	@Autowired
 	private SignupService signupService;
+
+	@Autowired
+	private LoginService loginService;
 
 	@Test
 	void sendEmailVerificationCodeReturnsExpirySeconds() throws Exception {
@@ -195,6 +207,34 @@ class AuthControllerTest {
 					"""))
 			.andExpect(status().isCreated())
 			.andExpect(jsonPath("$.userId", is(42)));
+	}
+
+	@Test
+	void loginReturnsUserSummaryAndAuthCookies() throws Exception {
+		when(loginService.login(any(LoginRequest.class)))
+			.thenReturn(new LoginResult(
+				new LoginResponse(42L, UserRole.user, false),
+				"access-token",
+				"refresh-token",
+				"csrf-token"
+			));
+
+		mockMvc.perform(post("/api/v1/auth/login")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email": "USER@example.com",
+					  "password": "Passw@rd123"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.userId", is(42)))
+			.andExpect(jsonPath("$.role", is("user")))
+			.andExpect(jsonPath("$.passwordResetRequired", is(false)))
+			.andExpect(result -> assertThat(result.getResponse().getHeaders(HttpHeaders.SET_COOKIE))
+				.anySatisfy(cookie -> assertThat(cookie).contains("access_token=access-token"))
+				.anySatisfy(cookie -> assertThat(cookie).contains("refresh_token=refresh-token"))
+				.anySatisfy(cookie -> assertThat(cookie).contains("csrf_token=csrf-token")));
 	}
 
 	@Test
@@ -397,6 +437,18 @@ class AuthControllerTest {
 		@Primary
 		SignupService signupService() {
 			return mock(SignupService.class);
+		}
+
+		@Bean
+		@Primary
+		LoginService loginService() {
+			return mock(LoginService.class);
+		}
+
+		@Bean
+		@Primary
+		AuthCookieWriter authCookieWriter() {
+			return new AuthCookieWriter(new AuthSessionProperties(true, "Lax", "", 1800, 1209600));
 		}
 	}
 }
