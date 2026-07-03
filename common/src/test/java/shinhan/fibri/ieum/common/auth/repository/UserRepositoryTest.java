@@ -2,6 +2,7 @@ package shinhan.fibri.ieum.common.auth.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import jakarta.persistence.EntityManager;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import org.junit.jupiter.api.Test;
@@ -25,6 +26,9 @@ class UserRepositoryTest {
 
 	@Autowired
 	private JdbcTemplate jdbcTemplate;
+
+	@Autowired
+	private EntityManager entityManager;
 
 	@Test
 	void userRepositoryQueriesIgnoreSoftDeletedUsers() {
@@ -55,6 +59,22 @@ class UserRepositoryTest {
 				.isEmpty();
 		assertThat(userRepository.findByIdAndDeletedAtIsNull(active.getId())).contains(active);
 		assertThat(userRepository.findByIdAndDeletedAtIsNull(deleted.getId())).isEmpty();
+	}
+
+	@Test
+	void inheritedUserRepositoryQueriesIgnoreSoftDeletedUsers() {
+		User deleted = User.createEmailUser(
+				"inherited-deleted@example.com",
+				"hash",
+				"inherited-deleted",
+				LocalDate.of(1991, 1, 1)
+		);
+		deleted.markDeleted(OffsetDateTime.parse("2026-01-01T00:00:00Z"));
+		deleted = userRepository.saveAndFlush(deleted);
+		entityManager.clear();
+
+		assertThat(userRepository.findById(deleted.getId())).isEmpty();
+		assertThat(userRepository.findAll()).doesNotContain(deleted);
 	}
 
 	@Test
