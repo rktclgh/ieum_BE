@@ -68,6 +68,7 @@ public class LoginService {
 		AuthSession session = new AuthSession(
 			sessionId,
 			user.getId(),
+			user.getEmail(),
 			refreshTokenHash,
 			null,
 			user.getRole(),

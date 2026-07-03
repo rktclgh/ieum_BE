@@ -37,6 +37,7 @@ class RefreshServiceTest {
 		AuthSession session = new AuthSession(
 			"sid-1",
 			42L,
+			"user@example.com",
 			"old-refresh-hash",
 			null,
 			UserRole.user,
@@ -74,6 +75,7 @@ class RefreshServiceTest {
 		AuthSession session = new AuthSession(
 			"sid-1",
 			42L,
+			"user@example.com",
 			"refresh-hash",
 			null,
 			UserRole.user,
@@ -103,6 +105,7 @@ class RefreshServiceTest {
 		AuthSession session = new AuthSession(
 			"sid-1",
 			42L,
+			"user@example.com",
 			"current-refresh-hash",
 			"previous-refresh-hash",
 			UserRole.user,

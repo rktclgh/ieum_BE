@@ -59,6 +59,7 @@ public class RedisAuthSessionStore {
 		return Optional.of(new AuthSession(
 			sessionId,
 			Long.valueOf(session.get("userId").toString()),
+			session.get("email").toString(),
 			session.get("refreshTokenHash").toString(),
 			nullableString(session.get("prevRefreshTokenHash")),
 			UserRole.valueOf(session.get("role").toString()),
@@ -91,6 +92,7 @@ public class RedisAuthSessionStore {
 	private Map<String, String> toRedisHash(AuthSession session) {
 		Map<String, String> values = new LinkedHashMap<>();
 		values.put("userId", String.valueOf(session.userId()));
+		values.put("email", session.email());
 		values.put("refreshTokenHash", session.refreshTokenHash());
 		if (session.prevRefreshTokenHash() != null) {
 			values.put("prevRefreshTokenHash", session.prevRefreshTokenHash());

@@ -7,6 +7,7 @@ import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 public record AuthSession(
 	String sessionId,
 	Long userId,
+	String email,
 	String refreshTokenHash,
 	String prevRefreshTokenHash,
 	UserRole role,

@@ -35,6 +35,7 @@ class RedisAuthSessionStoreTest {
 		AuthSession session = new AuthSession(
 			"sid-1",
 			42L,
+			"user@example.com",
 			"refresh-hash",
 			null,
 			UserRole.user,
@@ -46,6 +47,7 @@ class RedisAuthSessionStoreTest {
 
 		verify(hashOps).putAll("auth:session:sid-1", Map.of(
 			"userId", "42",
+			"email", "user@example.com",
 			"refreshTokenHash", "refresh-hash",
 			"role", "user",
 			"status", "active",
@@ -68,6 +70,7 @@ class RedisAuthSessionStoreTest {
 		AuthSession session = new AuthSession(
 			"sid-1",
 			42L,
+			"user@example.com",
 			"old-hash",
 			"stale-prev-hash",
 			UserRole.user,
@@ -96,6 +99,7 @@ class RedisAuthSessionStoreTest {
 		when(valueOps.get("auth:refresh:refresh-hash")).thenReturn("sid-1");
 		when(hashOps.entries("auth:session:sid-1")).thenReturn(Map.of(
 			"userId", "42",
+			"email", "user@example.com",
 			"refreshTokenHash", "refresh-hash",
 			"prevRefreshTokenHash", "previous-hash",
 			"role", "user",
@@ -109,6 +113,7 @@ class RedisAuthSessionStoreTest {
 		assertThat(session).hasValue(new AuthSession(
 			"sid-1",
 			42L,
+			"user@example.com",
 			"refresh-hash",
 			"previous-hash",
 			UserRole.user,
@@ -153,6 +158,7 @@ class RedisAuthSessionStoreTest {
 		when(redisTemplate.opsForHash()).thenReturn(hashOps);
 		when(hashOps.entries("auth:session:sid-1")).thenReturn(Map.of(
 			"userId", "42",
+			"email", "user@example.com",
 			"refreshTokenHash", "refresh-hash",
 			"role", "user",
 			"status", "active",
@@ -165,6 +171,7 @@ class RedisAuthSessionStoreTest {
 		assertThat(session).hasValue(new AuthSession(
 			"sid-1",
 			42L,
+			"user@example.com",
 			"refresh-hash",
 			null,
 			UserRole.user,
