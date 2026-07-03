@@ -5,6 +5,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.validation.ObjectError;
 import shinhan.fibri.ieum.main.auth.dto.AuthErrorResponse;
 import shinhan.fibri.ieum.main.auth.exception.EmailCodeRateLimitedException;
 import shinhan.fibri.ieum.main.auth.exception.EmailTakenException;
@@ -63,10 +64,23 @@ public class AuthExceptionHandler {
 				fieldError.getField(),
 				fieldError.getDefaultMessage()
 			))
+			.toList();
+		List<AuthErrorResponse.FieldError> globalErrors = exception.getBindingResult()
+			.getGlobalErrors()
+			.stream()
+			.map(this::toGlobalError)
+			.toList();
+
+		List<AuthErrorResponse.FieldError> validationErrors = java.util.stream.Stream
+			.concat(fieldErrors.stream(), globalErrors.stream())
 			.sorted(Comparator.comparing(AuthErrorResponse.FieldError::field))
 			.toList();
 
 		return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-			.body(new AuthErrorResponse("VALIDATION_FAILED", "Request validation failed", fieldErrors));
+			.body(new AuthErrorResponse("VALIDATION_FAILED", "Request validation failed", validationErrors));
+	}
+
+	private AuthErrorResponse.FieldError toGlobalError(ObjectError error) {
+		return new AuthErrorResponse.FieldError(error.getObjectName(), error.getDefaultMessage());
 	}
 }
