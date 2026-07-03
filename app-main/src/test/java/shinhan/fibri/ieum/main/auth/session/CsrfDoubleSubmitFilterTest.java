@@ -47,9 +47,52 @@ class CsrfDoubleSubmitFilterTest {
 	}
 
 	@Test
-	void doFilterSkipsAuthEndpoints() throws Exception {
+	void doFilterSkipsPreAuthBootstrapEndpoints() throws Exception {
+		CsrfDoubleSubmitFilter filter = new CsrfDoubleSubmitFilter();
+		MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/auth/login");
+		request.setServletPath("/api/v1/auth/login");
+		MockHttpServletResponse response = new MockHttpServletResponse();
+		FilterChain chain = mock(FilterChain.class);
+
+		filter.doFilter(request, response, chain);
+
+		verify(chain).doFilter(request, response);
+	}
+
+	@Test
+	void doFilterProtectsCookieBackedAuthEndpoints() throws Exception {
 		CsrfDoubleSubmitFilter filter = new CsrfDoubleSubmitFilter();
 		MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/auth/logout");
+		MockHttpServletResponse response = new MockHttpServletResponse();
+		FilterChain chain = mock(FilterChain.class);
+
+		filter.doFilter(request, response, chain);
+
+		assertThat(response.getStatus()).isEqualTo(HttpStatus.FORBIDDEN.value());
+		verify(chain, never()).doFilter(request, response);
+	}
+
+	@Test
+	void doFilterRejectsBlankCsrfTokenPair() throws Exception {
+		CsrfDoubleSubmitFilter filter = new CsrfDoubleSubmitFilter();
+		MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/users/me");
+		request.setCookies(new MockCookie("csrf_token", " "));
+		request.addHeader("X-CSRF-Token", " ");
+		MockHttpServletResponse response = new MockHttpServletResponse();
+		FilterChain chain = mock(FilterChain.class);
+
+		filter.doFilter(request, response, chain);
+
+		assertThat(response.getStatus()).isEqualTo(HttpStatus.FORBIDDEN.value());
+		verify(chain, never()).doFilter(request, response);
+	}
+
+	@Test
+	void doFilterMatchesBootstrapEndpointWithoutContextPath() throws Exception {
+		CsrfDoubleSubmitFilter filter = new CsrfDoubleSubmitFilter();
+		MockHttpServletRequest request = new MockHttpServletRequest("POST", "/ieum/api/v1/auth/login");
+		request.setContextPath("/ieum");
+		request.setServletPath("/api/v1/auth/login");
 		MockHttpServletResponse response = new MockHttpServletResponse();
 		FilterChain chain = mock(FilterChain.class);
 

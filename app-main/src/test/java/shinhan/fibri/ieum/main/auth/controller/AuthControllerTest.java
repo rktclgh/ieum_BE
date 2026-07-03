@@ -91,6 +91,8 @@ class AuthControllerTest {
 
 		mockMvc.perform(post("/api/v1/auth/email/send")
 				.contentType(MediaType.APPLICATION_JSON)
+				.cookie(new MockCookie("csrf_token", "csrf-token"))
+				.header("X-CSRF-Token", "csrf-token")
 				.content("""
 					{
 					  "email": "USER@example.com"
@@ -261,7 +263,9 @@ class AuthControllerTest {
 			));
 
 		mockMvc.perform(post("/api/v1/auth/refresh")
-				.cookie(new MockCookie("refresh_token", "refresh-token")))
+				.cookie(new MockCookie("refresh_token", "refresh-token"))
+				.cookie(new MockCookie("csrf_token", "csrf-token"))
+				.header("X-CSRF-Token", "csrf-token"))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.userId", is(42)))
 			.andExpect(jsonPath("$.role", is("user")))
@@ -273,7 +277,9 @@ class AuthControllerTest {
 
 	@Test
 	void refreshReturnsUnauthorizedWhenRefreshCookieIsMissing() throws Exception {
-		mockMvc.perform(post("/api/v1/auth/refresh"))
+		mockMvc.perform(post("/api/v1/auth/refresh")
+				.cookie(new MockCookie("csrf_token", "csrf-token"))
+				.header("X-CSRF-Token", "csrf-token"))
 			.andExpect(status().isUnauthorized())
 			.andExpect(jsonPath("$.code", is("INVALID_REFRESH_TOKEN")))
 			.andExpect(jsonPath("$.message", is("Invalid refresh token")));
@@ -282,7 +288,9 @@ class AuthControllerTest {
 	@Test
 	void logoutRevokesSessionAndExpiresAuthCookies() throws Exception {
 		mockMvc.perform(post("/api/v1/auth/logout")
-				.cookie(new MockCookie("refresh_token", "refresh-token")))
+				.cookie(new MockCookie("refresh_token", "refresh-token"))
+				.cookie(new MockCookie("csrf_token", "csrf-token"))
+				.header("X-CSRF-Token", "csrf-token"))
 			.andExpect(status().isNoContent())
 			.andExpect(result -> assertThat(result.getResponse().getHeaders(HttpHeaders.SET_COOKIE))
 				.anySatisfy(cookie -> assertThat(cookie)
@@ -300,7 +308,9 @@ class AuthControllerTest {
 
 	@Test
 	void logoutIsNoContentWhenRefreshCookieIsMissing() throws Exception {
-		mockMvc.perform(post("/api/v1/auth/logout"))
+		mockMvc.perform(post("/api/v1/auth/logout")
+				.cookie(new MockCookie("csrf_token", "csrf-token"))
+				.header("X-CSRF-Token", "csrf-token"))
 			.andExpect(status().isNoContent())
 			.andExpect(result -> assertThat(result.getResponse().getHeaders(HttpHeaders.SET_COOKIE))
 				.anySatisfy(cookie -> assertThat(cookie).contains("access_token=").contains("Max-Age=0"))
