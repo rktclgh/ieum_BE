@@ -34,7 +34,8 @@ public class RedisAuthSessionStore {
 		String sessionKey = sessionKey(session.sessionId());
 		redisTemplate.opsForHash().put(sessionKey, "prevRefreshTokenHash", session.refreshTokenHash());
 		redisTemplate.opsForHash().put(sessionKey, "refreshTokenHash", newRefreshTokenHash);
-		redisTemplate.delete(refreshKey(session.refreshTokenHash()));
+		deleteRefreshKey(session.prevRefreshTokenHash());
+		redisTemplate.opsForValue().set(refreshKey(session.refreshTokenHash()), session.sessionId(), SESSION_TTL);
 		redisTemplate.opsForValue().set(refreshKey(newRefreshTokenHash), session.sessionId(), SESSION_TTL);
 		redisTemplate.expire(sessionKey, SESSION_TTL);
 		redisTemplate.expire(userSessionsKey(session.userId()), SESSION_TTL);

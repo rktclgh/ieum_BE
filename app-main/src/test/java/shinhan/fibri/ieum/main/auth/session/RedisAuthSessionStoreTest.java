@@ -58,7 +58,7 @@ class RedisAuthSessionStoreTest {
 	}
 
 	@Test
-	void rotateRefreshTokenReplacesRefreshIndexAndKeepsPreviousHash() {
+	void rotateRefreshTokenKeepsPreviousRefreshIndexForReuseDetection() {
 		StringRedisTemplate redisTemplate = org.mockito.Mockito.mock(StringRedisTemplate.class);
 		HashOperations<String, Object, Object> hashOps = org.mockito.Mockito.mock(HashOperations.class);
 		ValueOperations<String, String> valueOps = org.mockito.Mockito.mock(ValueOperations.class);
@@ -69,7 +69,7 @@ class RedisAuthSessionStoreTest {
 			"sid-1",
 			42L,
 			"old-hash",
-			null,
+			"stale-prev-hash",
 			UserRole.user,
 			UserStatus.active,
 			OffsetDateTime.parse("2026-07-03T00:00:00Z")
@@ -79,7 +79,8 @@ class RedisAuthSessionStoreTest {
 
 		verify(hashOps).put("auth:session:sid-1", "prevRefreshTokenHash", "old-hash");
 		verify(hashOps).put("auth:session:sid-1", "refreshTokenHash", "new-hash");
-		verify(redisTemplate).delete("auth:refresh:old-hash");
+		verify(redisTemplate).delete("auth:refresh:stale-prev-hash");
+		verify(valueOps).set("auth:refresh:old-hash", "sid-1", SESSION_TTL);
 		verify(valueOps).set("auth:refresh:new-hash", "sid-1", SESSION_TTL);
 		verify(redisTemplate).expire("auth:session:sid-1", SESSION_TTL);
 		verify(redisTemplate).expire("auth:user:42:sessions", SESSION_TTL);
