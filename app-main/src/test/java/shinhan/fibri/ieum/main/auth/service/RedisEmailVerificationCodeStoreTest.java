@@ -9,6 +9,7 @@ import java.time.Duration;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.assertj.core.api.Assertions.assertThat;
 
 class RedisEmailVerificationCodeStoreTest {
 
@@ -26,6 +27,45 @@ class RedisEmailVerificationCodeStoreTest {
 			"auth:email:signup:code:user@example.com",
 			"hashed-code",
 			Duration.ofSeconds(180)
+		);
+	}
+
+	@Test
+	void findSignupCodeHashReadsSignupCodeKey() {
+		StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+		@SuppressWarnings("unchecked")
+		ValueOperations<String, String> valueOperations = mock(ValueOperations.class);
+		when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+		when(valueOperations.get("auth:email:signup:code:user@example.com")).thenReturn("hashed-code");
+		RedisEmailVerificationCodeStore store = new RedisEmailVerificationCodeStore(redisTemplate);
+
+		assertThat(store.findSignupCodeHash("user@example.com")).contains("hashed-code");
+	}
+
+	@Test
+	void deleteSignupCodeDeletesSignupCodeKey() {
+		StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+		RedisEmailVerificationCodeStore store = new RedisEmailVerificationCodeStore(redisTemplate);
+
+		store.deleteSignupCode("user@example.com");
+
+		verify(redisTemplate).delete("auth:email:signup:code:user@example.com");
+	}
+
+	@Test
+	void saveSignupVerificationTokenStoresEmailWithVerifiedKeyAndTtl() {
+		StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+		@SuppressWarnings("unchecked")
+		ValueOperations<String, String> valueOperations = mock(ValueOperations.class);
+		when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+		RedisEmailVerificationCodeStore store = new RedisEmailVerificationCodeStore(redisTemplate);
+
+		store.saveSignupVerificationToken("verification-token", "user@example.com", Duration.ofMinutes(30));
+
+		verify(valueOperations).set(
+			"auth:email:signup:verified:verification-token",
+			"user@example.com",
+			Duration.ofMinutes(30)
 		);
 	}
 }

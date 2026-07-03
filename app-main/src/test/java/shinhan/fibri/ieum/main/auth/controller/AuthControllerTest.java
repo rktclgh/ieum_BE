@@ -11,6 +11,8 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationResponse;
+import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationRequest;
+import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationResponse;
 import shinhan.fibri.ieum.main.auth.service.EmailVerificationService;
 
 import static org.hamcrest.Matchers.is;
@@ -45,6 +47,24 @@ class AuthControllerTest {
 					"""))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.expiresInSeconds", is(180)));
+	}
+
+	@Test
+	void verifyEmailVerificationCodeReturnsVerificationToken() throws Exception {
+		when(emailVerificationService.verifySignupCode(any(VerifyEmailVerificationRequest.class)))
+			.thenReturn(new VerifyEmailVerificationResponse("verification-token", 1800));
+
+		mockMvc.perform(post("/api/v1/auth/email/verify")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email": "USER@example.com",
+					  "code": "123456"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.emailVerificationToken", is("verification-token")))
+			.andExpect(jsonPath("$.expiresInSeconds", is(1800)));
 	}
 
 	@TestConfiguration

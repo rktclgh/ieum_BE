@@ -9,6 +9,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationResponse;
+import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationRequest;
+import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationResponse;
 import shinhan.fibri.ieum.main.auth.service.EmailVerificationService;
 
 @RestController
@@ -23,6 +25,14 @@ public class AuthController {
 		@Valid @RequestBody SendEmailVerificationRequest request
 	) {
 		SendEmailVerificationResponse response = emailVerificationService.sendSignupCode(request);
+		return ResponseEntity.ok(response);
+	}
+
+	@PostMapping("/email/verify")
+	public ResponseEntity<VerifyEmailVerificationResponse> verifyEmailVerificationCode(
+		@Valid @RequestBody VerifyEmailVerificationRequest request
+	) {
+		VerifyEmailVerificationResponse response = emailVerificationService.verifySignupCode(request);
 		return ResponseEntity.ok(response);
 	}
 }
