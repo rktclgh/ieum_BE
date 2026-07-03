@@ -7,9 +7,13 @@ import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Component
 public class SmtpVerificationMailSender implements VerificationMailSender {
+
+	private static final Logger log = LoggerFactory.getLogger(SmtpVerificationMailSender.class);
 
 	private final JavaMailSender mailSender;
 	private final String fromAddress;
@@ -39,6 +43,10 @@ public class SmtpVerificationMailSender implements VerificationMailSender {
 			new Object[]{code, expiresInMinutes},
 			locale
 		));
-		mailSender.send(message);
+		try {
+			mailSender.send(message);
+		} catch (RuntimeException exception) {
+			log.error("Failed to send signup verification email to {}", email, exception);
+		}
 	}
 }
