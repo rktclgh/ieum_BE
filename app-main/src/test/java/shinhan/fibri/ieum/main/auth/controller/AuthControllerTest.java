@@ -273,6 +273,57 @@ class AuthControllerTest {
 	}
 
 	@Test
+	void signupReturnsBadRequestWhenPasswordExceedsBcryptByteLimit() throws Exception {
+		mockMvc.perform(post("/api/v1/auth/signup")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email": "USER@example.com",
+					  "password": "가가가가가가가가가가가가가가가가가가가가가가가가가@",
+					  "nickname": "nickname",
+					  "birthDate": "2000-01-01",
+					  "emailVerificationToken": "verification-token"
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
+			.andExpect(jsonPath("$.fieldErrors[0].field", is("password")));
+	}
+
+	@Test
+	void signupReturnsBadRequestWhenBirthDateIsFuture() throws Exception {
+		mockMvc.perform(post("/api/v1/auth/signup")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email": "USER@example.com",
+					  "password": "Passw@rd123",
+					  "nickname": "nickname",
+					  "birthDate": "3000-01-01",
+					  "emailVerificationToken": "verification-token"
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
+			.andExpect(jsonPath("$.fieldErrors[0].field", is("birthDate")));
+	}
+
+	@Test
+	void verifyEmailVerificationCodeReturnsBadRequestWhenCodeFormatIsInvalid() throws Exception {
+		mockMvc.perform(post("/api/v1/auth/email/verify")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email": "USER@example.com",
+					  "code": "12345a"
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
+			.andExpect(jsonPath("$.fieldErrors[0].field", is("code")));
+	}
+
+	@Test
 	void signupReturnsBadRequestWhenNicknameIsShorterThanTwoCharacters() throws Exception {
 		mockMvc.perform(post("/api/v1/auth/signup")
 				.contentType(MediaType.APPLICATION_JSON)
