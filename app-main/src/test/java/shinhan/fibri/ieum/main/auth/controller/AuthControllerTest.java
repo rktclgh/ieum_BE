@@ -193,7 +193,7 @@ class AuthControllerTest {
 					  "emailVerificationToken": "verification-token"
 					}
 					"""))
-			.andExpect(status().isOk())
+			.andExpect(status().isCreated())
 			.andExpect(jsonPath("$.userId", is(42)));
 	}
 
