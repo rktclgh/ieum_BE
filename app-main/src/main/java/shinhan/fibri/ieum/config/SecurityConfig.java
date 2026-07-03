@@ -8,6 +8,7 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import shinhan.fibri.ieum.main.auth.session.CsrfDoubleSubmitFilter;
 import shinhan.fibri.ieum.main.auth.session.JwtAuthenticationFilter;
 
 @Configuration
@@ -15,11 +16,12 @@ import shinhan.fibri.ieum.main.auth.session.JwtAuthenticationFilter;
 public class SecurityConfig {
 
 	private final JwtAuthenticationFilter jwtAuthenticationFilter;
+	private final CsrfDoubleSubmitFilter csrfDoubleSubmitFilter;
 
 	@Bean
 	SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
 		return http
-			.csrf(csrf -> csrf.ignoringRequestMatchers("/api/v1/auth/**"))
+			.csrf(AbstractHttpConfigurer::disable)
 			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 			.formLogin(AbstractHttpConfigurer::disable)
 			.httpBasic(AbstractHttpConfigurer::disable)
@@ -33,6 +35,7 @@ public class SecurityConfig {
 				.anyRequest().authenticated()
 			)
 			.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+			.addFilterAfter(csrfDoubleSubmitFilter, JwtAuthenticationFilter.class)
 			.build();
 	}
 }
