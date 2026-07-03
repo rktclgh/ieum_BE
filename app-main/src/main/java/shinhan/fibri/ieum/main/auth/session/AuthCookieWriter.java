@@ -23,6 +23,12 @@ public class AuthCookieWriter {
 		addCookie(response, "csrf_token", csrfToken, "/", -1, false);
 	}
 
+	public void writeExpiredAuthCookies(HttpServletResponse response) {
+		addCookie(response, "access_token", "", "/", 0, true);
+		addCookie(response, "refresh_token", "", "/api/v1/auth", 0, true);
+		addCookie(response, "csrf_token", "", "/", 0, false);
+	}
+
 	private void addCookie(
 		HttpServletResponse response,
 		String name,
