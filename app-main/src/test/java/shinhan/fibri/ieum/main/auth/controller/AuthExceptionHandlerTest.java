@@ -21,7 +21,7 @@ class AuthExceptionHandlerTest {
 
 	@Test
 	void handleValidationFailureIncludesGlobalErrors() throws Exception {
-		SignupRequest request = new SignupRequest(null, null, null, null, null);
+		SignupRequest request = new SignupRequest(null, null, null, null, null, null, null, null);
 		BeanPropertyBindingResult bindingResult = new BeanPropertyBindingResult(request, "signupRequest");
 		bindingResult.addError(new ObjectError("signupRequest", "Cross-field validation failed"));
 		MethodParameter methodParameter = new MethodParameter(

@@ -217,6 +217,9 @@ class AuthControllerTest {
 					  "password": "Passw@rd123",
 					  "nickname": "nickname",
 					  "birthDate": "2000-01-01",
+					  "gender": "female",
+					  "nationality": "KR",
+					  "language": "ko",
 					  "emailVerificationToken": "verification-token"
 					}
 					"""))
@@ -332,6 +335,9 @@ class AuthControllerTest {
 					  "password": "Passw@rd123",
 					  "nickname": "nickname",
 					  "birthDate": "2000-01-01",
+					  "gender": "female",
+					  "nationality": "KR",
+					  "language": "ko",
 					  "emailVerificationToken": "invalid-token"
 					}
 					"""))
@@ -354,6 +360,9 @@ class AuthControllerTest {
 					  "password": "Passw@rd123",
 					  "nickname": "nickname",
 					  "birthDate": "2000-01-01",
+					  "gender": "female",
+					  "nationality": "KR",
+					  "language": "ko",
 					  "emailVerificationToken": "verification-token"
 					}
 					"""))
@@ -376,6 +385,9 @@ class AuthControllerTest {
 					  "password": "Passw@rd123",
 					  "nickname": "nickname",
 					  "birthDate": "2000-01-01",
+					  "gender": "female",
+					  "nationality": "KR",
+					  "language": "ko",
 					  "emailVerificationToken": "verification-token"
 					}
 					"""))
@@ -394,6 +406,9 @@ class AuthControllerTest {
 					  "password": "Pass@1",
 					  "nickname": "nickname",
 					  "birthDate": "2000-01-01",
+					  "gender": "female",
+					  "nationality": "KR",
+					  "language": "ko",
 					  "emailVerificationToken": "verification-token"
 					}
 					"""))
@@ -413,6 +428,9 @@ class AuthControllerTest {
 					  "password": "Password123",
 					  "nickname": "nickname",
 					  "birthDate": "2000-01-01",
+					  "gender": "female",
+					  "nationality": "KR",
+					  "language": "ko",
 					  "emailVerificationToken": "verification-token"
 					}
 					"""))
@@ -430,6 +448,9 @@ class AuthControllerTest {
 					  "password": "가가가가가가가가가가가가가가가가가가가가가가가가가@",
 					  "nickname": "nickname",
 					  "birthDate": "2000-01-01",
+					  "gender": "female",
+					  "nationality": "KR",
+					  "language": "ko",
 					  "emailVerificationToken": "verification-token"
 					}
 					"""))
@@ -448,12 +469,78 @@ class AuthControllerTest {
 					  "password": "Passw@rd123",
 					  "nickname": "nickname",
 					  "birthDate": "3000-01-01",
+					  "gender": "female",
+					  "nationality": "KR",
+					  "language": "ko",
 					  "emailVerificationToken": "verification-token"
 					}
 					"""))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
 			.andExpect(jsonPath("$.fieldErrors[0].field", is("birthDate")));
+	}
+
+	@Test
+	void signupReturnsBadRequestWhenGenderIsInvalid() throws Exception {
+		mockMvc.perform(post("/api/v1/auth/signup")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email": "USER@example.com",
+					  "password": "Passw@rd123",
+					  "nickname": "nickname",
+					  "birthDate": "2000-01-01",
+					  "gender": "unknown",
+					  "nationality": "KR",
+					  "language": "ko",
+					  "emailVerificationToken": "verification-token"
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
+			.andExpect(jsonPath("$.fieldErrors[0].field", is("gender")));
+	}
+
+	@Test
+	void signupReturnsBadRequestWhenNationalityFormatIsInvalid() throws Exception {
+		mockMvc.perform(post("/api/v1/auth/signup")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email": "USER@example.com",
+					  "password": "Passw@rd123",
+					  "nickname": "nickname",
+					  "birthDate": "2000-01-01",
+					  "gender": "female",
+					  "nationality": "kr",
+					  "language": "ko",
+					  "emailVerificationToken": "verification-token"
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
+			.andExpect(jsonPath("$.fieldErrors[0].field", is("nationality")));
+	}
+
+	@Test
+	void signupReturnsBadRequestWhenLanguageIsInvalid() throws Exception {
+		mockMvc.perform(post("/api/v1/auth/signup")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email": "USER@example.com",
+					  "password": "Passw@rd123",
+					  "nickname": "nickname",
+					  "birthDate": "2000-01-01",
+					  "gender": "female",
+					  "nationality": "KR",
+					  "language": "de",
+					  "emailVerificationToken": "verification-token"
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
+			.andExpect(jsonPath("$.fieldErrors[0].field", is("language")));
 	}
 
 	@Test
@@ -481,6 +568,9 @@ class AuthControllerTest {
 					  "password": "Passw@rd123",
 					  "nickname": "n",
 					  "birthDate": "2000-01-01",
+					  "gender": "female",
+					  "nationality": "KR",
+					  "language": "ko",
 					  "emailVerificationToken": "verification-token"
 					}
 					"""))
@@ -498,6 +588,9 @@ class AuthControllerTest {
 					  "password": "Passw@rd123",
 					  "nickname": "fuckmaster",
 					  "birthDate": "2000-01-01",
+					  "gender": "female",
+					  "nationality": "KR",
+					  "language": "ko",
 					  "emailVerificationToken": "verification-token"
 					}
 					"""))

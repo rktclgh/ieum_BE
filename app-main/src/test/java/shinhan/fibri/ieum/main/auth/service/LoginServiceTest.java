@@ -19,6 +19,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import shinhan.fibri.ieum.common.auth.domain.AuthProvider;
+import shinhan.fibri.ieum.common.auth.domain.GenderType;
 import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
@@ -165,7 +166,9 @@ class LoginServiceTest {
 			"user@example.com",
 			"hashed-password",
 			"nickname",
-			LocalDate.of(2000, 1, 1)
+			LocalDate.of(2000, 1, 1),
+			GenderType.female,
+			"KR"
 		);
 		ReflectionTestUtils.setField(user, "id", 42L);
 		return user;

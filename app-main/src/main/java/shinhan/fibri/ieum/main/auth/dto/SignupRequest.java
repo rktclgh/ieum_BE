@@ -36,6 +36,18 @@ public record SignupRequest(
 	LocalDate birthDate,
 
 	@NotBlank
+	@Pattern(regexp = AuthValidationRules.GENDER_PATTERN)
+	String gender,
+
+	@NotBlank
+	@Pattern(regexp = AuthValidationRules.NATIONALITY_PATTERN)
+	String nationality,
+
+	@NotBlank
+	@Pattern(regexp = AuthValidationRules.SUPPORTED_LANGUAGE_PATTERN)
+	String language,
+
+	@NotBlank
 	String emailVerificationToken
 ) {
 }

@@ -7,15 +7,19 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import shinhan.fibri.ieum.common.auth.domain.AuthProvider;
+import shinhan.fibri.ieum.common.auth.domain.GenderType;
 import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.auth.domain.UserSettings;
+import shinhan.fibri.ieum.common.auth.repository.CountryRepository;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
 import shinhan.fibri.ieum.common.auth.repository.UserSettingsRepository;
 import shinhan.fibri.ieum.common.auth.validation.AuthEmailNormalizer;
+import shinhan.fibri.ieum.common.auth.validation.AuthValidationRules;
 import shinhan.fibri.ieum.main.auth.dto.SignupRequest;
 import shinhan.fibri.ieum.main.auth.dto.SignupResponse;
 import shinhan.fibri.ieum.main.auth.exception.EmailTakenException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationTokenException;
+import shinhan.fibri.ieum.main.auth.exception.InvalidSignupFieldException;
 import shinhan.fibri.ieum.main.auth.exception.NicknameTakenException;
 
 @Service
@@ -25,6 +29,7 @@ public class SignupService {
 	private final EmailVerificationCodeStore codeStore;
 	private final UserRepository userRepository;
 	private final UserSettingsRepository userSettingsRepository;
+	private final CountryRepository countryRepository;
 	private final PasswordHasher passwordHasher;
 
 	public boolean isEmailAvailable(String email) {
@@ -50,17 +55,29 @@ public class SignupService {
 		if (userRepository.existsByNicknameAndDeletedAtIsNull(request.nickname())) {
 			throw new NicknameTakenException();
 		}
+		validateSignupProfile(request);
 
 		User user = User.createEmailUser(
 			email,
 			passwordHasher.hash(request.password()),
 			request.nickname(),
-			request.birthDate()
+			request.birthDate(),
+			GenderType.valueOf(request.gender()),
+			request.nationality()
 		);
 		User savedUser = saveUserOrThrowDuplicateException(user);
-		userSettingsRepository.save(UserSettings.defaultFor(savedUser));
+		userSettingsRepository.save(UserSettings.forSignup(savedUser, request.language()));
 		deleteVerificationTokenAfterCommit(request.emailVerificationToken());
 		return new SignupResponse(savedUser.getId());
+	}
+
+	private void validateSignupProfile(SignupRequest request) {
+		if (!countryRepository.existsByCodeAndIsActiveTrue(request.nationality())) {
+			throw new InvalidSignupFieldException("nationality", "Nationality is not supported");
+		}
+		if (!AuthValidationRules.SUPPORTED_LANGUAGES.contains(request.language())) {
+			throw new InvalidSignupFieldException("language", "Language is not supported");
+		}
 	}
 
 	private User saveUserOrThrowDuplicateException(User user) {

@@ -7,6 +7,7 @@ import org.hibernate.annotations.JdbcType;
 import org.hibernate.dialect.type.PostgreSQLEnumJdbcType;
 import org.junit.jupiter.api.Test;
 import shinhan.fibri.ieum.common.auth.domain.AuthProvider;
+import shinhan.fibri.ieum.common.auth.domain.GenderType;
 import shinhan.fibri.ieum.common.auth.domain.User;
 
 class LoginLogTest {
@@ -17,7 +18,9 @@ class LoginLogTest {
 			"user@example.com",
 			"hash",
 			"nickname",
-			LocalDate.of(2000, 1, 1)
+			LocalDate.of(2000, 1, 1),
+			GenderType.female,
+			"KR"
 		);
 
 		LoginLog loginLog = LoginLog.emailLogin(user);

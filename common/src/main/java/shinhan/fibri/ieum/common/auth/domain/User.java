@@ -67,6 +67,9 @@ public class User {
 	@Column(columnDefinition = "varchar(30)")
 	private GenderType gender;
 
+	@Column(length = 2)
+	private String nationality;
+
 	@Column(name = "accepted_count", nullable = false)
 	private int acceptedCount;
 
@@ -79,11 +82,20 @@ public class User {
 	protected User() {
 	}
 
-	private User(String email, String passwordHash, String nickname, LocalDate birthDate) {
+	private User(
+		String email,
+		String passwordHash,
+		String nickname,
+		LocalDate birthDate,
+		GenderType gender,
+		String nationality
+	) {
 		this.email = AuthEmailNormalizer.normalize(email);
 		this.passwordHash = Objects.requireNonNull(passwordHash, "passwordHash must not be null");
 		this.nickname = Objects.requireNonNull(nickname, "nickname must not be null");
 		this.birthDate = Objects.requireNonNull(birthDate, "birthDate must not be null");
+		this.gender = Objects.requireNonNull(gender, "gender must not be null");
+		this.nationality = Objects.requireNonNull(nationality, "nationality must not be null");
 		this.provider = AuthProvider.email;
 		this.emailVerified = true;
 		this.role = UserRole.user;
@@ -93,8 +105,15 @@ public class User {
 		this.passwordResetRequired = false;
 	}
 
-	public static User createEmailUser(String email, String passwordHash, String nickname, LocalDate birthDate) {
-		return new User(email, passwordHash, nickname, birthDate);
+	public static User createEmailUser(
+		String email,
+		String passwordHash,
+		String nickname,
+		LocalDate birthDate,
+		GenderType gender,
+		String nationality
+	) {
+		return new User(email, passwordHash, nickname, birthDate, gender, nationality);
 	}
 
 	public void markDeleted(OffsetDateTime deletedAt) {
@@ -143,6 +162,10 @@ public class User {
 
 	public GenderType getGender() {
 		return gender;
+	}
+
+	public String getNationality() {
+		return nationality;
 	}
 
 	public int getAcceptedCount() {

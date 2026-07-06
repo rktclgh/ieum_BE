@@ -12,6 +12,7 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.persistence.autoconfigure.EntityScan;
 import org.springframework.jdbc.core.JdbcTemplate;
 import shinhan.fibri.ieum.common.auth.domain.AuthProvider;
+import shinhan.fibri.ieum.common.auth.domain.GenderType;
 import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.auth.domain.UserSettings;
 
@@ -36,13 +37,17 @@ class UserRepositoryTest {
 				"active@example.com",
 				"hash",
 				"active",
-				LocalDate.of(1990, 1, 1)
+				LocalDate.of(1990, 1, 1),
+				GenderType.female,
+				"KR"
 		));
 		User deleted = User.createEmailUser(
 				"deleted@example.com",
 				"hash",
 				"deleted",
-				LocalDate.of(1991, 1, 1)
+				LocalDate.of(1991, 1, 1),
+				GenderType.male,
+				"US"
 		);
 		deleted.markDeleted(OffsetDateTime.parse("2026-01-01T00:00:00Z"));
 		deleted = userRepository.save(deleted);
@@ -67,7 +72,9 @@ class UserRepositoryTest {
 				"inherited-deleted@example.com",
 				"hash",
 				"inherited-deleted",
-				LocalDate.of(1991, 1, 1)
+				LocalDate.of(1991, 1, 1),
+				GenderType.male,
+				"US"
 		);
 		deleted.markDeleted(OffsetDateTime.parse("2026-01-01T00:00:00Z"));
 		deleted = userRepository.saveAndFlush(deleted);
@@ -83,10 +90,12 @@ class UserRepositoryTest {
 				"settings@example.com",
 				"hash",
 				"settings",
-				LocalDate.of(1992, 2, 2)
+				LocalDate.of(1992, 2, 2),
+				GenderType.female,
+				"KR"
 		));
 
-		UserSettings settings = userSettingsRepository.save(UserSettings.defaultFor(user));
+		UserSettings settings = userSettingsRepository.save(UserSettings.forSignup(user, "ko"));
 
 		assertThat(settings.getId()).isNotNull();
 		assertThat(settings.getUser()).isEqualTo(user);
@@ -99,7 +108,9 @@ class UserRepositoryTest {
 				"schema@example.com",
 				"hash",
 				"schema",
-				LocalDate.of(1993, 3, 3)
+				LocalDate.of(1993, 3, 3),
+				GenderType.other,
+				"JP"
 		));
 
 		String provider = jdbcTemplate.queryForObject(
@@ -122,11 +133,23 @@ class UserRepositoryTest {
 				String.class,
 				user.getId()
 		);
+		String gender = jdbcTemplate.queryForObject(
+				"select gender from users where user_id = ?",
+				String.class,
+				user.getId()
+		);
+		String nationality = jdbcTemplate.queryForObject(
+				"select nationality from users where user_id = ?",
+				String.class,
+				user.getId()
+		);
 
 		assertThat(provider).isEqualTo("email");
 		assertThat(role).isEqualTo("user");
 		assertThat(status).isEqualTo("active");
 		assertThat(grade).isEqualTo("bronze");
+		assertThat(gender).isEqualTo("other");
+		assertThat(nationality).isEqualTo("JP");
 	}
 
 	@SpringBootApplication(scanBasePackages = "shinhan.fibri.ieum.common")

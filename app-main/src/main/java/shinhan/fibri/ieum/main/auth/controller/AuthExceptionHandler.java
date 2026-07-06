@@ -16,6 +16,7 @@ import shinhan.fibri.ieum.main.auth.exception.EmailTakenException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidCredentialsException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationCodeException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationTokenException;
+import shinhan.fibri.ieum.main.auth.exception.InvalidSignupFieldException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidRefreshTokenException;
 import shinhan.fibri.ieum.main.auth.exception.NicknameTakenException;
 import shinhan.fibri.ieum.main.auth.exception.RefreshTokenReusedException;
@@ -98,6 +99,16 @@ public class AuthExceptionHandler {
 	public ResponseEntity<AuthErrorResponse> handleRefreshTokenReused(RefreshTokenReusedException exception) {
 		return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
 			.body(new AuthErrorResponse("REFRESH_TOKEN_REUSED", exception.getMessage()));
+	}
+
+	@ExceptionHandler(InvalidSignupFieldException.class)
+	public ResponseEntity<AuthErrorResponse> handleInvalidSignupField(InvalidSignupFieldException exception) {
+		return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+			.body(new AuthErrorResponse(
+				"VALIDATION_FAILED",
+				"Request validation failed",
+				List.of(new AuthErrorResponse.FieldError(exception.field(), exception.getMessage()))
+			));
 	}
 
 	@ExceptionHandler(MethodArgumentNotValidException.class)

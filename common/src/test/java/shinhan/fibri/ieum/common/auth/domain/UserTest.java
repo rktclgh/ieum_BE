@@ -13,13 +13,17 @@ class UserTest {
 				"  Member@Example.COM  ",
 				"$2a$10$passwordHash",
 				"ieum",
-				LocalDate.of(1995, 5, 20)
+				LocalDate.of(1995, 5, 20),
+				GenderType.female,
+				"KR"
 		);
 
 		assertThat(user.getEmail()).isEqualTo("member@example.com");
 		assertThat(user.getPasswordHash()).isEqualTo("$2a$10$passwordHash");
 		assertThat(user.getNickname()).isEqualTo("ieum");
 		assertThat(user.getBirthDate()).isEqualTo(LocalDate.of(1995, 5, 20));
+		assertThat(user.getGender()).isEqualTo(GenderType.female);
+		assertThat(user.getNationality()).isEqualTo("KR");
 		assertThat(user.getProvider()).isEqualTo(AuthProvider.email);
 		assertThat(user.isEmailVerified()).isTrue();
 		assertThat(user.getRole()).isEqualTo(UserRole.user);
