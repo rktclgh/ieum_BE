@@ -120,6 +120,18 @@ public class User {
 		this.deletedAt = Objects.requireNonNull(deletedAt, "deletedAt must not be null");
 	}
 
+	public void updateProfile(
+		String nickname,
+		LocalDate birthDate,
+		GenderType gender,
+		String nationality
+	) {
+		this.nickname = Objects.requireNonNull(nickname, "nickname must not be null");
+		this.birthDate = Objects.requireNonNull(birthDate, "birthDate must not be null");
+		this.gender = Objects.requireNonNull(gender, "gender must not be null");
+		this.nationality = Objects.requireNonNull(nationality, "nationality must not be null");
+	}
+
 	public Long getId() {
 		return id;
 	}

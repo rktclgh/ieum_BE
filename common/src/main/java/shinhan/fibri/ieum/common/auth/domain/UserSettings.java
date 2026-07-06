@@ -65,6 +65,24 @@ public class UserSettings {
 		return new UserSettings(user, language);
 	}
 
+	public void update(
+		String language,
+		boolean cameraPermission,
+		boolean pushPermission,
+		boolean notifyAll,
+		boolean notifyMeeting,
+		boolean notifyQuestion,
+		int notifyRadiusKm
+	) {
+		this.language = Objects.requireNonNull(language, "language must not be null");
+		this.cameraPermission = cameraPermission;
+		this.pushPermission = pushPermission;
+		this.notifyAll = notifyAll;
+		this.notifyMeeting = notifyMeeting;
+		this.notifyQuestion = notifyQuestion;
+		this.notifyRadiusKm = notifyRadiusKm;
+	}
+
 	public Long getId() {
 		return userId;
 	}

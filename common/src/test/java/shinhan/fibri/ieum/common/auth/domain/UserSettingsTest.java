@@ -29,4 +29,35 @@ class UserSettingsTest {
 		assertThat(settings.isNotifyQuestion()).isTrue();
 		assertThat(settings.getNotifyRadiusKm()).isEqualTo(5);
 	}
+
+	@Test
+	void updateChangesAllSettings() {
+		User user = User.createEmailUser(
+			"user@example.com",
+			"hash",
+			"nickname",
+			LocalDate.of(1995, 5, 20),
+			GenderType.female,
+			"KR"
+		);
+		UserSettings settings = UserSettings.defaultFor(user);
+
+		settings.update(
+			"en",
+			true,
+			false,
+			false,
+			false,
+			true,
+			10
+		);
+
+		assertThat(settings.getLanguage()).isEqualTo("en");
+		assertThat(settings.isCameraPermission()).isTrue();
+		assertThat(settings.isPushPermission()).isFalse();
+		assertThat(settings.isNotifyAll()).isFalse();
+		assertThat(settings.isNotifyMeeting()).isFalse();
+		assertThat(settings.isNotifyQuestion()).isTrue();
+		assertThat(settings.getNotifyRadiusKm()).isEqualTo(10);
+	}
 }
