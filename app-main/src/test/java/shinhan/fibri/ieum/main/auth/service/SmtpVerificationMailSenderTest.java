@@ -5,11 +5,12 @@ import org.springframework.context.support.StaticMessageSource;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.context.i18n.LocaleContextHolder;
+import org.springframework.scheduling.annotation.Async;
 
 import java.util.Locale;
+import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentCaptor.forClass;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -28,7 +29,7 @@ class SmtpVerificationMailSenderTest {
 
 		LocaleContextHolder.setLocale(Locale.KOREAN);
 		try {
-			mailSender.sendSignupCode("user@example.com", "123456", 180);
+			mailSender.sendSignupCode("user@example.com", "123456", 180).join();
 		} finally {
 			LocaleContextHolder.resetLocaleContext();
 		}
@@ -53,7 +54,7 @@ class SmtpVerificationMailSenderTest {
 
 		LocaleContextHolder.setLocale(Locale.ENGLISH);
 		try {
-			mailSender.sendSignupCode("user@example.com", "123456", 180);
+			mailSender.sendSignupCode("user@example.com", "123456", 180).join();
 		} finally {
 			LocaleContextHolder.resetLocaleContext();
 		}
@@ -66,7 +67,7 @@ class SmtpVerificationMailSenderTest {
 	}
 
 	@Test
-	void sendSignupCodeThrowsWhenMailSendFails() {
+	void sendSignupCodeReturnsFailedFutureWhenMailSendFails() {
 		JavaMailSender javaMailSender = mock(JavaMailSender.class);
 		doThrow(new RuntimeException("smtp down"))
 			.when(javaMailSender)
@@ -79,12 +80,22 @@ class SmtpVerificationMailSenderTest {
 
 		LocaleContextHolder.setLocale(Locale.KOREAN);
 		try {
-			assertThatThrownBy(() -> mailSender.sendSignupCode("user@example.com", "123456", 180))
-				.isInstanceOf(RuntimeException.class)
-				.hasMessage("smtp down");
+			CompletableFuture<Void> result = mailSender.sendSignupCode("user@example.com", "123456", 180);
+
+			assertThat(result).isCompletedExceptionally();
 		} finally {
 			LocaleContextHolder.resetLocaleContext();
 		}
+	}
+
+	@Test
+	void sendSignupCodeRunsOnMailTaskExecutor() throws Exception {
+		Async async = SmtpVerificationMailSender.class
+			.getMethod("sendSignupCode", String.class, String.class, int.class)
+			.getAnnotation(Async.class);
+
+		assertThat(async).isNotNull();
+		assertThat(async.value()).isEqualTo("mailTaskExecutor");
 	}
 
 	private StaticMessageSource messageSource() {

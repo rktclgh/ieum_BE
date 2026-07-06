@@ -14,6 +14,7 @@ import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationCodeExcept
 
 import java.time.Duration;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -46,6 +47,8 @@ class EmailVerificationServiceTest {
 		when(codeGenerator.generate()).thenReturn("123456");
 		when(codeHasher.hash("user@example.com", "123456")).thenReturn("hashed-code");
 		when(rateLimiter.tryConsumeSignupSend("user@example.com")).thenReturn(true);
+		when(mailSender.sendSignupCode("user@example.com", "123456", 180))
+			.thenReturn(CompletableFuture.completedFuture(null));
 
 		SendEmailVerificationResponse response = service.sendSignupCode(
 			new SendEmailVerificationRequest(" USER@example.COM ")
@@ -117,7 +120,7 @@ class EmailVerificationServiceTest {
 	}
 
 	@Test
-	void sendSignupCodeDeletesSavedCodeAndThrowsWhenMailDeliveryFails() {
+	void sendSignupCodeDeletesSavedCodeWhenAsyncMailDeliveryFails() {
 		EmailVerificationCodeStore codeStore = mock(EmailVerificationCodeStore.class);
 		VerificationMailSender mailSender = mock(VerificationMailSender.class);
 		VerificationCodeGenerator codeGenerator = mock(VerificationCodeGenerator.class);
@@ -137,7 +140,40 @@ class EmailVerificationServiceTest {
 		when(codeGenerator.generate()).thenReturn("123456");
 		when(codeHasher.hash("user@example.com", "123456")).thenReturn("hashed-code");
 		when(rateLimiter.tryConsumeSignupSend("user@example.com")).thenReturn(true);
-		doThrow(new RuntimeException("smtp auth failed"))
+		when(mailSender.sendSignupCode("user@example.com", "123456", 180))
+			.thenReturn(CompletableFuture.failedFuture(new RuntimeException("smtp auth failed")));
+
+		SendEmailVerificationResponse response = service.sendSignupCode(
+			new SendEmailVerificationRequest(" USER@example.COM ")
+		);
+
+		assertThat(response.expiresInSeconds()).isEqualTo(180);
+		verify(codeStore).saveSignupCode("user@example.com", "hashed-code", Duration.ofSeconds(180));
+		verify(codeStore).deleteSignupCode("user@example.com");
+	}
+
+	@Test
+	void sendSignupCodeDeletesSavedCodeAndThrowsWhenMailTaskCannotBeSubmitted() {
+		EmailVerificationCodeStore codeStore = mock(EmailVerificationCodeStore.class);
+		VerificationMailSender mailSender = mock(VerificationMailSender.class);
+		VerificationCodeGenerator codeGenerator = mock(VerificationCodeGenerator.class);
+		VerificationCodeHasher codeHasher = mock(VerificationCodeHasher.class);
+		EmailVerificationTokenGenerator tokenGenerator = mock(EmailVerificationTokenGenerator.class);
+		UserRepository userRepository = mock(UserRepository.class);
+		EmailVerificationRateLimiter rateLimiter = mock(EmailVerificationRateLimiter.class);
+		EmailVerificationService service = new EmailVerificationService(
+			codeStore,
+			mailSender,
+			codeGenerator,
+			codeHasher,
+			tokenGenerator,
+			userRepository,
+			rateLimiter
+		);
+		when(codeGenerator.generate()).thenReturn("123456");
+		when(codeHasher.hash("user@example.com", "123456")).thenReturn("hashed-code");
+		when(rateLimiter.tryConsumeSignupSend("user@example.com")).thenReturn(true);
+		doThrow(new RuntimeException("mail executor rejected"))
 			.when(mailSender)
 			.sendSignupCode("user@example.com", "123456", 180);
 

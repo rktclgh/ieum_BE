@@ -1,6 +1,8 @@
 package shinhan.fibri.ieum.main.auth.service;
 
+import java.util.concurrent.CompletableFuture;
+
 public interface VerificationMailSender {
 
-	void sendSignupCode(String email, String code, int expiresInSeconds);
+	CompletableFuture<Void> sendSignupCode(String email, String code, int expiresInSeconds);
 }

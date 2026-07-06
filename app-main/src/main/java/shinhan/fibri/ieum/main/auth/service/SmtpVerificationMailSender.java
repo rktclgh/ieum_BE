@@ -5,7 +5,10 @@ import org.springframework.context.MessageSource;
 import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
+
+import java.util.concurrent.CompletableFuture;
 
 @Component
 public class SmtpVerificationMailSender implements VerificationMailSender {
@@ -25,7 +28,8 @@ public class SmtpVerificationMailSender implements VerificationMailSender {
 	}
 
 	@Override
-	public void sendSignupCode(String email, String code, int expiresInSeconds) {
+	@Async("mailTaskExecutor")
+	public CompletableFuture<Void> sendSignupCode(String email, String code, int expiresInSeconds) {
 		var locale = LocaleContextHolder.getLocale();
 		int expiresInMinutes = expiresInSeconds / 60;
 		SimpleMailMessage message = new SimpleMailMessage();
@@ -37,6 +41,11 @@ public class SmtpVerificationMailSender implements VerificationMailSender {
 			new Object[]{code, expiresInMinutes},
 			locale
 		));
-		mailSender.send(message);
+		try {
+			mailSender.send(message);
+			return CompletableFuture.completedFuture(null);
+		} catch (RuntimeException exception) {
+			return CompletableFuture.failedFuture(exception);
+		}
 	}
 }

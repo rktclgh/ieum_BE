@@ -1,6 +1,8 @@
 package shinhan.fibri.ieum.main.auth.service;
 
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import shinhan.fibri.ieum.common.auth.domain.AuthProvider;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
@@ -15,10 +17,13 @@ import shinhan.fibri.ieum.main.auth.exception.EmailTakenException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationCodeException;
 
 import java.time.Duration;
+import java.util.concurrent.CompletableFuture;
+
 @Service
 @RequiredArgsConstructor
 public class EmailVerificationService {
 
+	private static final Logger log = LoggerFactory.getLogger(EmailVerificationService.class);
 	private static final int SIGNUP_CODE_TTL_SECONDS = 180;
 	private static final Duration SIGNUP_CODE_TTL = Duration.ofSeconds(SIGNUP_CODE_TTL_SECONDS);
 	private static final int VERIFICATION_TOKEN_TTL_SECONDS = 1800;
@@ -43,12 +48,20 @@ public class EmailVerificationService {
 		String code = codeGenerator.generate();
 		String codeHash = codeHasher.hash(email, code);
 		codeStore.saveSignupCode(email, codeHash, SIGNUP_CODE_TTL);
+		CompletableFuture<Void> delivery;
 		try {
-			mailSender.sendSignupCode(email, code, SIGNUP_CODE_TTL_SECONDS);
+			delivery = mailSender.sendSignupCode(email, code, SIGNUP_CODE_TTL_SECONDS);
 		} catch (RuntimeException exception) {
 			codeStore.deleteSignupCode(email);
 			throw new EmailDeliveryFailedException(exception);
 		}
+		delivery.whenComplete((unused, exception) -> {
+			if (exception == null) {
+				return;
+			}
+			codeStore.deleteSignupCode(email);
+			log.warn("Failed to send signup verification email to {}", email, exception);
+		});
 		return new SendEmailVerificationResponse(SIGNUP_CODE_TTL_SECONDS);
 	}
 
