@@ -174,6 +174,24 @@ class SignupServiceTest {
 	}
 
 	@Test
+	void signupThrowsWhenGenderIsNotSupported() {
+		when(codeStore.findSignupVerificationEmail("verification-token"))
+			.thenReturn(Optional.of("user@example.com"));
+
+		assertThatThrownBy(() -> service.signup(validRequestWithGender("unknown")))
+			.isInstanceOfSatisfying(InvalidSignupFieldException.class, exception -> {
+				assertThat(exception.field()).isEqualTo("gender");
+				assertThat(exception.getMessage()).isEqualTo("Gender is not supported");
+			});
+
+		verify(countryRepository, never()).existsByCodeAndIsActiveTrue(any());
+		verify(passwordHasher, never()).hash("password123");
+		verify(userRepository, never()).save(any(User.class));
+		verify(userSettingsRepository, never()).save(any(UserSettings.class));
+		verify(codeStore, never()).deleteSignupVerificationToken("verification-token");
+	}
+
+	@Test
 	void signupThrowsWhenLanguageIsNotSupported() {
 		when(codeStore.findSignupVerificationEmail("verification-token"))
 			.thenReturn(Optional.of("user@example.com"));
@@ -286,6 +304,19 @@ class SignupServiceTest {
 			LocalDate.of(2000, 1, 1),
 			"female",
 			nationality,
+			"ko",
+			"verification-token"
+		);
+	}
+
+	private SignupRequest validRequestWithGender(String gender) {
+		return new SignupRequest(
+			"user@example.com",
+			"password123",
+			"nickname",
+			LocalDate.of(2000, 1, 1),
+			gender,
+			"KR",
 			"ko",
 			"verification-token"
 		);

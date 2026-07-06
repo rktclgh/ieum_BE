@@ -5,6 +5,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.Objects;
 
 @Entity
@@ -35,7 +36,7 @@ public class Country {
 		this.nameKo = Objects.requireNonNull(nameKo, "nameKo must not be null");
 		this.nameEn = Objects.requireNonNull(nameEn, "nameEn must not be null");
 		this.isActive = active;
-		this.createdAt = OffsetDateTime.now();
+		this.createdAt = OffsetDateTime.now(ZoneOffset.UTC);
 	}
 
 	public static Country active(String code, String nameKo, String nameEn) {

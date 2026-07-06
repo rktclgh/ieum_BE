@@ -55,14 +55,14 @@ public class SignupService {
 		if (userRepository.existsByNicknameAndDeletedAtIsNull(request.nickname())) {
 			throw new NicknameTakenException();
 		}
-		validateSignupProfile(request);
+		GenderType gender = validateSignupProfile(request);
 
 		User user = User.createEmailUser(
 			email,
 			passwordHasher.hash(request.password()),
 			request.nickname(),
 			request.birthDate(),
-			GenderType.valueOf(request.gender()),
+			gender,
 			request.nationality()
 		);
 		User savedUser = saveUserOrThrowDuplicateException(user);
@@ -71,12 +71,25 @@ public class SignupService {
 		return new SignupResponse(savedUser.getId());
 	}
 
-	private void validateSignupProfile(SignupRequest request) {
+	private GenderType validateSignupProfile(SignupRequest request) {
+		GenderType gender = parseGender(request.gender());
 		if (!countryRepository.existsByCodeAndIsActiveTrue(request.nationality())) {
 			throw new InvalidSignupFieldException("nationality", "Nationality is not supported");
 		}
 		if (!AuthValidationRules.SUPPORTED_LANGUAGES.contains(request.language())) {
 			throw new InvalidSignupFieldException("language", "Language is not supported");
+		}
+		return gender;
+	}
+
+	private GenderType parseGender(String gender) {
+		if (gender == null) {
+			throw new InvalidSignupFieldException("gender", "Gender is not supported");
+		}
+		try {
+			return GenderType.valueOf(gender);
+		} catch (IllegalArgumentException exception) {
+			throw new InvalidSignupFieldException("gender", "Gender is not supported");
 		}
 	}
 
