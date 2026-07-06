@@ -10,6 +10,7 @@ import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationResponse;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationResponse;
 import shinhan.fibri.ieum.main.auth.exception.EmailCodeRateLimitedException;
+import shinhan.fibri.ieum.main.auth.exception.EmailDeliveryFailedException;
 import shinhan.fibri.ieum.main.auth.exception.EmailTakenException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationCodeException;
 
@@ -42,7 +43,12 @@ public class EmailVerificationService {
 		String code = codeGenerator.generate();
 		String codeHash = codeHasher.hash(email, code);
 		codeStore.saveSignupCode(email, codeHash, SIGNUP_CODE_TTL);
-		mailSender.sendSignupCode(email, code, SIGNUP_CODE_TTL_SECONDS);
+		try {
+			mailSender.sendSignupCode(email, code, SIGNUP_CODE_TTL_SECONDS);
+		} catch (RuntimeException exception) {
+			codeStore.deleteSignupCode(email);
+			throw new EmailDeliveryFailedException(exception);
+		}
 		return new SendEmailVerificationResponse(SIGNUP_CODE_TTL_SECONDS);
 	}
 

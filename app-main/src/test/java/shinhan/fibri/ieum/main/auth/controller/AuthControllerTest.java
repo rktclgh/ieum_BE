@@ -21,6 +21,7 @@ import shinhan.fibri.ieum.main.auth.dto.SignupResponse;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationResponse;
 import shinhan.fibri.ieum.main.auth.exception.EmailCodeRateLimitedException;
+import shinhan.fibri.ieum.main.auth.exception.EmailDeliveryFailedException;
 import shinhan.fibri.ieum.main.auth.exception.EmailTakenException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationCodeException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationTokenException;
@@ -135,6 +136,24 @@ class AuthControllerTest {
 			.andExpect(status().isTooManyRequests())
 			.andExpect(jsonPath("$.code", is("EMAIL_CODE_RATE_LIMITED")))
 			.andExpect(jsonPath("$.message", is("Email verification code request rate limit exceeded")));
+	}
+
+	@Test
+	void sendEmailVerificationCodeReturnsBadGatewayWhenMailDeliveryFails() throws Exception {
+		doThrow(new EmailDeliveryFailedException())
+			.when(emailVerificationService)
+			.sendSignupCode(any(SendEmailVerificationRequest.class));
+
+		mockMvc.perform(post("/api/v1/auth/email/send-code")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email": "USER@example.com"
+					}
+					"""))
+			.andExpect(status().isBadGateway())
+			.andExpect(jsonPath("$.code", is("EMAIL_DELIVERY_FAILED")))
+			.andExpect(jsonPath("$.message", is("Failed to send email verification code")));
 	}
 
 	@Test

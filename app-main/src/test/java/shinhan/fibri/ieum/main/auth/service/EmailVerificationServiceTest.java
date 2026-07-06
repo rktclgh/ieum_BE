@@ -8,6 +8,7 @@ import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationResponse;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationResponse;
 import shinhan.fibri.ieum.main.auth.exception.EmailCodeRateLimitedException;
+import shinhan.fibri.ieum.main.auth.exception.EmailDeliveryFailedException;
 import shinhan.fibri.ieum.main.auth.exception.EmailTakenException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationCodeException;
 
@@ -18,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -112,6 +114,39 @@ class EmailVerificationServiceTest {
 		verify(codeGenerator, never()).generate();
 		verify(codeStore, never()).saveSignupCode("user@example.com", "hashed-code", Duration.ofSeconds(180));
 		verify(mailSender, never()).sendSignupCode("user@example.com", "123456", 180);
+	}
+
+	@Test
+	void sendSignupCodeDeletesSavedCodeAndThrowsWhenMailDeliveryFails() {
+		EmailVerificationCodeStore codeStore = mock(EmailVerificationCodeStore.class);
+		VerificationMailSender mailSender = mock(VerificationMailSender.class);
+		VerificationCodeGenerator codeGenerator = mock(VerificationCodeGenerator.class);
+		VerificationCodeHasher codeHasher = mock(VerificationCodeHasher.class);
+		EmailVerificationTokenGenerator tokenGenerator = mock(EmailVerificationTokenGenerator.class);
+		UserRepository userRepository = mock(UserRepository.class);
+		EmailVerificationRateLimiter rateLimiter = mock(EmailVerificationRateLimiter.class);
+		EmailVerificationService service = new EmailVerificationService(
+			codeStore,
+			mailSender,
+			codeGenerator,
+			codeHasher,
+			tokenGenerator,
+			userRepository,
+			rateLimiter
+		);
+		when(codeGenerator.generate()).thenReturn("123456");
+		when(codeHasher.hash("user@example.com", "123456")).thenReturn("hashed-code");
+		when(rateLimiter.tryConsumeSignupSend("user@example.com")).thenReturn(true);
+		doThrow(new RuntimeException("smtp auth failed"))
+			.when(mailSender)
+			.sendSignupCode("user@example.com", "123456", 180);
+
+		assertThatThrownBy(() -> service.sendSignupCode(
+			new SendEmailVerificationRequest(" USER@example.COM ")
+		)).isInstanceOf(EmailDeliveryFailedException.class);
+
+		verify(codeStore).saveSignupCode("user@example.com", "hashed-code", Duration.ofSeconds(180));
+		verify(codeStore).deleteSignupCode("user@example.com");
 	}
 
 	@Test

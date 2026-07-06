@@ -4,15 +4,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.context.support.StaticMessageSource;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.context.i18n.LocaleContextHolder;
-import org.springframework.scheduling.annotation.AsyncConfigurer;
-import shinhan.fibri.ieum.config.AsyncConfig;
 
 import java.util.Locale;
 
-import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentCaptor.forClass;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -69,7 +66,7 @@ class SmtpVerificationMailSenderTest {
 	}
 
 	@Test
-	void sendSignupCodeDoesNotThrowWhenAsyncMailSendFails() {
+	void sendSignupCodeThrowsWhenMailSendFails() {
 		JavaMailSender javaMailSender = mock(JavaMailSender.class);
 		doThrow(new RuntimeException("smtp down"))
 			.when(javaMailSender)
@@ -82,22 +79,12 @@ class SmtpVerificationMailSenderTest {
 
 		LocaleContextHolder.setLocale(Locale.KOREAN);
 		try {
-			assertThatCode(() -> mailSender.sendSignupCode("user@example.com", "123456", 180))
-				.doesNotThrowAnyException();
+			assertThatThrownBy(() -> mailSender.sendSignupCode("user@example.com", "123456", 180))
+				.isInstanceOf(RuntimeException.class)
+				.hasMessage("smtp down");
 		} finally {
 			LocaleContextHolder.resetLocaleContext();
 		}
-	}
-
-	@Test
-	void sendSignupCodeRunsWithSpringAsyncEnabled() throws Exception {
-		assertThat(AsyncConfig.class.getInterfaces()).contains(AsyncConfigurer.class);
-		AsyncConfig asyncConfig = new AsyncConfig();
-		assertThat(asyncConfig.getAsyncExecutor()).isNotNull();
-		assertThat(asyncConfig.getAsyncUncaughtExceptionHandler()).isNotNull();
-		assertThat(SmtpVerificationMailSender.class
-			.getMethod("sendSignupCode", String.class, String.class, int.class)
-			.isAnnotationPresent(Async.class)).isTrue();
 	}
 
 	private StaticMessageSource messageSource() {

@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.validation.ObjectError;
 import shinhan.fibri.ieum.main.auth.dto.AuthErrorResponse;
 import shinhan.fibri.ieum.main.auth.exception.EmailCodeRateLimitedException;
+import shinhan.fibri.ieum.main.auth.exception.EmailDeliveryFailedException;
 import shinhan.fibri.ieum.main.auth.exception.EmailNotVerifiedException;
 import shinhan.fibri.ieum.main.auth.exception.EmailTakenException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidCredentialsException;
@@ -57,6 +58,12 @@ public class AuthExceptionHandler {
 	) {
 		return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
 			.body(new AuthErrorResponse("EMAIL_CODE_RATE_LIMITED", exception.getMessage()));
+	}
+
+	@ExceptionHandler(EmailDeliveryFailedException.class)
+	public ResponseEntity<AuthErrorResponse> handleEmailDeliveryFailed(EmailDeliveryFailedException exception) {
+		return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+			.body(new AuthErrorResponse("EMAIL_DELIVERY_FAILED", exception.getMessage()));
 	}
 
 	@ExceptionHandler(NicknameTakenException.class)
