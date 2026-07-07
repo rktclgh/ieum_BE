@@ -52,6 +52,10 @@ public class LoginLog {
 		return new LoginLog(user, AuthProvider.email, OffsetDateTime.now());
 	}
 
+	public static LoginLog socialLogin(User user, AuthProvider provider) {
+		return new LoginLog(user, provider, OffsetDateTime.now());
+	}
+
 	public Long getId() {
 		return id;
 	}

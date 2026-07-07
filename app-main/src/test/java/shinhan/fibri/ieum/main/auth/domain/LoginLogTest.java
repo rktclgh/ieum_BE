@@ -31,6 +31,27 @@ class LoginLogTest {
 	}
 
 	@Test
+	void socialLoginCreatesLoginLogForProvider() {
+		User user = User.createSocialUser(
+			AuthProvider.google,
+			"google-sub-123",
+			"social@example.com",
+			true,
+			"hash",
+			"nickname",
+			LocalDate.of(2000, 1, 1),
+			GenderType.female,
+			"KR"
+		);
+
+		LoginLog loginLog = LoginLog.socialLogin(user, AuthProvider.google);
+
+		assertThat(loginLog.getUser()).isEqualTo(user);
+		assertThat(loginLog.getProvider()).isEqualTo(AuthProvider.google);
+		assertThat(loginLog.getLoggedInAt()).isNotNull();
+	}
+
+	@Test
 	void providerUsesPostgresEnumMapping() throws NoSuchFieldException {
 		JdbcType jdbcType = LoginLog.class.getDeclaredField("provider").getAnnotation(JdbcType.class);
 
