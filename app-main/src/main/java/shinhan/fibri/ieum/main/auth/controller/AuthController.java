@@ -19,6 +19,8 @@ import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationResponse;
 import shinhan.fibri.ieum.main.auth.dto.SignupRequest;
 import shinhan.fibri.ieum.main.auth.dto.SignupResponse;
+import shinhan.fibri.ieum.main.auth.dto.SocialAuthRequest;
+import shinhan.fibri.ieum.main.auth.dto.SocialAuthResponse;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationResponse;
 import shinhan.fibri.ieum.main.auth.service.EmailVerificationService;
@@ -28,6 +30,8 @@ import shinhan.fibri.ieum.main.auth.service.LogoutService;
 import shinhan.fibri.ieum.main.auth.service.RefreshResult;
 import shinhan.fibri.ieum.main.auth.service.RefreshService;
 import shinhan.fibri.ieum.main.auth.service.SignupService;
+import shinhan.fibri.ieum.main.auth.service.SocialAuthResult;
+import shinhan.fibri.ieum.main.auth.service.SocialAuthService;
 import shinhan.fibri.ieum.main.auth.session.AuthCookieWriter;
 import jakarta.servlet.http.HttpServletResponse;
 
@@ -41,6 +45,7 @@ public class AuthController {
 	private final LoginService loginService;
 	private final RefreshService refreshService;
 	private final LogoutService logoutService;
+	private final SocialAuthService socialAuthService;
 	private final AuthCookieWriter authCookieWriter;
 
 	@PostMapping("/email/send-code")
@@ -91,6 +96,23 @@ public class AuthController {
 			result.refreshToken(),
 			result.csrfToken()
 		);
+		return ResponseEntity.ok(result.response());
+	}
+
+	@PostMapping("/social")
+	public ResponseEntity<SocialAuthResponse> socialAuth(
+		@Valid @RequestBody SocialAuthRequest request,
+		HttpServletResponse response
+	) {
+		SocialAuthResult result = socialAuthService.start(request);
+		if (!result.response().isNewUser()) {
+			authCookieWriter.writeLoginCookies(
+				response,
+				result.accessToken(),
+				result.refreshToken(),
+				result.csrfToken()
+			);
+		}
 		return ResponseEntity.ok(result.response());
 	}
 
