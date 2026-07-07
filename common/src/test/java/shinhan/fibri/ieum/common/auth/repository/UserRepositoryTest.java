@@ -67,6 +67,42 @@ class UserRepositoryTest {
 	}
 
 	@Test
+	void findsActiveSocialUserByProviderAndProviderUid() {
+		User active = userRepository.save(User.createSocialUser(
+				AuthProvider.google,
+				"google-sub-123",
+				"social@example.com",
+				true,
+				"hash",
+				"social",
+				LocalDate.of(1990, 1, 1),
+				GenderType.female,
+				"KR"
+		));
+		User deleted = User.createSocialUser(
+				AuthProvider.google,
+				"deleted-sub-123",
+				"deleted-social@example.com",
+				true,
+				"hash",
+				"deleted-social",
+				LocalDate.of(1991, 1, 1),
+				GenderType.male,
+				"US"
+		);
+		deleted.markDeleted(OffsetDateTime.parse("2026-01-01T00:00:00Z"));
+		deleted = userRepository.save(deleted);
+
+		assertThat(userRepository.findByProviderAndProviderUidAndDeletedAtIsNull(AuthProvider.google, "google-sub-123"))
+				.contains(active);
+		assertThat(userRepository.findByProviderAndProviderUidAndDeletedAtIsNull(AuthProvider.google, "deleted-sub-123"))
+				.isEmpty();
+		assertThat(userRepository.findByProviderAndProviderUidAndDeletedAtIsNull(AuthProvider.kakao, "google-sub-123"))
+				.isEmpty();
+		assertThat(deleted.getDeletedAt()).isNotNull();
+	}
+
+	@Test
 	void inheritedUserRepositoryQueriesIgnoreSoftDeletedUsers() {
 		User deleted = User.createEmailUser(
 				"inherited-deleted@example.com",
@@ -143,6 +179,11 @@ class UserRepositoryTest {
 				String.class,
 				user.getId()
 		);
+		String providerUid = jdbcTemplate.queryForObject(
+				"select provider_uid from users where user_id = ?",
+				String.class,
+				user.getId()
+		);
 
 		assertThat(provider).isEqualTo("email");
 		assertThat(role).isEqualTo("user");
@@ -150,6 +191,7 @@ class UserRepositoryTest {
 		assertThat(grade).isEqualTo("bronze");
 		assertThat(gender).isEqualTo("other");
 		assertThat(nationality).isEqualTo("JP");
+		assertThat(providerUid).isNull();
 	}
 
 	@SpringBootApplication(scanBasePackages = "shinhan.fibri.ieum.common")

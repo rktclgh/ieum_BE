@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.common.auth.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.LocalDate;
 import org.junit.jupiter.api.Test;
@@ -32,6 +33,53 @@ class UserTest {
 		assertThat(user.getAcceptedCount()).isZero();
 		assertThat(user.isPasswordResetRequired()).isFalse();
 		assertThat(user.getDeletedAt()).isNull();
+	}
+
+	@Test
+	void createSocialUserAppliesSignupDefaultsWithProviderIdentity() {
+		User user = User.createSocialUser(
+				AuthProvider.google,
+				"google-sub-123",
+				"  Social@Example.COM  ",
+				true,
+				"$2a$10$randomPasswordHash",
+				"social",
+				LocalDate.of(1998, 8, 8),
+				GenderType.other,
+				"KR"
+		);
+
+		assertThat(user.getProvider()).isEqualTo(AuthProvider.google);
+		assertThat(user.getProviderUid()).isEqualTo("google-sub-123");
+		assertThat(user.getEmail()).isEqualTo("social@example.com");
+		assertThat(user.isEmailVerified()).isTrue();
+		assertThat(user.getPasswordHash()).isEqualTo("$2a$10$randomPasswordHash");
+		assertThat(user.getNickname()).isEqualTo("social");
+		assertThat(user.getBirthDate()).isEqualTo(LocalDate.of(1998, 8, 8));
+		assertThat(user.getGender()).isEqualTo(GenderType.other);
+		assertThat(user.getNationality()).isEqualTo("KR");
+		assertThat(user.getRole()).isEqualTo(UserRole.user);
+		assertThat(user.getStatus()).isEqualTo(UserStatus.active);
+		assertThat(user.getGrade()).isEqualTo(UserGrade.bronze);
+		assertThat(user.getAcceptedCount()).isZero();
+		assertThat(user.isPasswordResetRequired()).isFalse();
+		assertThat(user.getDeletedAt()).isNull();
+	}
+
+	@Test
+	void createSocialUserRejectsEmailProvider() {
+		assertThatThrownBy(() -> User.createSocialUser(
+				AuthProvider.email,
+				"email-sub-123",
+				"social@example.com",
+				true,
+				"$2a$10$randomPasswordHash",
+				"social",
+				LocalDate.of(1998, 8, 8),
+				GenderType.other,
+				"KR"
+		)).isInstanceOf(IllegalArgumentException.class)
+				.hasMessage("social provider must not be email");
 	}
 
 	@Test

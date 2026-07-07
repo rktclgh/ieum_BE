@@ -36,6 +36,9 @@ public class User {
 	@Column(nullable = false, length = 50)
 	private String nickname;
 
+	@Column(name = "provider_uid", length = 255)
+	private String providerUid;
+
 	@Column(name = "birth_date", nullable = false)
 	private LocalDate birthDate;
 
@@ -83,21 +86,25 @@ public class User {
 	}
 
 	private User(
+		AuthProvider provider,
+		String providerUid,
 		String email,
+		boolean emailVerified,
 		String passwordHash,
 		String nickname,
 		LocalDate birthDate,
 		GenderType gender,
 		String nationality
 	) {
+		this.provider = Objects.requireNonNull(provider, "provider must not be null");
+		this.providerUid = providerUid;
 		this.email = AuthEmailNormalizer.normalize(email);
 		this.passwordHash = Objects.requireNonNull(passwordHash, "passwordHash must not be null");
 		this.nickname = Objects.requireNonNull(nickname, "nickname must not be null");
 		this.birthDate = Objects.requireNonNull(birthDate, "birthDate must not be null");
 		this.gender = Objects.requireNonNull(gender, "gender must not be null");
 		this.nationality = Objects.requireNonNull(nationality, "nationality must not be null");
-		this.provider = AuthProvider.email;
-		this.emailVerified = true;
+		this.emailVerified = emailVerified;
 		this.role = UserRole.user;
 		this.status = UserStatus.active;
 		this.grade = UserGrade.bronze;
@@ -113,7 +120,34 @@ public class User {
 		GenderType gender,
 		String nationality
 	) {
-		return new User(email, passwordHash, nickname, birthDate, gender, nationality);
+		return new User(AuthProvider.email, null, email, true, passwordHash, nickname, birthDate, gender, nationality);
+	}
+
+	public static User createSocialUser(
+		AuthProvider provider,
+		String providerUid,
+		String email,
+		boolean emailVerified,
+		String passwordHash,
+		String nickname,
+		LocalDate birthDate,
+		GenderType gender,
+		String nationality
+	) {
+		if (provider == AuthProvider.email) {
+			throw new IllegalArgumentException("social provider must not be email");
+		}
+		return new User(
+			provider,
+			Objects.requireNonNull(providerUid, "providerUid must not be null"),
+			email,
+			emailVerified,
+			passwordHash,
+			nickname,
+			birthDate,
+			gender,
+			nationality
+		);
 	}
 
 	public void markDeleted(OffsetDateTime deletedAt) {
@@ -146,6 +180,10 @@ public class User {
 
 	public String getNickname() {
 		return nickname;
+	}
+
+	public String getProviderUid() {
+		return providerUid;
 	}
 
 	public LocalDate getBirthDate() {
