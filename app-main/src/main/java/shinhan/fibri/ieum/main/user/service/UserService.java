@@ -1,6 +1,8 @@
 package shinhan.fibri.ieum.main.user.service;
 
 import java.time.OffsetDateTime;
+import java.util.Objects;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,8 +18,15 @@ import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.auth.repository.CountryRepository;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
 import shinhan.fibri.ieum.common.auth.repository.UserSettingsRepository;
+import shinhan.fibri.ieum.common.file.domain.File;
+import shinhan.fibri.ieum.common.file.repository.FileRepository;
 import shinhan.fibri.ieum.common.auth.validation.AuthValidationRules;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
+import shinhan.fibri.ieum.main.file.service.FileObjectKeys;
+import shinhan.fibri.ieum.main.file.service.FileVariant;
+import shinhan.fibri.ieum.main.file.storage.FileStorage;
+import shinhan.fibri.ieum.main.user.dto.ProfileImageResponse;
+import shinhan.fibri.ieum.main.user.dto.UpdateProfileImageRequest;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserLocationRequest;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserProfileRequest;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserSettingsRequest;
@@ -37,6 +46,8 @@ public class UserService {
 	private final UserSettingsRepository userSettingsRepository;
 	private final CountryRepository countryRepository;
 	private final RedisAuthSessionStore sessionStore;
+	private final FileRepository fileRepository;
+	private final FileStorage fileStorage;
 
 	@Transactional
 	public UserMeResponse getMe(AuthenticatedUser principal) {
@@ -108,6 +119,30 @@ public class UserService {
 	}
 
 	@Transactional
+	public ProfileImageResponse updateProfileImage(AuthenticatedUser principal, UpdateProfileImageRequest request) {
+		User user = findActiveUser(principal.userId());
+		File file = findCompletedOwnedFile(request.fileId(), user.getId());
+		UUID previousFileId = user.getProfileFileId();
+
+		user.linkProfileImage(file.getFileId());
+		if (previousFileId != null && !Objects.equals(previousFileId, file.getFileId())) {
+			deleteProfileFile(previousFileId);
+		}
+
+		return new ProfileImageResponse(profileImageUrl(file.getFileId()));
+	}
+
+	@Transactional
+	public void deleteProfileImage(AuthenticatedUser principal) {
+		User user = findActiveUser(principal.userId());
+		UUID previousFileId = user.getProfileFileId();
+		user.clearProfileImage();
+		if (previousFileId != null) {
+			deleteProfileFile(previousFileId);
+		}
+	}
+
+	@Transactional
 	public void withdraw(AuthenticatedUser principal) {
 		User user = findActiveUser(principal.userId());
 		user.markDeleted(OffsetDateTime.now());
@@ -122,6 +157,28 @@ public class UserService {
 	private UserSettings findOrCreateSettings(User user) {
 		return userSettingsRepository.findById(user.getId())
 			.orElseGet(() -> userSettingsRepository.save(UserSettings.defaultFor(user)));
+	}
+
+	private File findCompletedOwnedFile(UUID fileId, Long userId) {
+		if (fileId == null) {
+			throw new InvalidUserFieldException("fileId", "fileId is required");
+		}
+		return fileRepository.findByFileIdAndUploaderId(fileId, userId)
+			.filter(File::isUploaded)
+			.orElseThrow(() -> new InvalidUserFieldException("fileId", "File is not completed or not owned by user"));
+	}
+
+	private void deleteProfileFile(UUID fileId) {
+		fileRepository.findById(fileId).ifPresent(file -> {
+			fileStorage.delete(file.getS3Key());
+			fileStorage.delete(FileObjectKeys.variantKey(file.getS3Key(), FileVariant.DISPLAY));
+			fileStorage.delete(FileObjectKeys.variantKey(file.getS3Key(), FileVariant.THUMB));
+			fileRepository.delete(file);
+		});
+	}
+
+	private String profileImageUrl(UUID fileId) {
+		return "/api/v1/files/" + fileId;
 	}
 
 	private void validateNicknameAvailable(String nickname) {
