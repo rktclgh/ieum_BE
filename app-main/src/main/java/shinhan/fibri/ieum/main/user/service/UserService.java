@@ -126,7 +126,7 @@ public class UserService {
 
 		user.linkProfileImage(file.getFileId());
 		if (previousFileId != null && !Objects.equals(previousFileId, file.getFileId())) {
-			deleteProfileFile(previousFileId);
+			deleteProfileFileAfterCommit(previousFileId);
 		}
 
 		return new ProfileImageResponse(profileImageUrl(file.getFileId()));
@@ -138,7 +138,7 @@ public class UserService {
 		UUID previousFileId = user.getProfileFileId();
 		user.clearProfileImage();
 		if (previousFileId != null) {
-			deleteProfileFile(previousFileId);
+			deleteProfileFileAfterCommit(previousFileId);
 		}
 	}
 
@@ -168,13 +168,34 @@ public class UserService {
 			.orElseThrow(() -> new InvalidUserFieldException("fileId", "File is not completed or not owned by user"));
 	}
 
-	private void deleteProfileFile(UUID fileId) {
-		fileRepository.findById(fileId).ifPresent(file -> {
-			fileStorage.delete(file.getS3Key());
-			fileStorage.delete(FileObjectKeys.variantKey(file.getS3Key(), FileVariant.DISPLAY));
-			fileStorage.delete(FileObjectKeys.variantKey(file.getS3Key(), FileVariant.THUMB));
-			fileRepository.delete(file);
+	private void deleteProfileFileAfterCommit(UUID fileId) {
+		Runnable cleanup = () -> deleteProfileFileSafely(fileId);
+		if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+			cleanup.run();
+			return;
+		}
+		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+			@Override
+			public void afterCommit() {
+				cleanup.run();
+			}
 		});
+	}
+
+	private void deleteProfileFileSafely(UUID fileId) {
+		try {
+			if (userRepository.existsByProfileFileId(fileId)) {
+				return;
+			}
+			fileRepository.findById(fileId).ifPresent(file -> {
+				fileStorage.delete(file.getS3Key());
+				fileStorage.delete(FileObjectKeys.variantKey(file.getS3Key(), FileVariant.DISPLAY));
+				fileStorage.delete(FileObjectKeys.variantKey(file.getS3Key(), FileVariant.THUMB));
+				fileRepository.delete(file);
+			});
+		} catch (RuntimeException exception) {
+			log.warn("Failed to delete unreferenced profile file. fileId={}", fileId, exception);
+		}
 	}
 
 	private String profileImageUrl(UUID fileId) {

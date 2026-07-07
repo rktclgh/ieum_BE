@@ -15,6 +15,8 @@ import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import shinhan.fibri.ieum.common.auth.domain.GenderType;
 import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.auth.domain.UserSettings;
@@ -192,14 +194,26 @@ class UserServiceTest {
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user));
 		when(fileRepository.findByFileIdAndUploaderId(newFileId, 42L)).thenReturn(Optional.of(newFile));
 		when(fileRepository.findById(oldFileId)).thenReturn(Optional.of(oldFile));
+		when(userRepository.existsByProfileFileId(oldFileId)).thenReturn(false);
 
-		ProfileImageResponse response = service.updateProfileImage(
-			principal(),
-			new UpdateProfileImageRequest(newFileId)
-		);
+		TransactionSynchronizationManager.initSynchronization();
+		ProfileImageResponse response;
+		try {
+			response = service.updateProfileImage(
+				principal(),
+				new UpdateProfileImageRequest(newFileId)
+			);
 
-		assertThat(user.getProfileFileId()).isEqualTo(newFileId);
-		assertThat(response.profileImageUrl()).isEqualTo("/api/v1/files/33333333-3333-3333-3333-333333333333");
+			assertThat(user.getProfileFileId()).isEqualTo(newFileId);
+			assertThat(response.profileImageUrl()).isEqualTo("/api/v1/files/33333333-3333-3333-3333-333333333333");
+			verify(fileStorage, never()).delete(any());
+
+			TransactionSynchronizationManager.getSynchronizations()
+				.forEach(TransactionSynchronization::afterCommit);
+		} finally {
+			TransactionSynchronizationManager.clearSynchronization();
+		}
+
 		verify(fileStorage).delete("final/42/profile/" + oldFileId + "/original.jpg");
 		verify(fileStorage).delete("final/42/profile/" + oldFileId + "/display.webp");
 		verify(fileStorage).delete("final/42/profile/" + oldFileId + "/thumb.webp");
@@ -225,11 +239,43 @@ class UserServiceTest {
 		File file = completedFile(fileId, "final/42/profile/" + fileId + "/original.jpg");
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user));
 		when(fileRepository.findById(fileId)).thenReturn(Optional.of(file));
+		when(userRepository.existsByProfileFileId(fileId)).thenReturn(false);
 
-		service.deleteProfileImage(principal());
+		TransactionSynchronizationManager.initSynchronization();
+		try {
+			service.deleteProfileImage(principal());
 
-		assertThat(user.getProfileFileId()).isNull();
+			assertThat(user.getProfileFileId()).isNull();
+			verify(fileRepository, never()).delete(file);
+
+			TransactionSynchronizationManager.getSynchronizations()
+				.forEach(TransactionSynchronization::afterCommit);
+		} finally {
+			TransactionSynchronizationManager.clearSynchronization();
+		}
+
 		verify(fileRepository).delete(file);
+	}
+
+	@Test
+	void deleteProfileImageKeepsFileWhenStillReferencedAfterCommit() {
+		User user = user();
+		UUID fileId = UUID.fromString("66666666-6666-6666-6666-666666666666");
+		user.linkProfileImage(fileId);
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user));
+		when(userRepository.existsByProfileFileId(fileId)).thenReturn(true);
+
+		TransactionSynchronizationManager.initSynchronization();
+		try {
+			service.deleteProfileImage(principal());
+			TransactionSynchronizationManager.getSynchronizations()
+				.forEach(TransactionSynchronization::afterCommit);
+		} finally {
+			TransactionSynchronizationManager.clearSynchronization();
+		}
+
+		verify(fileStorage, never()).delete(any());
+		verify(fileRepository, never()).delete(any(File.class));
 	}
 
 	@Test

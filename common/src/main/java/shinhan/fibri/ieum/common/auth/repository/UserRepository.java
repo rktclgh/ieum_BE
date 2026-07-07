@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.common.auth.repository;
 
 import java.util.Optional;
+import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -13,6 +14,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
 	boolean existsByEmailAndProviderAndDeletedAtIsNull(String email, AuthProvider provider);
 
 	boolean existsByNicknameAndDeletedAtIsNull(String nickname);
+
+	boolean existsByProfileFileId(UUID profileFileId);
 
 	Optional<User> findByEmailAndProviderAndDeletedAtIsNull(String email, AuthProvider provider);
 
