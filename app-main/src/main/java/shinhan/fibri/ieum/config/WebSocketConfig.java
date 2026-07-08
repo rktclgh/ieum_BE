@@ -1,5 +1,8 @@
 package shinhan.fibri.ieum.config;
 
+import java.util.Arrays;
+import java.util.List;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.simp.config.ChannelRegistration;
@@ -15,10 +18,16 @@ import org.springframework.web.socket.config.annotation.WebSocketTransportRegist
 @EnableWebSocketMessageBroker
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
+	private final List<String> allowedOriginPatterns;
+
+	public WebSocketConfig(@Value("${app.cors.allowed-origins:http://localhost:3000}") String allowedOrigins) {
+		this.allowedOriginPatterns = csvValues(allowedOrigins);
+	}
+
 	@Override
 	public void registerStompEndpoints(StompEndpointRegistry registry) {
 		registry.addEndpoint("/ws")
-			.setAllowedOriginPatterns("http://localhost:3000", "https://ieum.rktclgh.site");
+			.setAllowedOriginPatterns(allowedOriginPatterns.toArray(String[]::new));
 	}
 
 	@Override
@@ -59,5 +68,12 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 			.corePoolSize(4)
 			.maxPoolSize(8)
 			.queueCapacity(1000);
+	}
+
+	private List<String> csvValues(String csv) {
+		return Arrays.stream(csv.split(","))
+			.map(String::trim)
+			.filter(value -> !value.isBlank())
+			.toList();
 	}
 }
