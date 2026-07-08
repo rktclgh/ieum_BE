@@ -1,5 +1,6 @@
 package shinhan.fibri.ieum.main.question.service;
 
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -119,7 +120,7 @@ public class QuestionService {
 				row.getResolved(),
 				row.getThumbnailFileId() == null ? null : THUMB_URL_TEMPLATE.formatted(row.getThumbnailFileId()),
 				row.getAnswerCount(),
-				row.getCreatedAt()
+				row.getCreatedAt().atOffset(ZoneOffset.UTC)
 			))
 			.toList();
 		return new CursorPage<>(items, nextCursor);

@@ -1,6 +1,6 @@
 package shinhan.fibri.ieum.main.question.repository;
 
-import java.time.OffsetDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 public interface MyQuestionItemProjection {
@@ -15,5 +15,5 @@ public interface MyQuestionItemProjection {
 
 	int getAnswerCount();
 
-	OffsetDateTime getCreatedAt();
+	Instant getCreatedAt();
 }

@@ -9,6 +9,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -141,8 +142,8 @@ class QuestionServiceTest {
 	void listMineUsesThumbnailUrlAndNextCursorFromLookahead() {
 		UUID thumbnail = UUID.fromString("00000000-0000-0000-0000-000000000021");
 		when(questionRepository.findMineFirstPage(42L, 2)).thenReturn(List.of(
-			new MineProjection(300L, "newer", false, thumbnail, 1, OffsetDateTime.parse("2026-07-08T10:00:00Z")),
-			new MineProjection(200L, "older", true, null, 0, OffsetDateTime.parse("2026-07-07T10:00:00Z"))
+			new MineProjection(300L, "newer", false, thumbnail, 1, Instant.parse("2026-07-08T10:00:00Z")),
+			new MineProjection(200L, "older", true, null, 0, Instant.parse("2026-07-07T10:00:00Z"))
 		));
 
 		var page = service.listMine(principal(), null, 1);
@@ -155,7 +156,7 @@ class QuestionServiceTest {
 	@Test
 	void listMineUsesDecodedCursorQueryWhenCursorIsPresent() {
 		when(questionRepository.findMineAfterCursor(42L, 200L, 2)).thenReturn(List.of(
-			new MineProjection(100L, "older", false, null, 0, OffsetDateTime.parse("2026-07-06T10:00:00Z"))
+			new MineProjection(100L, "older", false, null, 0, Instant.parse("2026-07-06T10:00:00Z"))
 		));
 
 		var page = service.listMine(principal(), "MjAw", 1);
@@ -328,7 +329,7 @@ class QuestionServiceTest {
 		private final boolean resolved;
 		private final UUID thumbnailFileId;
 		private final int answerCount;
-		private final OffsetDateTime createdAt;
+		private final Instant createdAt;
 
 		private MineProjection(
 			Long questionId,
@@ -336,7 +337,7 @@ class QuestionServiceTest {
 			boolean resolved,
 			UUID thumbnailFileId,
 			int answerCount,
-			OffsetDateTime createdAt
+			Instant createdAt
 		) {
 			this.questionId = questionId;
 			this.title = title;
@@ -372,7 +373,7 @@ class QuestionServiceTest {
 		}
 
 		@Override
-		public OffsetDateTime getCreatedAt() {
+		public Instant getCreatedAt() {
 			return createdAt;
 		}
 	}
