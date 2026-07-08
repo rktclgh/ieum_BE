@@ -1,0 +1,55 @@
+package shinhan.fibri.ieum.main.chat.controller;
+
+import java.util.List;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+import shinhan.fibri.ieum.main.auth.dto.AuthErrorResponse;
+import shinhan.fibri.ieum.main.chat.exception.BlockedChatException;
+import shinhan.fibri.ieum.main.chat.exception.NotFriendsException;
+import shinhan.fibri.ieum.main.chat.exception.SelfChatRoomException;
+import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
+
+@RestControllerAdvice(assignableTypes = ChatController.class)
+@Order(Ordered.HIGHEST_PRECEDENCE)
+public class ChatExceptionHandler {
+
+	@ExceptionHandler(MethodArgumentNotValidException.class)
+	public ResponseEntity<AuthErrorResponse> handleValidation(MethodArgumentNotValidException exception) {
+		List<AuthErrorResponse.FieldError> fieldErrors = exception.getBindingResult()
+			.getFieldErrors()
+			.stream()
+			.map(error -> new AuthErrorResponse.FieldError(error.getField(), error.getDefaultMessage()))
+			.toList();
+		return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+			.body(new AuthErrorResponse("VALIDATION_FAILED", "Request validation failed", fieldErrors));
+	}
+
+	@ExceptionHandler(SelfChatRoomException.class)
+	public ResponseEntity<AuthErrorResponse> handleSelfChatRoom(SelfChatRoomException exception) {
+		return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+			.body(new AuthErrorResponse("SELF_CHAT_ROOM", exception.getMessage()));
+	}
+
+	@ExceptionHandler(NotFriendsException.class)
+	public ResponseEntity<AuthErrorResponse> handleNotFriends(NotFriendsException exception) {
+		return ResponseEntity.status(HttpStatus.FORBIDDEN)
+			.body(new AuthErrorResponse("NOT_FRIENDS", exception.getMessage()));
+	}
+
+	@ExceptionHandler(BlockedChatException.class)
+	public ResponseEntity<AuthErrorResponse> handleBlockedChat(BlockedChatException exception) {
+		return ResponseEntity.status(HttpStatus.FORBIDDEN)
+			.body(new AuthErrorResponse("BLOCKED", exception.getMessage()));
+	}
+
+	@ExceptionHandler(UserNotFoundException.class)
+	public ResponseEntity<AuthErrorResponse> handleUserNotFound(UserNotFoundException exception) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND)
+			.body(new AuthErrorResponse("USER_NOT_FOUND", exception.getMessage()));
+	}
+}
