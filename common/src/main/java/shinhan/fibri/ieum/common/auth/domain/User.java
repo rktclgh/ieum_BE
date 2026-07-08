@@ -16,6 +16,7 @@ import shinhan.fibri.ieum.common.auth.validation.AuthEmailNormalizer;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.Objects;
+import java.util.UUID;
 
 @Entity
 @Table(name = "users")
@@ -78,6 +79,9 @@ public class User {
 
 	@Column(name = "password_reset_required", nullable = false)
 	private boolean passwordResetRequired;
+
+	@Column(name = "profile_file_id")
+	private UUID profileFileId;
 
 	@Column(name = "deleted_at")
 	private OffsetDateTime deletedAt;
@@ -166,6 +170,14 @@ public class User {
 		this.nationality = Objects.requireNonNull(nationality, "nationality must not be null");
 	}
 
+	public void linkProfileImage(UUID fileId) {
+		this.profileFileId = Objects.requireNonNull(fileId, "fileId must not be null");
+	}
+
+	public void clearProfileImage() {
+		this.profileFileId = null;
+	}
+
 	public Long getId() {
 		return id;
 	}
@@ -224,6 +236,10 @@ public class User {
 
 	public boolean isPasswordResetRequired() {
 		return passwordResetRequired;
+	}
+
+	public UUID getProfileFileId() {
+		return profileFileId;
 	}
 
 	public OffsetDateTime getDeletedAt() {

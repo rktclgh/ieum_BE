@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import jakarta.persistence.EntityManager;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -64,6 +65,36 @@ class UserRepositoryTest {
 				.isEmpty();
 		assertThat(userRepository.findByIdAndDeletedAtIsNull(active.getId())).contains(active);
 		assertThat(userRepository.findByIdAndDeletedAtIsNull(deleted.getId())).isEmpty();
+	}
+
+	@Test
+	void existsByProfileFileIdAndDeletedAtIsNullIgnoresSoftDeletedUsers() {
+		UUID profileFileId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+		User active = User.createEmailUser(
+				"profile-active@example.com",
+				"hash",
+				"profile-active",
+				LocalDate.of(1990, 1, 1),
+				GenderType.female,
+				"KR"
+		);
+		active.linkProfileImage(profileFileId);
+		userRepository.save(active);
+
+		User deleted = User.createEmailUser(
+				"profile-deleted@example.com",
+				"hash",
+				"profile-deleted",
+				LocalDate.of(1991, 1, 1),
+				GenderType.male,
+				"US"
+		);
+		deleted.linkProfileImage(UUID.fromString("22222222-2222-2222-2222-222222222222"));
+		deleted.markDeleted(OffsetDateTime.parse("2026-01-01T00:00:00Z"));
+		userRepository.save(deleted);
+
+		assertThat(userRepository.existsByProfileFileIdAndDeletedAtIsNull(profileFileId)).isTrue();
+		assertThat(userRepository.existsByProfileFileIdAndDeletedAtIsNull(deleted.getProfileFileId())).isFalse();
 	}
 
 	@Test

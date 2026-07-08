@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
+import shinhan.fibri.ieum.main.user.dto.ProfileImageResponse;
+import shinhan.fibri.ieum.main.user.dto.UpdateProfileImageRequest;
 import shinhan.fibri.ieum.main.auth.session.AuthCookieWriter;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserLocationRequest;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserProfileRequest;
@@ -58,6 +60,22 @@ public class UserController {
 		@Valid @RequestBody UpdateUserLocationRequest request
 	) {
 		userService.updateLocation(principal, request);
+		return ResponseEntity.noContent().build();
+	}
+
+	@PutMapping("/profile-image")
+	public ResponseEntity<ProfileImageResponse> updateProfileImage(
+		@AuthenticationPrincipal AuthenticatedUser principal,
+		@RequestBody UpdateProfileImageRequest request
+	) {
+		return ResponseEntity.ok(userService.updateProfileImage(principal, request));
+	}
+
+	@DeleteMapping("/profile-image")
+	public ResponseEntity<Void> deleteProfileImage(
+		@AuthenticationPrincipal AuthenticatedUser principal
+	) {
+		userService.deleteProfileImage(principal);
 		return ResponseEntity.noContent().build();
 	}
 

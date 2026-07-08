@@ -16,6 +16,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.LocalDate;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,6 +40,8 @@ import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.main.auth.session.AuthCookieWriter;
 import shinhan.fibri.ieum.main.auth.session.AuthSessionProperties;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
+import shinhan.fibri.ieum.main.user.dto.ProfileImageResponse;
+import shinhan.fibri.ieum.main.user.dto.UpdateProfileImageRequest;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserLocationRequest;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserProfileRequest;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserSettingsRequest;
@@ -73,6 +76,7 @@ class UserControllerTest {
 			.andExpect(jsonPath("$.nickname", is("nickname")))
 			.andExpect(jsonPath("$.grade", is("bronze")))
 			.andExpect(jsonPath("$.acceptedCount", is(0)))
+			.andExpect(jsonPath("$.profileImageUrl", is("/api/v1/files/11111111-1111-1111-1111-111111111111")))
 			.andExpect(jsonPath("$.settings.notifyAll", is(true)));
 	}
 
@@ -179,6 +183,34 @@ class UserControllerTest {
 	}
 
 	@Test
+	void updateProfileImageReturnsProfileImageUrl() throws Exception {
+		UUID fileId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+		when(userService.updateProfileImage(any(AuthenticatedUser.class), any(UpdateProfileImageRequest.class)))
+			.thenReturn(new ProfileImageResponse("/api/v1/files/22222222-2222-2222-2222-222222222222"));
+
+		mockMvc.perform(put("/api/v1/users/me/profile-image")
+				.with(authenticated())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "fileId": "22222222-2222-2222-2222-222222222222"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.profileImageUrl", is("/api/v1/files/22222222-2222-2222-2222-222222222222")));
+
+		verify(userService).updateProfileImage(any(AuthenticatedUser.class), any(UpdateProfileImageRequest.class));
+	}
+
+	@Test
+	void deleteProfileImageReturnsNoContent() throws Exception {
+		mockMvc.perform(delete("/api/v1/users/me/profile-image").with(authenticated()))
+			.andExpect(status().isNoContent());
+
+		verify(userService).deleteProfileImage(any(AuthenticatedUser.class));
+	}
+
+	@Test
 	void withdrawExpiresAuthCookies() throws Exception {
 		mockMvc.perform(delete("/api/v1/users/me").with(authenticated()))
 			.andExpect(status().isNoContent())
@@ -214,6 +246,7 @@ class UserControllerTest {
 			"KR",
 			"bronze",
 			0,
+			"/api/v1/files/11111111-1111-1111-1111-111111111111",
 			settingsResponse()
 		);
 	}

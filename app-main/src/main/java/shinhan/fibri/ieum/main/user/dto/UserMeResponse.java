@@ -13,6 +13,7 @@ public record UserMeResponse(
 	String nationality,
 	String grade,
 	int acceptedCount,
+	String profileImageUrl,
 	UserSettingsResponse settings
 ) {
 	public static UserMeResponse of(User user, UserSettings settings) {
@@ -25,7 +26,15 @@ public record UserMeResponse(
 			user.getNationality(),
 			user.getGrade().name(),
 			user.getAcceptedCount(),
+			profileImageUrl(user),
 			UserSettingsResponse.from(settings)
 		);
+	}
+
+	private static String profileImageUrl(User user) {
+		if (user.getProfileFileId() == null) {
+			return null;
+		}
+		return "/api/v1/files/" + user.getProfileFileId();
 	}
 }

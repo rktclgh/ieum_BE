@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.LocalDate;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class UserTest {
@@ -107,6 +108,29 @@ class UserTest {
 		assertThat(user.getEmail()).isEqualTo("user@example.com");
 		assertThat(user.getGrade()).isEqualTo(UserGrade.bronze);
 		assertThat(user.getAcceptedCount()).isZero();
+	}
+
+	@Test
+	void linkAndClearProfileImageUpdatesProfileFileIdOnly() {
+		User user = User.createEmailUser(
+				"user@example.com",
+				"hash",
+				"nickname",
+				LocalDate.of(1995, 5, 20),
+				GenderType.female,
+				"KR"
+		);
+		UUID profileFileId = UUID.fromString("55555555-5555-5555-5555-555555555555");
+
+		user.linkProfileImage(profileFileId);
+
+		assertThat(user.getProfileFileId()).isEqualTo(profileFileId);
+		assertThat(user.getEmail()).isEqualTo("user@example.com");
+		assertThat(user.getNickname()).isEqualTo("nickname");
+
+		user.clearProfileImage();
+
+		assertThat(user.getProfileFileId()).isNull();
 	}
 
 }
