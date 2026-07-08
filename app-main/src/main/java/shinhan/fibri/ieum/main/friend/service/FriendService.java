@@ -1,6 +1,8 @@
 package shinhan.fibri.ieum.main.friend.service;
 
+import java.util.Locale;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -90,9 +92,62 @@ public class FriendService {
 		friendshipRepository.delete(friendship);
 	}
 
+	@Transactional
+	public void blockUser(AuthenticatedUser principal, Long targetUserId) {
+		User currentUser = findActiveUser(principal.userId());
+		if (currentUser.getId().equals(targetUserId)) {
+			throw new SelfFriendActionException();
+		}
+		User targetUser = findActiveUser(targetUserId);
+
+		friendshipRepository.findByUserPair(currentUser.getId(), targetUser.getId())
+			.ifPresentOrElse(
+				friendship -> friendship.blockBy(currentUser),
+				() -> saveBlockedFriendship(currentUser, targetUser)
+			);
+	}
+
+	@Transactional
+	public void unblockUser(AuthenticatedUser principal, Long targetUserId) {
+		User currentUser = findActiveUser(principal.userId());
+		if (currentUser.getId().equals(targetUserId)) {
+			throw new SelfFriendActionException();
+		}
+		User targetUser = findActiveUser(targetUserId);
+
+		Friendship friendship = friendshipRepository.findByUserPair(currentUser.getId(), targetUser.getId())
+			.orElseThrow(FriendshipNotFoundException::new);
+
+		if (friendship.getStatus() != FriendshipStatus.blocked) {
+			throw new FriendshipNotFoundException();
+		}
+		if (!friendship.getBlockedBy().getId().equals(currentUser.getId())) {
+			throw new BlockedFriendshipException();
+		}
+		friendshipRepository.delete(friendship);
+	}
+
 	private User findActiveUser(Long userId) {
 		return userRepository.findByIdAndDeletedAtIsNull(userId)
 			.orElseThrow(UserNotFoundException::new);
+	}
+
+	private void saveBlockedFriendship(User currentUser, User targetUser) {
+		try {
+			friendshipRepository.save(Friendship.blocked(currentUser, targetUser, currentUser));
+		} catch (DataIntegrityViolationException exception) {
+			if (!isFriendPairConstraintViolation(exception)) {
+				throw exception;
+			}
+			Friendship friendship = friendshipRepository.findByUserPair(currentUser.getId(), targetUser.getId())
+				.orElseThrow(() -> exception);
+			friendship.blockBy(currentUser);
+		}
+	}
+
+	private boolean isFriendPairConstraintViolation(DataIntegrityViolationException exception) {
+		String message = exception.getMessage();
+		return message != null && message.toLowerCase(Locale.ROOT).contains("uidx_friend_pair");
 	}
 
 	private void rejectExistingFriendship(Friendship friendship) {

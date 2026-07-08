@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import java.time.LocalDate;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import shinhan.fibri.ieum.common.auth.domain.GenderType;
@@ -376,6 +377,272 @@ class FriendServiceTest {
 		when(friendshipRepository.findByUserPair(42L, 77L)).thenReturn(Optional.of(friendship));
 
 		assertThatThrownBy(() -> service.deleteFriendship(principal(42L), 77L))
+			.isInstanceOf(BlockedFriendshipException.class);
+
+		verify(friendshipRepository, never()).delete(any(Friendship.class));
+	}
+
+	@Test
+	void blockUserCreatesBlockedFriendshipWhenRelationDoesNotExist() {
+		User currentUser = user(42L, "current@example.com", "current");
+		User targetUser = user(77L, "target@example.com", "target");
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(targetUser));
+		when(friendshipRepository.findByUserPair(42L, 77L)).thenReturn(Optional.empty());
+		when(friendshipRepository.save(any(Friendship.class))).thenAnswer(invocation -> {
+			Friendship friendship = invocation.getArgument(0);
+			assertThat(friendship.getRequester()).isEqualTo(currentUser);
+			assertThat(friendship.getAddressee()).isEqualTo(targetUser);
+			assertThat(friendship.getStatus()).isEqualTo(FriendshipStatus.blocked);
+			assertThat(friendship.getBlockedBy()).isEqualTo(currentUser);
+			return friendship;
+		});
+
+		service.blockUser(principal(42L), 77L);
+
+		verify(friendshipRepository).save(any(Friendship.class));
+	}
+
+	@Test
+	void blockUserUpdatesExistingPendingFriendship() {
+		User currentUser = user(42L, "current@example.com", "current");
+		User targetUser = user(77L, "target@example.com", "target");
+		Friendship friendship = Friendship.request(targetUser, currentUser);
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(targetUser));
+		when(friendshipRepository.findByUserPair(42L, 77L)).thenReturn(Optional.of(friendship));
+
+		service.blockUser(principal(42L), 77L);
+
+		assertThat(friendship.getStatus()).isEqualTo(FriendshipStatus.blocked);
+		assertThat(friendship.getBlockedBy()).isEqualTo(currentUser);
+		verify(friendshipRepository, never()).save(any(Friendship.class));
+	}
+
+	@Test
+	void blockUserUpdatesExistingAcceptedFriendship() {
+		User currentUser = user(42L, "current@example.com", "current");
+		User targetUser = user(77L, "target@example.com", "target");
+		Friendship friendship = Friendship.request(targetUser, currentUser);
+		friendship.accept();
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(targetUser));
+		when(friendshipRepository.findByUserPair(42L, 77L)).thenReturn(Optional.of(friendship));
+
+		service.blockUser(principal(42L), 77L);
+
+		assertThat(friendship.getStatus()).isEqualTo(FriendshipStatus.blocked);
+		assertThat(friendship.getBlockedBy()).isEqualTo(currentUser);
+		verify(friendshipRepository, never()).save(any(Friendship.class));
+	}
+
+	@Test
+	void blockUserUpdatesExistingBlockedFriendship() {
+		User currentUser = user(42L, "current@example.com", "current");
+		User targetUser = user(77L, "target@example.com", "target");
+		Friendship friendship = Friendship.blocked(targetUser, currentUser, targetUser);
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(targetUser));
+		when(friendshipRepository.findByUserPair(42L, 77L)).thenReturn(Optional.of(friendship));
+
+		service.blockUser(principal(42L), 77L);
+
+		assertThat(friendship.getStatus()).isEqualTo(FriendshipStatus.blocked);
+		assertThat(friendship.getBlockedBy()).isEqualTo(currentUser);
+		verify(friendshipRepository, never()).save(any(Friendship.class));
+	}
+
+	@Test
+	void blockUserThrowsUserNotFoundWhenCurrentUserIsMissingOrDeleted() {
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.blockUser(principal(42L), 77L))
+			.isInstanceOf(UserNotFoundException.class);
+
+		verify(friendshipRepository, never()).findByUserPair(any(), any());
+		verify(friendshipRepository, never()).save(any(Friendship.class));
+	}
+
+	@Test
+	void blockUserThrowsUserNotFoundWhenTargetUserIsMissingOrDeleted() {
+		User currentUser = user(42L, "current@example.com", "current");
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.blockUser(principal(42L), 77L))
+			.isInstanceOf(UserNotFoundException.class);
+
+		verify(friendshipRepository, never()).findByUserPair(any(), any());
+		verify(friendshipRepository, never()).save(any(Friendship.class));
+	}
+
+	@Test
+	void blockUserRejectsSelfAction() {
+		User currentUser = user(42L, "current@example.com", "current");
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+
+		assertThatThrownBy(() -> service.blockUser(principal(42L), 42L))
+			.isInstanceOf(SelfFriendActionException.class);
+
+		verify(friendshipRepository, never()).findByUserPair(any(), any());
+		verify(friendshipRepository, never()).save(any(Friendship.class));
+	}
+
+	@Test
+	void blockUserUpdatesRefetchedFriendshipWhenInsertHitsFriendPairConstraintRace() {
+		User currentUser = user(42L, "current@example.com", "current");
+		User targetUser = user(77L, "target@example.com", "target");
+		Friendship friendship = Friendship.request(targetUser, currentUser);
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(targetUser));
+		when(friendshipRepository.findByUserPair(42L, 77L))
+			.thenReturn(Optional.empty())
+			.thenReturn(Optional.of(friendship));
+		when(friendshipRepository.save(any(Friendship.class)))
+			.thenThrow(new DataIntegrityViolationException("uidx_friend_pair"));
+
+		service.blockUser(principal(42L), 77L);
+
+		assertThat(friendship.getStatus()).isEqualTo(FriendshipStatus.blocked);
+		assertThat(friendship.getBlockedBy()).isEqualTo(currentUser);
+		verify(friendshipRepository).save(any(Friendship.class));
+	}
+
+	@Test
+	void blockUserRethrowsInsertRaceExceptionWhenRefetchStillFindsNoFriendship() {
+		User currentUser = user(42L, "current@example.com", "current");
+		User targetUser = user(77L, "target@example.com", "target");
+		DataIntegrityViolationException exception = new DataIntegrityViolationException("uidx_friend_pair");
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(targetUser));
+		when(friendshipRepository.findByUserPair(42L, 77L))
+			.thenReturn(Optional.empty())
+			.thenReturn(Optional.empty());
+		when(friendshipRepository.save(any(Friendship.class))).thenThrow(exception);
+
+		assertThatThrownBy(() -> service.blockUser(principal(42L), 77L))
+			.isSameAs(exception);
+	}
+
+	@Test
+	void blockUserRethrowsOtherDataIntegrityViolation() {
+		User currentUser = user(42L, "current@example.com", "current");
+		User targetUser = user(77L, "target@example.com", "target");
+		DataIntegrityViolationException exception = new DataIntegrityViolationException("other_constraint");
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(targetUser));
+		when(friendshipRepository.findByUserPair(42L, 77L)).thenReturn(Optional.empty());
+		when(friendshipRepository.save(any(Friendship.class))).thenThrow(exception);
+
+		assertThatThrownBy(() -> service.blockUser(principal(42L), 77L))
+			.isSameAs(exception);
+	}
+
+	@Test
+	void unblockUserDeletesBlockedFriendshipWhenCurrentUserBlockedTarget() {
+		User currentUser = user(42L, "current@example.com", "current");
+		User targetUser = user(77L, "target@example.com", "target");
+		Friendship friendship = Friendship.blocked(currentUser, targetUser, currentUser);
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(targetUser));
+		when(friendshipRepository.findByUserPair(42L, 77L)).thenReturn(Optional.of(friendship));
+
+		service.unblockUser(principal(42L), 77L);
+
+		verify(friendshipRepository).delete(friendship);
+	}
+
+	@Test
+	void unblockUserThrowsUserNotFoundWhenCurrentUserIsMissingOrDeleted() {
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.unblockUser(principal(42L), 77L))
+			.isInstanceOf(UserNotFoundException.class);
+
+		verify(friendshipRepository, never()).findByUserPair(any(), any());
+		verify(friendshipRepository, never()).delete(any(Friendship.class));
+	}
+
+	@Test
+	void unblockUserThrowsUserNotFoundWhenTargetUserIsMissingOrDeleted() {
+		User currentUser = user(42L, "current@example.com", "current");
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.unblockUser(principal(42L), 77L))
+			.isInstanceOf(UserNotFoundException.class);
+
+		verify(friendshipRepository, never()).findByUserPair(any(), any());
+		verify(friendshipRepository, never()).delete(any(Friendship.class));
+	}
+
+	@Test
+	void unblockUserRejectsSelfAction() {
+		User currentUser = user(42L, "current@example.com", "current");
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+
+		assertThatThrownBy(() -> service.unblockUser(principal(42L), 42L))
+			.isInstanceOf(SelfFriendActionException.class);
+
+		verify(friendshipRepository, never()).findByUserPair(any(), any());
+		verify(friendshipRepository, never()).delete(any(Friendship.class));
+	}
+
+	@Test
+	void unblockUserThrowsFriendshipNotFoundWhenRelationDoesNotExist() {
+		User currentUser = user(42L, "current@example.com", "current");
+		User targetUser = user(77L, "target@example.com", "target");
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(targetUser));
+		when(friendshipRepository.findByUserPair(42L, 77L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.unblockUser(principal(42L), 77L))
+			.isInstanceOf(FriendshipNotFoundException.class);
+
+		verify(friendshipRepository, never()).delete(any(Friendship.class));
+	}
+
+	@Test
+	void unblockUserThrowsFriendshipNotFoundWhenRelationIsPending() {
+		User currentUser = user(42L, "current@example.com", "current");
+		User targetUser = user(77L, "target@example.com", "target");
+		Friendship friendship = Friendship.request(currentUser, targetUser);
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(targetUser));
+		when(friendshipRepository.findByUserPair(42L, 77L)).thenReturn(Optional.of(friendship));
+
+		assertThatThrownBy(() -> service.unblockUser(principal(42L), 77L))
+			.isInstanceOf(FriendshipNotFoundException.class);
+
+		verify(friendshipRepository, never()).delete(any(Friendship.class));
+	}
+
+	@Test
+	void unblockUserThrowsFriendshipNotFoundWhenRelationIsAccepted() {
+		User currentUser = user(42L, "current@example.com", "current");
+		User targetUser = user(77L, "target@example.com", "target");
+		Friendship friendship = Friendship.request(currentUser, targetUser);
+		friendship.accept();
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(targetUser));
+		when(friendshipRepository.findByUserPair(42L, 77L)).thenReturn(Optional.of(friendship));
+
+		assertThatThrownBy(() -> service.unblockUser(principal(42L), 77L))
+			.isInstanceOf(FriendshipNotFoundException.class);
+
+		verify(friendshipRepository, never()).delete(any(Friendship.class));
+	}
+
+	@Test
+	void unblockUserThrowsBlockedFriendshipWhenTargetBlockedCurrentUser() {
+		User currentUser = user(42L, "current@example.com", "current");
+		User targetUser = user(77L, "target@example.com", "target");
+		Friendship friendship = Friendship.blocked(targetUser, currentUser, targetUser);
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(targetUser));
+		when(friendshipRepository.findByUserPair(42L, 77L)).thenReturn(Optional.of(friendship));
+
+		assertThatThrownBy(() -> service.unblockUser(principal(42L), 77L))
 			.isInstanceOf(BlockedFriendshipException.class);
 
 		verify(friendshipRepository, never()).delete(any(Friendship.class));
