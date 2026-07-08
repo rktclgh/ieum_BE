@@ -46,6 +46,31 @@ class SessionTokenValidatorTest {
 	}
 
 	@Test
+	void validateSessionReturnsAuthenticatedUserWithSessionIdWhenJwtAndRedisSessionAreValid() {
+		JwtDecoder jwtDecoder = mock(JwtDecoder.class);
+		RedisAuthSessionStore sessionStore = mock(RedisAuthSessionStore.class);
+		SessionTokenValidator validator = new SessionTokenValidator(jwtDecoder, sessionStore);
+		when(jwtDecoder.decode("access-token")).thenReturn(jwt("42", "sid-1", "user@example.com", "user"));
+		when(sessionStore.findBySessionId("sid-1")).thenReturn(Optional.of(new AuthSession(
+			"sid-1",
+			42L,
+			"user@example.com",
+			"refresh-hash",
+			null,
+			UserRole.user,
+			UserStatus.active,
+			OffsetDateTime.parse("2026-07-03T00:00Z")
+		)));
+
+		Optional<ValidatedAuthSession> result = validator.validateSession("access-token");
+
+		assertThat(result).hasValue(new ValidatedAuthSession(
+			new AuthenticatedUser(42L, "user@example.com", UserRole.user, UserStatus.active),
+			"sid-1"
+		));
+	}
+
+	@Test
 	void validateReturnsEmptyWhenRedisSessionDoesNotExist() {
 		JwtDecoder jwtDecoder = mock(JwtDecoder.class);
 		RedisAuthSessionStore sessionStore = mock(RedisAuthSessionStore.class);

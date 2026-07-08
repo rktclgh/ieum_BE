@@ -17,6 +17,10 @@ public class SessionTokenValidator {
 	private final RedisAuthSessionStore sessionStore;
 
 	public Optional<AuthenticatedUser> validate(String accessToken) {
+		return validateSession(accessToken).map(ValidatedAuthSession::principal);
+	}
+
+	public Optional<ValidatedAuthSession> validateSession(String accessToken) {
 		Jwt jwt;
 		try {
 			jwt = jwtDecoder.decode(accessToken);
@@ -29,11 +33,14 @@ public class SessionTokenValidator {
 			.filter(session -> String.valueOf(session.userId()).equals(jwt.getSubject()))
 			.filter(session -> session.email().equals(jwt.getClaimAsString("email")))
 			.filter(session -> session.role().name().equals(jwt.getClaimAsString("role")))
-			.map(session -> new AuthenticatedUser(
-				session.userId(),
-				session.email(),
-				session.role(),
-				session.status()
+			.map(session -> new ValidatedAuthSession(
+				new AuthenticatedUser(
+					session.userId(),
+					session.email(),
+					session.role(),
+					session.status()
+				),
+				session.sessionId()
 			));
 	}
 }

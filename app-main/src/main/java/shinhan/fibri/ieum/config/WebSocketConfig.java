@@ -13,20 +13,27 @@ import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBr
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
 import org.springframework.web.socket.config.annotation.WebSocketTransportRegistration;
+import shinhan.fibri.ieum.main.chat.websocket.ChatWebSocketHandshakeInterceptor;
 
 @Configuration
 @EnableWebSocketMessageBroker
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
 	private final List<String> allowedOriginPatterns;
+	private final ChatWebSocketHandshakeInterceptor handshakeInterceptor;
 
-	public WebSocketConfig(@Value("${app.cors.allowed-origins:http://localhost:3000}") String allowedOrigins) {
+	public WebSocketConfig(
+		@Value("${app.cors.allowed-origins:http://localhost:3000}") String allowedOrigins,
+		ChatWebSocketHandshakeInterceptor handshakeInterceptor
+	) {
 		this.allowedOriginPatterns = csvValues(allowedOrigins);
+		this.handshakeInterceptor = handshakeInterceptor;
 	}
 
 	@Override
 	public void registerStompEndpoints(StompEndpointRegistry registry) {
 		registry.addEndpoint("/ws")
+			.addInterceptors(handshakeInterceptor)
 			.setAllowedOriginPatterns(allowedOriginPatterns.toArray(String[]::new));
 	}
 
