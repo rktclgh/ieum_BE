@@ -134,7 +134,7 @@ public class QuestionService {
 			throw new QuestionForbiddenException();
 		}
 
-		question.update(request.title(), request.content());
+		question.update(requireNonBlankIfPresent(request.title(), "title"), requireNonBlankIfPresent(request.content(), "content"));
 		List<UUID> imageFileIds = request.imageFileIds() == null ? null : normalizeImageFileIds(request.imageFileIds());
 		List<UUID> removedFileIds = List.of();
 		if (imageFileIds != null) {
@@ -206,6 +206,17 @@ public class QuestionService {
 
 	private String profileUrl(UUID fileId) {
 		return fileId == null ? null : PROFILE_URL_TEMPLATE.formatted(fileId);
+	}
+
+	private String requireNonBlankIfPresent(String value, String field) {
+		if (value != null && value.isBlank()) {
+			throw new InvalidQuestionRequestException(
+				"INVALID_" + field.toUpperCase(),
+				field,
+				field + " must not be blank"
+			);
+		}
+		return value;
 	}
 
 	private List<UUID> normalizeImageFileIds(List<UUID> imageFileIds) {

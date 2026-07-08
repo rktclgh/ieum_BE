@@ -182,6 +182,38 @@ class QuestionServiceTest {
 	}
 
 	@Test
+	void updateRejectsBlankTitle() {
+		Question question = Question.create(100L, 42L, "title", "content");
+		setId(question, 200L);
+		when(questionRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(question));
+
+		assertThatThrownBy(() -> service.update(
+			principal(),
+			200L,
+			new QuestionUpdateRequest("   ", null, null)
+		)).isInstanceOf(InvalidQuestionRequestException.class)
+			.hasMessage("title must not be blank");
+
+		verify(questionImageRepository, never()).deleteByQuestionId(200L);
+	}
+
+	@Test
+	void updateRejectsBlankContent() {
+		Question question = Question.create(100L, 42L, "title", "content");
+		setId(question, 200L);
+		when(questionRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(question));
+
+		assertThatThrownBy(() -> service.update(
+			principal(),
+			200L,
+			new QuestionUpdateRequest(null, "", null)
+		)).isInstanceOf(InvalidQuestionRequestException.class)
+			.hasMessage("content must not be blank");
+
+		verify(questionImageRepository, never()).deleteByQuestionId(200L);
+	}
+
+	@Test
 	void updateReplacesImagesAndSchedulesRemovedImageCleanup() {
 		UUID oldImage = UUID.fromString("00000000-0000-0000-0000-000000000031");
 		UUID newImage = UUID.fromString("00000000-0000-0000-0000-000000000032");
