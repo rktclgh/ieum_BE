@@ -38,8 +38,9 @@ public class AnswerService {
 
 	@Transactional
 	public CreateAnswerResponse create(AuthenticatedUser principal, Long questionId, CreateAnswerRequest request) {
-		questionRepository.findById(questionId)
-			.orElseThrow(QuestionNotFoundException::new);
+		if (!questionRepository.existsById(questionId)) {
+			throw new QuestionNotFoundException();
+		}
 		List<UUID> imageFileIds = normalizeImageFileIds(request.imageFileIds());
 		List<File> files = validateImages(imageFileIds, principal.userId());
 

@@ -61,7 +61,7 @@ class AnswerServiceTest {
 		UUID secondImageId = UUID.fromString("00000000-0000-0000-0000-000000000002");
 		Question question = Question.create(100L, 99L, "title", "question");
 		setId(question, 200L);
-		when(questionRepository.findById(200L)).thenReturn(Optional.of(question));
+		when(questionRepository.existsById(200L)).thenReturn(true);
 		when(fileRepository.findByFileIdAndUploaderId(firstImageId, 42L))
 			.thenReturn(Optional.of(uploadedFile(firstImageId, 42L)));
 		when(fileRepository.findByFileIdAndUploaderId(secondImageId, 42L))
@@ -98,7 +98,7 @@ class AnswerServiceTest {
 			);
 
 		InOrder inOrder = inOrder(questionRepository, fileRepository, answerRepository, answerImageRepository);
-		inOrder.verify(questionRepository).findById(200L);
+		inOrder.verify(questionRepository).existsById(200L);
 		inOrder.verify(fileRepository).findByFileIdAndUploaderId(firstImageId, 42L);
 		inOrder.verify(fileRepository).findByFileIdAndUploaderId(secondImageId, 42L);
 		inOrder.verify(answerRepository).save(any(Answer.class));
@@ -108,7 +108,7 @@ class AnswerServiceTest {
 	@Test
 	void createRejectsMissingQuestionBeforeValidatingImages() {
 		UUID imageId = UUID.fromString("00000000-0000-0000-0000-000000000003");
-		when(questionRepository.findById(999L)).thenReturn(Optional.empty());
+		when(questionRepository.existsById(999L)).thenReturn(false);
 
 		assertThatThrownBy(() -> service.create(
 			principal(),
@@ -125,7 +125,7 @@ class AnswerServiceTest {
 		UUID imageId = UUID.fromString("00000000-0000-0000-0000-000000000004");
 		Question question = Question.create(100L, 99L, "title", "question");
 		setId(question, 200L);
-		when(questionRepository.findById(200L)).thenReturn(Optional.of(question));
+		when(questionRepository.existsById(200L)).thenReturn(true);
 
 		assertThatThrownBy(() -> service.create(
 			principal(),
@@ -142,7 +142,7 @@ class AnswerServiceTest {
 		UUID imageId = UUID.fromString("00000000-0000-0000-0000-000000000005");
 		Question question = Question.create(100L, 99L, "title", "question");
 		setId(question, 200L);
-		when(questionRepository.findById(200L)).thenReturn(Optional.of(question));
+		when(questionRepository.existsById(200L)).thenReturn(true);
 		when(fileRepository.findByFileIdAndUploaderId(imageId, 42L)).thenReturn(Optional.empty());
 
 		assertThatThrownBy(() -> service.create(
