@@ -21,6 +21,7 @@ import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.chat.domain.ChatMember;
 import shinhan.fibri.ieum.common.chat.domain.ChatRoom;
 import shinhan.fibri.ieum.common.chat.domain.Message;
+import shinhan.fibri.ieum.common.chat.domain.RoomType;
 import shinhan.fibri.ieum.common.chat.repository.ChatMemberRepository;
 import shinhan.fibri.ieum.common.chat.repository.MessageRepository;
 import shinhan.fibri.ieum.main.chat.dto.SendChatMessageRequest;
@@ -55,10 +56,46 @@ class ChatMessageServiceTest {
 		var response = service.send(principal(42L), 100L, new SendChatMessageRequest("hello", null));
 
 		assertThat(response.messageId()).isEqualTo(501L);
+		verify(chatMemberRepository).restoreLeftMembersByRoomIdExceptSender(100L, 42L);
 		ArgumentCaptor<WsMessageEvent> eventCaptor = ArgumentCaptor.forClass(WsMessageEvent.class);
 		verify(roomEventPublisher).publish(eventCaptor.capture());
 		assertThat(eventCaptor.getValue().content()).isEqualTo("hello");
 		verify(chatNotificationPublisher).messageCreated(eventCaptor.getValue());
+	}
+
+	@Test
+	void sendRestoresLeftMembersForQuestionRoom() {
+		User me = user(42L, "me@example.com", "me");
+		ChatRoom room = room(ChatRoom.question(9L, 42L, 77L), 100L);
+		ChatMember member = ChatMember.join(room, me);
+		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(member));
+		when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> {
+			Message message = invocation.getArgument(0);
+			setField(message, "id", 501L);
+			return message;
+		});
+
+		service.send(principal(42L), 100L, new SendChatMessageRequest("hello", null));
+
+		verify(chatMemberRepository).restoreLeftMembersByRoomIdExceptSender(100L, 42L);
+	}
+
+	@Test
+	void sendDoesNotRestoreLeftMembersForGroupRoom() {
+		User me = user(42L, "me@example.com", "me");
+		ChatRoom room = room(ChatRoom.group(7L), 100L);
+		ChatMember member = ChatMember.join(room, me);
+		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(member));
+		when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> {
+			Message message = invocation.getArgument(0);
+			setField(message, "id", 501L);
+			return message;
+		});
+
+		service.send(principal(42L), 100L, new SendChatMessageRequest("hello", null));
+
+		verify(chatMemberRepository, never()).restoreLeftMembersByRoomIdExceptSender(100L, 42L);
+		assertThat(member.getRoom().getRoomType()).isEqualTo(RoomType.group);
 	}
 
 	@Test

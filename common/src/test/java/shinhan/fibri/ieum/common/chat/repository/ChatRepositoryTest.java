@@ -72,6 +72,25 @@ class ChatRepositoryTest {
 	}
 
 	@Test
+	void restoresLeftMembersExceptSender() {
+		User me = persist(user("restore-me@example.com", "restore-me"));
+		User friend = persist(user("restore-friend@example.com", "restore-friend"));
+		ChatRoom room = chatRoomRepository.save(ChatRoom.direct(me.getId(), friend.getId()));
+		chatMemberRepository.save(ChatMember.join(room, me));
+		ChatMember left = chatMemberRepository.save(ChatMember.join(room, friend));
+		left.leave(OffsetDateTime.parse("2026-07-08T09:00:00+09:00"));
+		entityManager.flush();
+		entityManager.clear();
+
+		int restored = chatMemberRepository.restoreLeftMembersByRoomIdExceptSender(room.getId(), me.getId());
+		entityManager.flush();
+		entityManager.clear();
+
+		assertThat(restored).isEqualTo(1);
+		assertThat(chatMemberRepository.findActiveByRoomIdAndUserId(room.getId(), friend.getId())).isPresent();
+	}
+
+	@Test
 	void countsUnreadMessagesAndFindsLastMessagesInBulk() {
 		User me = persist(user("unread-me@example.com", "unread-me"));
 		User friend = persist(user("unread-friend@example.com", "unread-friend"));

@@ -9,6 +9,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.chat.domain.ChatMember;
 import shinhan.fibri.ieum.common.chat.domain.Message;
+import shinhan.fibri.ieum.common.chat.domain.RoomType;
 import shinhan.fibri.ieum.common.chat.repository.ChatMemberRepository;
 import shinhan.fibri.ieum.common.chat.repository.MessageRepository;
 import shinhan.fibri.ieum.main.chat.dto.ChatMessageResponse;
@@ -32,10 +33,18 @@ public class ChatMessageService {
 		validatePayload(request);
 		ChatMember member = chatMemberRepository.findActiveByRoomIdAndUserId(roomId, principal.userId())
 			.orElseThrow(NotRoomMemberException::new);
+		restoreLeftMembersForReopenableRoom(member, principal.userId());
 		Message message = messageRepository.save(toMessage(member, request));
 		WsMessageEvent event = toEvent(message);
 		publishAfterCommit(event);
 		return ChatMessageResponse.from(message);
+	}
+
+	private void restoreLeftMembersForReopenableRoom(ChatMember senderMember, Long senderId) {
+		if (senderMember.getRoom().getRoomType() == RoomType.group) {
+			return;
+		}
+		chatMemberRepository.restoreLeftMembersByRoomIdExceptSender(senderMember.getRoom().getId(), senderId);
 	}
 
 	private void validatePayload(SendChatMessageRequest request) {
