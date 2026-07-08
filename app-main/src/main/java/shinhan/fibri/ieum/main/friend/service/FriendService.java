@@ -1,5 +1,7 @@
 package shinhan.fibri.ieum.main.friend.service;
 
+import java.time.Clock;
+import java.util.List;
 import java.util.Locale;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -13,6 +15,10 @@ import shinhan.fibri.ieum.common.auth.repository.UserRepository;
 import shinhan.fibri.ieum.common.friend.domain.Friendship;
 import shinhan.fibri.ieum.common.friend.domain.FriendshipStatus;
 import shinhan.fibri.ieum.common.friend.repository.FriendshipRepository;
+import shinhan.fibri.ieum.main.friend.dto.BlockedUserIdsResponse;
+import shinhan.fibri.ieum.main.friend.dto.BlockedUserResponse;
+import shinhan.fibri.ieum.main.friend.dto.FriendRequestResponse;
+import shinhan.fibri.ieum.main.friend.dto.FriendResponse;
 import shinhan.fibri.ieum.main.friend.exception.AlreadyFriendsException;
 import shinhan.fibri.ieum.main.friend.exception.BlockedFriendshipException;
 import shinhan.fibri.ieum.main.friend.exception.CannotAcceptOwnFriendRequestException;
@@ -29,6 +35,56 @@ public class FriendService {
 	private final UserRepository userRepository;
 	private final FriendshipRepository friendshipRepository;
 	private final FriendRequestNotifier friendRequestNotifier;
+
+	@Transactional(readOnly = true)
+	public List<FriendResponse> listFriends(AuthenticatedUser principal) {
+		User currentUser = findActiveUser(principal.userId());
+		return friendshipRepository.findAcceptedByUserId(currentUser.getId()).stream()
+			.map(friendship -> friendship.otherUser(currentUser.getId()))
+			.map(user -> FriendResponse.from(user, Clock.systemDefaultZone()))
+			.toList();
+	}
+
+	@Transactional(readOnly = true)
+	public List<FriendRequestResponse> listFriendRequests(AuthenticatedUser principal, String direction) {
+		User currentUser = findActiveUser(principal.userId());
+		if (direction == null) {
+			throw invalidFriendRequestDirection();
+		}
+		return switch (direction) {
+			case "received" -> friendshipRepository.findPendingReceivedByUserId(currentUser.getId()).stream()
+				.map(friendship -> FriendRequestResponse.from(friendship.getRequester(), friendship.getCreatedAt()))
+				.toList();
+			case "sent" -> friendshipRepository.findPendingSentByUserId(currentUser.getId()).stream()
+				.map(friendship -> FriendRequestResponse.from(friendship.getAddressee(), friendship.getCreatedAt()))
+				.toList();
+			default -> throw invalidFriendRequestDirection();
+		};
+	}
+
+	@Transactional(readOnly = true)
+	public List<BlockedUserResponse> listBlocks(AuthenticatedUser principal) {
+		User currentUser = findActiveUser(principal.userId());
+		return friendshipRepository.findBlockedByUserId(currentUser.getId()).stream()
+			.map(friendship -> BlockedUserResponse.from(friendship.otherUser(currentUser.getId()), friendship.getUpdatedAt()))
+			.toList();
+	}
+
+	@Transactional(readOnly = true)
+	public BlockedUserIdsResponse listBlockedUserIds(AuthenticatedUser principal) {
+		User currentUser = findActiveUser(principal.userId());
+		return BlockedUserIdsResponse.from(friendshipRepository.findBlockedUserIdsByUserId(currentUser.getId()));
+	}
+
+	@Transactional(readOnly = true)
+	public boolean areFriends(Long firstUserId, Long secondUserId) {
+		return friendshipRepository.existsAcceptedByUserPair(firstUserId, secondUserId);
+	}
+
+	@Transactional(readOnly = true)
+	public boolean hasBlockBetween(Long firstUserId, Long secondUserId) {
+		return friendshipRepository.existsBlockedByUserPair(firstUserId, secondUserId);
+	}
 
 	@Transactional
 	public void requestFriend(AuthenticatedUser principal, Long targetUserId) {
@@ -148,6 +204,10 @@ public class FriendService {
 	private boolean isFriendPairConstraintViolation(DataIntegrityViolationException exception) {
 		String message = exception.getMessage();
 		return message != null && message.toLowerCase(Locale.ROOT).contains("uidx_friend_pair");
+	}
+
+	private IllegalArgumentException invalidFriendRequestDirection() {
+		return new IllegalArgumentException("direction must be received or sent");
 	}
 
 	private void rejectExistingFriendship(Friendship friendship) {

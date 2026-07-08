@@ -9,6 +9,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -23,6 +25,10 @@ import shinhan.fibri.ieum.common.auth.repository.UserRepository;
 import shinhan.fibri.ieum.common.friend.domain.Friendship;
 import shinhan.fibri.ieum.common.friend.domain.FriendshipStatus;
 import shinhan.fibri.ieum.common.friend.repository.FriendshipRepository;
+import shinhan.fibri.ieum.main.friend.dto.BlockedUserIdsResponse;
+import shinhan.fibri.ieum.main.friend.dto.BlockedUserResponse;
+import shinhan.fibri.ieum.main.friend.dto.FriendRequestResponse;
+import shinhan.fibri.ieum.main.friend.dto.FriendResponse;
 import shinhan.fibri.ieum.main.friend.exception.AlreadyFriendsException;
 import shinhan.fibri.ieum.main.friend.exception.BlockedFriendshipException;
 import shinhan.fibri.ieum.main.friend.exception.CannotAcceptOwnFriendRequestException;
@@ -648,6 +654,175 @@ class FriendServiceTest {
 		verify(friendshipRepository, never()).delete(any(Friendship.class));
 	}
 
+	@Test
+	void listFriendsMapsAcceptedOtherUsersWhenCurrentUserIsActive() {
+		User currentUser = user(42L, "current@example.com", "current");
+		User firstFriend = user(77L, "first@example.com", "first");
+		User secondFriend = user(88L, "second@example.com", "second");
+		OffsetDateTime activeAt = OffsetDateTime.now().plusMinutes(1);
+		setField(firstFriend, "lastActiveAt", activeAt);
+		Friendship first = acceptedFriendship(currentUser, firstFriend);
+		Friendship second = acceptedFriendship(secondFriend, currentUser);
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(friendshipRepository.findAcceptedByUserId(42L)).thenReturn(List.of(first, second));
+
+		List<FriendResponse> responses = service.listFriends(principal(42L));
+
+		assertThat(responses).hasSize(2);
+		assertThat(responses.get(0).userId()).isEqualTo(77L);
+		assertThat(responses.get(0).nickname()).isEqualTo("first");
+		assertThat(responses.get(0).lastActiveAt()).isEqualTo(activeAt);
+		assertThat(responses.get(0).active()).isTrue();
+		assertThat(responses.get(1).userId()).isEqualTo(88L);
+		assertThat(responses.get(1).nickname()).isEqualTo("second");
+	}
+
+	@Test
+	void listFriendsThrowsUserNotFoundWhenCurrentUserIsMissingOrDeleted() {
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.listFriends(principal(42L)))
+			.isInstanceOf(UserNotFoundException.class);
+
+		verify(friendshipRepository, never()).findAcceptedByUserId(any());
+	}
+
+	@Test
+	void listFriendRequestsReceivedMapsPendingRequesters() {
+		User currentUser = user(42L, "current@example.com", "current");
+		User requester = user(77L, "requester@example.com", "requester");
+		OffsetDateTime requestedAt = OffsetDateTime.parse("2026-07-08T10:15:30+09:00");
+		Friendship friendship = Friendship.request(requester, currentUser);
+		setField(friendship, "createdAt", requestedAt);
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(friendshipRepository.findPendingReceivedByUserId(42L)).thenReturn(List.of(friendship));
+
+		List<FriendRequestResponse> responses = service.listFriendRequests(principal(42L), "received");
+
+		assertThat(responses).hasSize(1);
+		assertThat(responses.get(0).userId()).isEqualTo(77L);
+		assertThat(responses.get(0).nickname()).isEqualTo("requester");
+		assertThat(responses.get(0).requestedAt()).isEqualTo(requestedAt);
+		verify(friendshipRepository, never()).findPendingSentByUserId(any());
+	}
+
+	@Test
+	void listFriendRequestsSentMapsPendingAddressees() {
+		User currentUser = user(42L, "current@example.com", "current");
+		User addressee = user(77L, "addressee@example.com", "addressee");
+		OffsetDateTime requestedAt = OffsetDateTime.parse("2026-07-08T10:15:30+09:00");
+		Friendship friendship = Friendship.request(currentUser, addressee);
+		setField(friendship, "createdAt", requestedAt);
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(friendshipRepository.findPendingSentByUserId(42L)).thenReturn(List.of(friendship));
+
+		List<FriendRequestResponse> responses = service.listFriendRequests(principal(42L), "sent");
+
+		assertThat(responses).hasSize(1);
+		assertThat(responses.get(0).userId()).isEqualTo(77L);
+		assertThat(responses.get(0).nickname()).isEqualTo("addressee");
+		assertThat(responses.get(0).requestedAt()).isEqualTo(requestedAt);
+		verify(friendshipRepository, never()).findPendingReceivedByUserId(any());
+	}
+
+	@Test
+	void listFriendRequestsRejectsInvalidDirection() {
+		User currentUser = user(42L, "current@example.com", "current");
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+
+		assertThatThrownBy(() -> service.listFriendRequests(principal(42L), "all"))
+			.isInstanceOf(IllegalArgumentException.class);
+
+		verify(friendshipRepository, never()).findPendingReceivedByUserId(any());
+		verify(friendshipRepository, never()).findPendingSentByUserId(any());
+	}
+
+	@Test
+	void listFriendRequestsRejectsNullDirection() {
+		User currentUser = user(42L, "current@example.com", "current");
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+
+		assertThatThrownBy(() -> service.listFriendRequests(principal(42L), null))
+			.isInstanceOf(IllegalArgumentException.class);
+
+		verify(friendshipRepository, never()).findPendingReceivedByUserId(any());
+		verify(friendshipRepository, never()).findPendingSentByUserId(any());
+	}
+
+	@Test
+	void listFriendRequestsThrowsUserNotFoundWhenCurrentUserIsMissingOrDeleted() {
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.listFriendRequests(principal(42L), "received"))
+			.isInstanceOf(UserNotFoundException.class);
+
+		verify(friendshipRepository, never()).findPendingReceivedByUserId(any());
+		verify(friendshipRepository, never()).findPendingSentByUserId(any());
+	}
+
+	@Test
+	void listBlocksMapsUsersBlockedByCurrentUser() {
+		User currentUser = user(42L, "current@example.com", "current");
+		User blockedUser = user(77L, "blocked@example.com", "blocked");
+		OffsetDateTime blockedAt = OffsetDateTime.parse("2026-07-08T10:15:30+09:00");
+		Friendship friendship = Friendship.blocked(currentUser, blockedUser, currentUser);
+		setField(friendship, "updatedAt", blockedAt);
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(friendshipRepository.findBlockedByUserId(42L)).thenReturn(List.of(friendship));
+
+		List<BlockedUserResponse> responses = service.listBlocks(principal(42L));
+
+		assertThat(responses).hasSize(1);
+		assertThat(responses.get(0).userId()).isEqualTo(77L);
+		assertThat(responses.get(0).nickname()).isEqualTo("blocked");
+		assertThat(responses.get(0).blockedAt()).isEqualTo(blockedAt);
+	}
+
+	@Test
+	void listBlocksThrowsUserNotFoundWhenCurrentUserIsMissingOrDeleted() {
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.listBlocks(principal(42L)))
+			.isInstanceOf(UserNotFoundException.class);
+
+		verify(friendshipRepository, never()).findBlockedByUserId(any());
+	}
+
+	@Test
+	void listBlockedUserIdsWrapsSymmetricRepositoryIds() {
+		User currentUser = user(42L, "current@example.com", "current");
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(friendshipRepository.findBlockedUserIdsByUserId(42L)).thenReturn(List.of(77L, 88L));
+
+		BlockedUserIdsResponse response = service.listBlockedUserIds(principal(42L));
+
+		assertThat(response.userIds()).containsExactly(77L, 88L);
+	}
+
+	@Test
+	void listBlockedUserIdsThrowsUserNotFoundWhenCurrentUserIsMissingOrDeleted() {
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.listBlockedUserIds(principal(42L)))
+			.isInstanceOf(UserNotFoundException.class);
+
+		verify(friendshipRepository, never()).findBlockedUserIdsByUserId(any());
+	}
+
+	@Test
+	void areFriendsDelegatesToRepositoryExistsAcceptedByUserPair() {
+		when(friendshipRepository.existsAcceptedByUserPair(42L, 77L)).thenReturn(true);
+
+		assertThat(service.areFriends(42L, 77L)).isTrue();
+	}
+
+	@Test
+	void hasBlockBetweenDelegatesToRepositoryExistsBlockedByUserPair() {
+		when(friendshipRepository.existsBlockedByUserPair(42L, 77L)).thenReturn(true);
+
+		assertThat(service.hasBlockBetween(42L, 77L)).isTrue();
+	}
+
 	private AuthenticatedUser principal(Long userId) {
 		return new AuthenticatedUser(userId, "user" + userId + "@example.com", UserRole.user, UserStatus.active);
 	}
@@ -666,10 +841,20 @@ class FriendServiceTest {
 	}
 
 	private void setId(User user, Long id) {
+		setField(user, "id", id);
+	}
+
+	private Friendship acceptedFriendship(User requester, User addressee) {
+		Friendship friendship = Friendship.request(requester, addressee);
+		friendship.accept();
+		return friendship;
+	}
+
+	private void setField(Object target, String fieldName, Object value) {
 		try {
-			java.lang.reflect.Field field = User.class.getDeclaredField("id");
+			java.lang.reflect.Field field = target.getClass().getDeclaredField(fieldName);
 			field.setAccessible(true);
-			field.set(user, id);
+			field.set(target, value);
 		} catch (ReflectiveOperationException exception) {
 			throw new IllegalStateException(exception);
 		}
