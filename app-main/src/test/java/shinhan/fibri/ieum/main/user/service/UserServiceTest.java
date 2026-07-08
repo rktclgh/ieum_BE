@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -28,12 +29,15 @@ import shinhan.fibri.ieum.common.auth.repository.UserSettingsRepository;
 import shinhan.fibri.ieum.common.file.domain.File;
 import shinhan.fibri.ieum.common.file.repository.FileRepository;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
+import shinhan.fibri.ieum.main.friend.service.FriendService;
 import shinhan.fibri.ieum.main.user.dto.ProfileImageResponse;
+import shinhan.fibri.ieum.main.user.dto.PublicUserProfileResponse;
 import shinhan.fibri.ieum.main.user.dto.UpdateProfileImageRequest;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserProfileRequest;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserSettingsRequest;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserLocationRequest;
 import shinhan.fibri.ieum.main.user.dto.UserMeResponse;
+import shinhan.fibri.ieum.main.user.dto.UserSearchResponse;
 import shinhan.fibri.ieum.main.user.dto.UserSettingsResponse;
 import shinhan.fibri.ieum.main.user.exception.NicknameAlreadyUsedException;
 import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
@@ -46,13 +50,15 @@ class UserServiceTest {
 	private final RedisAuthSessionStore sessionStore = mock(RedisAuthSessionStore.class);
 	private final FileRepository fileRepository = mock(FileRepository.class);
 	private final ProfileFileCleanupService profileFileCleanupService = mock(ProfileFileCleanupService.class);
+	private final FriendService friendService = mock(FriendService.class);
 	private final UserService service = new UserService(
 		userRepository,
 		userSettingsRepository,
 		countryRepository,
 		sessionStore,
 		fileRepository,
-		profileFileCleanupService
+		profileFileCleanupService,
+		friendService
 	);
 
 	@Test
@@ -301,6 +307,71 @@ class UserServiceTest {
 			.isInstanceOf(UserNotFoundException.class);
 	}
 
+	@Test
+	void searchExcludesSelfAndBlockedUsersAndSetsIsFriend() {
+		User currentUser = user();
+		User friend = user(7L, "nick-friend", "US");
+		User blocked = user(8L, "nick-blocked", "JP");
+		User stranger = user(9L, "nick-stranger", "KR");
+		setLastActiveAt(friend, OffsetDateTime.parse("2026-07-07T01:00:00Z"));
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(userRepository.searchActiveUsersByNickname("nick"))
+			.thenReturn(List.of(currentUser, friend, blocked, stranger));
+		when(friendService.hasBlockBetween(42L, 7L)).thenReturn(false);
+		when(friendService.hasBlockBetween(42L, 8L)).thenReturn(true);
+		when(friendService.hasBlockBetween(42L, 9L)).thenReturn(false);
+		when(friendService.areFriends(42L, 7L)).thenReturn(true);
+		when(friendService.areFriends(42L, 9L)).thenReturn(false);
+
+		List<UserSearchResponse> responses = service.searchUsers(principal(), " nick ");
+
+		assertThat(responses).extracting(UserSearchResponse::userId)
+			.containsExactly(7L, 9L);
+		assertThat(responses.get(0).isFriend()).isTrue();
+		assertThat(responses.get(0).lastActiveAt()).isEqualTo(OffsetDateTime.parse("2026-07-07T01:00:00Z"));
+		assertThat(responses.get(1).isFriend()).isFalse();
+		verify(friendService, never()).areFriends(42L, 8L);
+	}
+
+	@Test
+	void searchBlankNicknameRejects() {
+		assertThatThrownBy(() -> service.searchUsers(principal(), "  "))
+			.isInstanceOf(IllegalArgumentException.class)
+			.hasMessage("nickname is required");
+		verify(userRepository, never()).searchActiveUsersByNickname(any());
+	}
+
+	@Test
+	void publicProfileReturnsIsFriend() {
+		User currentUser = user();
+		User targetUser = user(7L, "target", "US");
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(userRepository.findByIdAndDeletedAtIsNull(7L)).thenReturn(Optional.of(targetUser));
+		when(friendService.hasBlockBetween(42L, 7L)).thenReturn(false);
+		when(friendService.areFriends(42L, 7L)).thenReturn(true);
+
+		PublicUserProfileResponse response = service.getPublicProfile(principal(), 7L);
+
+		assertThat(response.userId()).isEqualTo(7L);
+		assertThat(response.nickname()).isEqualTo("target");
+		assertThat(response.nationality()).isEqualTo("US");
+		assertThat(response.grade()).isEqualTo("bronze");
+		assertThat(response.isFriend()).isTrue();
+	}
+
+	@Test
+	void publicProfileHidesBlockedRelationshipAsUserNotFound() {
+		User currentUser = user();
+		User targetUser = user(7L, "target", "US");
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(userRepository.findByIdAndDeletedAtIsNull(7L)).thenReturn(Optional.of(targetUser));
+		when(friendService.hasBlockBetween(42L, 7L)).thenReturn(true);
+
+		assertThatThrownBy(() -> service.getPublicProfile(principal(), 7L))
+			.isInstanceOf(UserNotFoundException.class);
+		verify(friendService, never()).areFriends(42L, 7L);
+	}
+
 	private AuthenticatedUser principal() {
 		return new AuthenticatedUser(42L, "user@example.com", user().getRole(), user().getStatus());
 	}
@@ -318,6 +389,19 @@ class UserServiceTest {
 		return user;
 	}
 
+	private User user(Long id, String nickname, String nationality) {
+		User user = User.createEmailUser(
+			nickname + "@example.com",
+			"hash",
+			nickname,
+			LocalDate.of(1995, 5, 20),
+			GenderType.female,
+			nationality
+		);
+		setId(user, id);
+		return user;
+	}
+
 	private File completedFile(UUID fileId, String finalKey) {
 		File file = File.pending(fileId, 42L, finalKey, finalKey.endsWith(".png") ? "image/png" : "image/jpeg", 1024L);
 		file.markUploaded(OffsetDateTime.parse("2026-07-07T00:00:00Z"), file.getContentType(), 1024L);
@@ -329,6 +413,16 @@ class UserServiceTest {
 			java.lang.reflect.Field field = User.class.getDeclaredField("id");
 			field.setAccessible(true);
 			field.set(user, id);
+		} catch (ReflectiveOperationException exception) {
+			throw new IllegalStateException(exception);
+		}
+	}
+
+	private void setLastActiveAt(User user, OffsetDateTime lastActiveAt) {
+		try {
+			java.lang.reflect.Field field = User.class.getDeclaredField("lastActiveAt");
+			field.setAccessible(true);
+			field.set(user, lastActiveAt);
 		} catch (ReflectiveOperationException exception) {
 			throw new IllegalStateException(exception);
 		}

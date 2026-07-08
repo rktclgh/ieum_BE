@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.main.user.service;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -21,12 +22,15 @@ import shinhan.fibri.ieum.common.file.domain.File;
 import shinhan.fibri.ieum.common.file.repository.FileRepository;
 import shinhan.fibri.ieum.common.auth.validation.AuthValidationRules;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
+import shinhan.fibri.ieum.main.friend.service.FriendService;
 import shinhan.fibri.ieum.main.user.dto.ProfileImageResponse;
+import shinhan.fibri.ieum.main.user.dto.PublicUserProfileResponse;
 import shinhan.fibri.ieum.main.user.dto.UpdateProfileImageRequest;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserLocationRequest;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserProfileRequest;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserSettingsRequest;
 import shinhan.fibri.ieum.main.user.dto.UserMeResponse;
+import shinhan.fibri.ieum.main.user.dto.UserSearchResponse;
 import shinhan.fibri.ieum.main.user.dto.UserSettingsResponse;
 import shinhan.fibri.ieum.main.user.exception.InvalidUserFieldException;
 import shinhan.fibri.ieum.main.user.exception.NicknameAlreadyUsedException;
@@ -44,6 +48,7 @@ public class UserService {
 	private final RedisAuthSessionStore sessionStore;
 	private final FileRepository fileRepository;
 	private final ProfileFileCleanupService profileFileCleanupService;
+	private final FriendService friendService;
 
 	@Transactional
 	public UserMeResponse getMe(AuthenticatedUser principal) {
@@ -143,6 +148,35 @@ public class UserService {
 		User user = findActiveUser(principal.userId());
 		user.markDeleted(OffsetDateTime.now());
 		revokeSessionsAfterCommit(user.getId());
+	}
+
+	@Transactional(readOnly = true)
+	public List<UserSearchResponse> searchUsers(AuthenticatedUser principal, String nickname) {
+		if (nickname == null || nickname.isBlank()) {
+			throw new IllegalArgumentException("nickname is required");
+		}
+		User currentUser = findActiveUser(principal.userId());
+		return userRepository.searchActiveUsersByNickname(nickname.trim()).stream()
+			.filter(target -> !target.getId().equals(currentUser.getId()))
+			.filter(target -> !friendService.hasBlockBetween(currentUser.getId(), target.getId()))
+			.map(target -> UserSearchResponse.from(
+				target,
+				friendService.areFriends(currentUser.getId(), target.getId())
+			))
+			.toList();
+	}
+
+	@Transactional(readOnly = true)
+	public PublicUserProfileResponse getPublicProfile(AuthenticatedUser principal, Long userId) {
+		User currentUser = findActiveUser(principal.userId());
+		User targetUser = findActiveUser(userId);
+		if (friendService.hasBlockBetween(currentUser.getId(), targetUser.getId())) {
+			throw new UserNotFoundException();
+		}
+		return PublicUserProfileResponse.from(
+			targetUser,
+			friendService.areFriends(currentUser.getId(), targetUser.getId())
+		);
 	}
 
 	private User findActiveUser(Long userId) {
