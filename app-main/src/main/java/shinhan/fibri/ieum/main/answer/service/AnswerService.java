@@ -77,7 +77,7 @@ public class AnswerService {
 		answer.accept();
 		question.markResolved();
 		if (!answer.isAi()) {
-			userRepository.findByIdAndDeletedAtIsNull(answer.getAuthorId())
+			userRepository.findByIdForUpdate(answer.getAuthorId())
 				.ifPresent(User::recordAcceptedAnswer);
 		}
 	}

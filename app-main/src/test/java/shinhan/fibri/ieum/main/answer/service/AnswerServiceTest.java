@@ -222,7 +222,7 @@ class AnswerServiceTest {
 		}
 		when(answerRepository.findById(300L)).thenReturn(Optional.of(answer));
 		when(questionRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(question));
-		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(answerAuthor));
+		when(userRepository.findByIdForUpdate(77L)).thenReturn(Optional.of(answerAuthor));
 
 		service.accept(principal(), 300L);
 
@@ -272,7 +272,7 @@ class AnswerServiceTest {
 			.isInstanceOf(QuestionAlreadyResolvedException.class);
 
 		assertThat(answer.isAccepted()).isFalse();
-		verify(userRepository, never()).findByIdAndDeletedAtIsNull(any());
+		verify(userRepository, never()).findByIdForUpdate(any());
 	}
 
 	@Test
@@ -289,7 +289,7 @@ class AnswerServiceTest {
 
 		assertThat(answer.isAccepted()).isFalse();
 		assertThat(question.isResolved()).isFalse();
-		verify(userRepository, never()).findByIdAndDeletedAtIsNull(any());
+		verify(userRepository, never()).findByIdForUpdate(any());
 	}
 
 	@Test
@@ -305,7 +305,7 @@ class AnswerServiceTest {
 
 		assertThat(answer.isAccepted()).isTrue();
 		assertThat(question.isResolved()).isTrue();
-		verify(userRepository, never()).findByIdAndDeletedAtIsNull(any());
+		verify(userRepository, never()).findByIdForUpdate(any());
 	}
 
 	private AuthenticatedUser principal() {
