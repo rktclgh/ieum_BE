@@ -53,4 +53,12 @@ class FileObjectKeysTest {
 		assertThatThrownBy(() -> FileObjectKeys.tmpOriginKey("tmp", 42L, "../meeting", fileId, "image/jpeg"))
 			.isInstanceOf(InvalidFileRequestException.class);
 	}
+
+	@Test
+	void rejectsUnknownPurpose() {
+		UUID fileId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+
+		assertThatThrownBy(() -> FileObjectKeys.tmpOriginKey("tmp", 42L, "banana", fileId, "image/jpeg"))
+			.isInstanceOf(InvalidFileRequestException.class);
+	}
 }

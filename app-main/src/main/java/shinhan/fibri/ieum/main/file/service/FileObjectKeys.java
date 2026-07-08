@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.main.file.service;
 
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import shinhan.fibri.ieum.main.file.exception.InvalidFileRequestException;
@@ -8,6 +9,7 @@ import shinhan.fibri.ieum.main.file.exception.InvalidFileRequestException;
 public final class FileObjectKeys {
 
 	private static final Pattern PURPOSE_PATTERN = Pattern.compile("[a-z][a-z0-9_-]{0,39}");
+	private static final Set<String> ALLOWED_PURPOSES = Set.of("profile", "meeting", "chat", "question", "answer");
 
 	private FileObjectKeys() {
 	}
@@ -89,7 +91,7 @@ public final class FileObjectKeys {
 			throw new InvalidFileRequestException("purpose is required");
 		}
 		String cleaned = purpose.trim().toLowerCase(Locale.ROOT);
-		if (!PURPOSE_PATTERN.matcher(cleaned).matches()) {
+		if (!PURPOSE_PATTERN.matcher(cleaned).matches() || !ALLOWED_PURPOSES.contains(cleaned)) {
 			throw new InvalidFileRequestException("Invalid file purpose");
 		}
 		return cleaned;

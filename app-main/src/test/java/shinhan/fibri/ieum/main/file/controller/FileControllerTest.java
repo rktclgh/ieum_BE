@@ -44,6 +44,8 @@ import shinhan.fibri.ieum.main.file.dto.FileCompleteResponse;
 import shinhan.fibri.ieum.main.file.dto.FilePresignRequest;
 import shinhan.fibri.ieum.main.file.dto.FilePresignResponse;
 import shinhan.fibri.ieum.main.file.dto.FileStreamResponse;
+import shinhan.fibri.ieum.main.file.exception.FileNotFoundException;
+import shinhan.fibri.ieum.main.file.exception.InvalidFileRequestException;
 import shinhan.fibri.ieum.main.file.service.FileService;
 
 @WebMvcTest(FileController.class)
@@ -99,7 +101,7 @@ class FileControllerTest {
 	void streamFileReturnsImageBytesAndHardeningHeaders() throws Exception {
 		UUID fileId = UUID.fromString("33333333-3333-3333-3333-333333333333");
 		when(fileService.stream(any(AuthenticatedUser.class), eq(fileId), eq("thumb")))
-			.thenReturn(new FileStreamResponse("image/webp", 3L, new ByteArrayInputStream(new byte[] {1, 2, 3})));
+			.thenReturn(new FileStreamResponse("image/webp", 3L, () -> new ByteArrayInputStream(new byte[] {1, 2, 3})));
 
 		var result = mockMvc.perform(get("/api/v1/files/{fileId}", fileId)
 				.param("v", "thumb")
@@ -115,6 +117,54 @@ class FileControllerTest {
 		mockMvc.perform(asyncDispatch(result))
 			.andExpect(status().isOk())
 			.andExpect(content().bytes(new byte[] {1, 2, 3}));
+	}
+
+	@Test
+	void presignInvalidRequestReturnsBadRequest() throws Exception {
+		when(fileService.createPresign(any(AuthenticatedUser.class), any(FilePresignRequest.class)))
+			.thenThrow(new InvalidFileRequestException("Only jpeg and png images are supported"));
+
+		mockMvc.perform(post("/api/v1/files/presign")
+				.with(authenticated())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "purpose": "meeting",
+					  "contentType": "image/gif",
+					  "sizeBytes": 1024
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("INVALID_FILE_REQUEST")))
+			.andExpect(jsonPath("$.message", is("Only jpeg and png images are supported")));
+	}
+
+	@Test
+	void streamInvalidVariantReturnsBadRequest() throws Exception {
+		UUID fileId = UUID.fromString("44444444-4444-4444-4444-444444444444");
+		when(fileService.stream(any(AuthenticatedUser.class), eq(fileId), eq("bad")))
+			.thenThrow(new InvalidFileRequestException("Invalid file variant"));
+
+		mockMvc.perform(get("/api/v1/files/{fileId}", fileId)
+				.param("v", "bad")
+				.with(authenticated()))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("INVALID_FILE_REQUEST")))
+			.andExpect(jsonPath("$.message", is("Invalid file variant")));
+	}
+
+	@Test
+	void streamMissingFileReturnsNotFound() throws Exception {
+		UUID fileId = UUID.fromString("55555555-5555-5555-5555-555555555555");
+		when(fileService.stream(any(AuthenticatedUser.class), eq(fileId), eq("thumb")))
+			.thenThrow(new FileNotFoundException());
+
+		mockMvc.perform(get("/api/v1/files/{fileId}", fileId)
+				.param("v", "thumb")
+				.with(authenticated()))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code", is("FILE_NOT_FOUND")))
+			.andExpect(jsonPath("$.message", is("File not found")));
 	}
 
 	private static RequestPostProcessor authenticated() {
