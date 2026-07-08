@@ -85,6 +85,25 @@ public interface QuestionRepository extends JpaRepository<Question, Long> {
 		@Param("limit") int limit
 	);
 
+	@Query(
+		value = """
+			SELECT a.answer_id AS answerId,
+			       a.is_ai AS ai,
+			       u.user_id AS authorId,
+			       u.nickname AS authorNickname,
+			       u.profile_file_id AS authorProfileFileId,
+			       a.content AS content,
+			       a.is_accepted AS accepted,
+			       a.created_at AS createdAt
+			FROM answers a
+			LEFT JOIN users u ON u.user_id = a.author_id
+			WHERE a.question_id = :questionId
+			ORDER BY a.created_at ASC, a.answer_id ASC
+			""",
+		nativeQuery = true
+	)
+	List<AnswerItemProjection> findAnswersByQuestionId(@Param("questionId") Long questionId);
+
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select q from Question q where q.id = :questionId")
 	Optional<Question> findByIdForUpdate(@Param("questionId") Long questionId);

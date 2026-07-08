@@ -4,7 +4,9 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,6 +17,8 @@ import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
 import shinhan.fibri.ieum.common.file.domain.File;
 import shinhan.fibri.ieum.common.file.repository.FileRepository;
+import shinhan.fibri.ieum.main.answer.domain.AnswerImage;
+import shinhan.fibri.ieum.main.answer.repository.AnswerImageRepository;
 import shinhan.fibri.ieum.main.pin.domain.PinType;
 import shinhan.fibri.ieum.main.pin.repository.PinWriter;
 import shinhan.fibri.ieum.main.pin.service.PinCursor;
@@ -30,6 +34,7 @@ import shinhan.fibri.ieum.main.question.dto.QuestionUpdateRequest;
 import shinhan.fibri.ieum.main.question.exception.InvalidQuestionRequestException;
 import shinhan.fibri.ieum.main.question.exception.QuestionForbiddenException;
 import shinhan.fibri.ieum.main.question.exception.QuestionNotFoundException;
+import shinhan.fibri.ieum.main.question.repository.AnswerItemProjection;
 import shinhan.fibri.ieum.main.question.repository.MyQuestionItemProjection;
 import shinhan.fibri.ieum.main.question.repository.QuestionDetailProjection;
 import shinhan.fibri.ieum.main.question.repository.QuestionImageRepository;
@@ -45,6 +50,7 @@ public class QuestionService {
 
 	private final QuestionRepository questionRepository;
 	private final QuestionImageRepository questionImageRepository;
+	private final AnswerImageRepository answerImageRepository;
 	private final FileRepository fileRepository;
 	private final UserRepository userRepository;
 	private final PinWriter pinWriter;
@@ -98,7 +104,8 @@ public class QuestionService {
 			.map(QuestionImage::getFileId)
 			.map(fileId -> DISPLAY_URL_TEMPLATE.formatted(fileId))
 			.toList();
-		return toDetailResponse(detail, imageUrls);
+		List<AnswerItem> answers = toAnswerItems(questionRepository.findAnswersByQuestionId(questionId));
+		return toDetailResponse(detail, imageUrls, answers);
 	}
 
 	@Transactional(readOnly = true)
@@ -174,7 +181,11 @@ public class QuestionService {
 		);
 	}
 
-	private QuestionDetailResponse toDetailResponse(QuestionDetailProjection detail, List<String> imageUrls) {
+	private QuestionDetailResponse toDetailResponse(
+		QuestionDetailProjection detail,
+		List<String> imageUrls,
+		List<AnswerItem> answers
+	) {
 		return new QuestionDetailResponse(
 			detail.getQuestionId(),
 			detail.getTitle(),
@@ -186,7 +197,47 @@ public class QuestionService {
 				profileUrl(detail.getAuthorProfileFileId())
 			),
 			imageUrls,
-			List.<AnswerItem>of()
+			answers
+		);
+	}
+
+	private List<AnswerItem> toAnswerItems(List<AnswerItemProjection> answerRows) {
+		if (answerRows.isEmpty()) {
+			return List.of();
+		}
+		List<Long> answerIds = answerRows.stream()
+			.map(AnswerItemProjection::getAnswerId)
+			.toList();
+		Map<Long, List<String>> imageUrlsByAnswerId = answerImageRepository.findByAnswerIdInOrderBySortOrderAsc(answerIds)
+			.stream()
+			.collect(Collectors.groupingBy(
+				AnswerImage::getAnswerId,
+				Collectors.mapping(
+					image -> DISPLAY_URL_TEMPLATE.formatted(image.getFileId()),
+					Collectors.toList()
+				)
+			));
+		return answerRows.stream()
+			.map(row -> new AnswerItem(
+				row.getAnswerId(),
+				row.getAi(),
+				authorSummary(row),
+				row.getContent(),
+				row.getAccepted(),
+				row.getCreatedAt().atOffset(ZoneOffset.UTC),
+				imageUrlsByAnswerId.getOrDefault(row.getAnswerId(), List.of())
+			))
+			.toList();
+	}
+
+	private AuthorSummary authorSummary(AnswerItemProjection answer) {
+		if (answer.getAi()) {
+			return null;
+		}
+		return new AuthorSummary(
+			answer.getAuthorId(),
+			answer.getAuthorNickname(),
+			profileUrl(answer.getAuthorProfileFileId())
 		);
 	}
 

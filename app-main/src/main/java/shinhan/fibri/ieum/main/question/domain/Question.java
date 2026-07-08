@@ -63,6 +63,10 @@ public class Question {
 		}
 	}
 
+	public void markResolved() {
+		this.resolved = true;
+	}
+
 	public Long getId() {
 		return id;
 	}

@@ -13,10 +13,10 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
 import shinhan.fibri.ieum.common.file.repository.FileRepository;
+import shinhan.fibri.ieum.main.answer.repository.AnswerImageRepository;
 import shinhan.fibri.ieum.main.file.service.FileObjectKeys;
 import shinhan.fibri.ieum.main.file.service.FileVariant;
 import shinhan.fibri.ieum.main.file.storage.FileStorage;
-import shinhan.fibri.ieum.main.question.repository.AnswerImageRepository;
 import shinhan.fibri.ieum.main.question.repository.QuestionImageRepository;
 
 @Service

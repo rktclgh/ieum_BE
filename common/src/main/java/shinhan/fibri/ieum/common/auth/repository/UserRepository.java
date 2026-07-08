@@ -5,11 +5,14 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import shinhan.fibri.ieum.common.auth.domain.AuthProvider;
 import shinhan.fibri.ieum.common.auth.domain.User;
+
+import jakarta.persistence.LockModeType;
 
 public interface UserRepository extends JpaRepository<User, Long> {
 
@@ -24,6 +27,10 @@ public interface UserRepository extends JpaRepository<User, Long> {
 	Optional<User> findByProviderAndProviderUidAndDeletedAtIsNull(AuthProvider provider, String providerUid);
 
 	Optional<User> findByIdAndDeletedAtIsNull(Long userId);
+
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("select u from User u where u.id = :userId and u.deletedAt is null")
+	Optional<User> findByIdForUpdate(@Param("userId") Long userId);
 
 	@Query("""
 		SELECT u

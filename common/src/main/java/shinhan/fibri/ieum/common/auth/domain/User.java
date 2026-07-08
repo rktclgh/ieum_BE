@@ -181,6 +181,11 @@ public class User {
 		this.profileFileId = null;
 	}
 
+	public void recordAcceptedAnswer() {
+		this.acceptedCount++;
+		this.grade = UserGrade.fromAcceptedCount(acceptedCount);
+	}
+
 	public Long getId() {
 		return id;
 	}

@@ -26,9 +26,12 @@ import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
 import shinhan.fibri.ieum.common.file.domain.File;
 import shinhan.fibri.ieum.common.file.repository.FileRepository;
+import shinhan.fibri.ieum.main.answer.domain.AnswerImage;
+import shinhan.fibri.ieum.main.answer.repository.AnswerImageRepository;
 import shinhan.fibri.ieum.main.pin.domain.PinType;
 import shinhan.fibri.ieum.main.pin.repository.PinWriter;
 import shinhan.fibri.ieum.main.question.domain.Question;
+import shinhan.fibri.ieum.main.question.dto.AnswerItem;
 import shinhan.fibri.ieum.main.question.dto.QuestionCreateRequest;
 import shinhan.fibri.ieum.main.question.dto.QuestionDetailResponse;
 import shinhan.fibri.ieum.main.question.dto.QuestionLocation;
@@ -36,6 +39,7 @@ import shinhan.fibri.ieum.main.question.dto.QuestionUpdateRequest;
 import shinhan.fibri.ieum.main.question.exception.InvalidQuestionRequestException;
 import shinhan.fibri.ieum.main.question.exception.QuestionForbiddenException;
 import shinhan.fibri.ieum.main.question.domain.QuestionImage;
+import shinhan.fibri.ieum.main.question.repository.AnswerItemProjection;
 import shinhan.fibri.ieum.main.question.repository.MyQuestionItemProjection;
 import shinhan.fibri.ieum.main.question.repository.QuestionDetailProjection;
 import shinhan.fibri.ieum.main.question.repository.QuestionImageRepository;
@@ -45,6 +49,7 @@ class QuestionServiceTest {
 
 	private final QuestionRepository questionRepository = mock(QuestionRepository.class);
 	private final QuestionImageRepository questionImageRepository = mock(QuestionImageRepository.class);
+	private final AnswerImageRepository answerImageRepository = mock(AnswerImageRepository.class);
 	private final FileRepository fileRepository = mock(FileRepository.class);
 	private final UserRepository userRepository = mock(UserRepository.class);
 	private final PinWriter pinWriter = mock(PinWriter.class);
@@ -52,6 +57,7 @@ class QuestionServiceTest {
 	private final QuestionService service = new QuestionService(
 		questionRepository,
 		questionImageRepository,
+		answerImageRepository,
 		fileRepository,
 		userRepository,
 		pinWriter,
@@ -136,6 +142,72 @@ class QuestionServiceTest {
 		);
 		assertThat(response.author().profileImageUrl()).isEqualTo("/api/v1/files/%s".formatted(profileId));
 		assertThat(response.answers()).isEmpty();
+		verify(answerImageRepository, never()).findByAnswerIdInOrderBySortOrderAsc(any());
+	}
+
+	@Test
+	void getDetailAssemblesHumanAiAnswersAndAnswerImages() {
+		UUID answerFirstImage = UUID.fromString("00000000-0000-0000-0000-000000000041");
+		UUID answerSecondImage = UUID.fromString("00000000-0000-0000-0000-000000000042");
+		UUID aiAnswerImage = UUID.fromString("00000000-0000-0000-0000-000000000043");
+		UUID answerAuthorProfileId = UUID.fromString("00000000-0000-0000-0000-000000000105");
+		when(questionRepository.findDetailByQuestionId(200L)).thenReturn(Optional.of(
+			new DetailProjection(200L, "title", "content", true, 42L, "questioner", null)
+		));
+		when(questionImageRepository.findByQuestionIdOrderBySortOrderAsc(200L)).thenReturn(List.of());
+		when(questionRepository.findAnswersByQuestionId(200L)).thenReturn(List.of(
+			new AnswerProjection(
+				300L,
+				false,
+				77L,
+				"answerer",
+				answerAuthorProfileId,
+				"human answer",
+				true,
+				Instant.parse("2026-07-08T10:00:00Z")
+			),
+			new AnswerProjection(
+				301L,
+				true,
+				null,
+				null,
+				null,
+				"ai answer",
+				false,
+				Instant.parse("2026-07-08T10:01:00Z")
+			)
+		));
+		when(answerImageRepository.findByAnswerIdInOrderBySortOrderAsc(List.of(300L, 301L)))
+			.thenReturn(List.of(
+				AnswerImage.link(300L, answerFirstImage, 0),
+				AnswerImage.link(300L, answerSecondImage, 1),
+				AnswerImage.link(301L, aiAnswerImage, 0)
+			));
+
+		QuestionDetailResponse response = service.getDetail(200L);
+
+		assertThat(response.answers()).hasSize(2);
+		AnswerItem humanAnswer = response.answers().get(0);
+		assertThat(humanAnswer.answerId()).isEqualTo(300L);
+		assertThat(humanAnswer.isAi()).isFalse();
+		assertThat(humanAnswer.author().userId()).isEqualTo(77L);
+		assertThat(humanAnswer.author().nickname()).isEqualTo("answerer");
+		assertThat(humanAnswer.author().profileImageUrl()).isEqualTo("/api/v1/files/%s".formatted(answerAuthorProfileId));
+		assertThat(humanAnswer.content()).isEqualTo("human answer");
+		assertThat(humanAnswer.isAccepted()).isTrue();
+		assertThat(humanAnswer.imageUrls()).containsExactly(
+			"/api/v1/files/%s?v=display".formatted(answerFirstImage),
+			"/api/v1/files/%s?v=display".formatted(answerSecondImage)
+		);
+		assertThat(humanAnswer.createdAt()).isEqualTo(Instant.parse("2026-07-08T10:00:00Z").atOffset(java.time.ZoneOffset.UTC));
+
+		AnswerItem aiAnswer = response.answers().get(1);
+		assertThat(aiAnswer.answerId()).isEqualTo(301L);
+		assertThat(aiAnswer.isAi()).isTrue();
+		assertThat(aiAnswer.author()).isNull();
+		assertThat(aiAnswer.content()).isEqualTo("ai answer");
+		assertThat(aiAnswer.isAccepted()).isFalse();
+		assertThat(aiAnswer.imageUrls()).containsExactly("/api/v1/files/%s?v=display".formatted(aiAnswerImage));
 	}
 
 	@Test
@@ -423,6 +495,78 @@ class QuestionServiceTest {
 		@Override
 		public int getAnswerCount() {
 			return answerCount;
+		}
+
+		@Override
+		public Instant getCreatedAt() {
+			return createdAt;
+		}
+	}
+
+	private static final class AnswerProjection implements AnswerItemProjection {
+
+		private final Long answerId;
+		private final boolean ai;
+		private final Long authorId;
+		private final String authorNickname;
+		private final UUID authorProfileFileId;
+		private final String content;
+		private final boolean accepted;
+		private final Instant createdAt;
+
+		private AnswerProjection(
+			Long answerId,
+			boolean ai,
+			Long authorId,
+			String authorNickname,
+			UUID authorProfileFileId,
+			String content,
+			boolean accepted,
+			Instant createdAt
+		) {
+			this.answerId = answerId;
+			this.ai = ai;
+			this.authorId = authorId;
+			this.authorNickname = authorNickname;
+			this.authorProfileFileId = authorProfileFileId;
+			this.content = content;
+			this.accepted = accepted;
+			this.createdAt = createdAt;
+		}
+
+		@Override
+		public Long getAnswerId() {
+			return answerId;
+		}
+
+		@Override
+		public boolean getAi() {
+			return ai;
+		}
+
+		@Override
+		public Long getAuthorId() {
+			return authorId;
+		}
+
+		@Override
+		public String getAuthorNickname() {
+			return authorNickname;
+		}
+
+		@Override
+		public UUID getAuthorProfileFileId() {
+			return authorProfileFileId;
+		}
+
+		@Override
+		public String getContent() {
+			return content;
+		}
+
+		@Override
+		public boolean getAccepted() {
+			return accepted;
 		}
 
 		@Override

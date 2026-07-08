@@ -134,4 +134,23 @@ class UserTest {
 		assertThat(user.getProfileFileId()).isNull();
 	}
 
+	@Test
+	void recordAcceptedAnswerIncrementsAcceptedCountAndRefreshesGrade() {
+		User user = User.createEmailUser(
+				"user@example.com",
+				"hash",
+				"nickname",
+				LocalDate.of(1995, 5, 20),
+				GenderType.female,
+				"KR"
+		);
+
+		for (int i = 0; i < 5; i++) {
+			user.recordAcceptedAnswer();
+		}
+
+		assertThat(user.getAcceptedCount()).isEqualTo(5);
+		assertThat(user.getGrade()).isEqualTo(UserGrade.silver);
+	}
+
 }
