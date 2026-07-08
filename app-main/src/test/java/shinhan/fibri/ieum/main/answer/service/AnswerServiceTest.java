@@ -221,6 +221,23 @@ class AnswerServiceTest {
 	}
 
 	@Test
+	void acceptRejectsAnswerWrittenByQuestionAuthor() {
+		Answer answer = Answer.createHuman(200L, 42L, "self answer");
+		setId(answer, 300L);
+		Question question = Question.create(100L, 42L, "title", "question");
+		setId(question, 200L);
+		when(answerRepository.findById(300L)).thenReturn(Optional.of(answer));
+		when(questionRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(question));
+
+		assertThatThrownBy(() -> service.accept(principal(), 300L))
+			.isInstanceOf(QuestionForbiddenException.class);
+
+		assertThat(answer.isAccepted()).isFalse();
+		assertThat(question.isResolved()).isFalse();
+		verify(userRepository, never()).findByIdAndDeletedAtIsNull(any());
+	}
+
+	@Test
 	void acceptSkipsUserGradeUpdateForAiAnswer() {
 		Answer answer = Answer.createAi(200L, "ai answer");
 		setId(answer, 300L);

@@ -62,6 +62,9 @@ public class AnswerService {
 		if (!question.getAuthorId().equals(principal.userId())) {
 			throw new QuestionForbiddenException();
 		}
+		if (!answer.isAi() && question.getAuthorId().equals(answer.getAuthorId())) {
+			throw new QuestionForbiddenException();
+		}
 		if (question.isResolved()) {
 			throw new QuestionAlreadyResolvedException();
 		}
