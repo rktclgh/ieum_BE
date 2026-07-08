@@ -22,6 +22,7 @@ import shinhan.fibri.ieum.main.answer.dto.CreateAnswerResponse;
 import shinhan.fibri.ieum.main.answer.exception.AnswerNotFoundException;
 import shinhan.fibri.ieum.main.answer.exception.InvalidAnswerRequestException;
 import shinhan.fibri.ieum.main.answer.exception.QuestionAlreadyResolvedException;
+import shinhan.fibri.ieum.main.answer.exception.SelfAcceptanceNotAllowedException;
 import shinhan.fibri.ieum.main.answer.repository.AnswerImageRepository;
 import shinhan.fibri.ieum.main.answer.repository.AnswerRepository;
 import shinhan.fibri.ieum.main.question.domain.Question;
@@ -67,7 +68,7 @@ public class AnswerService {
 			throw new QuestionForbiddenException();
 		}
 		if (!answer.isAi() && question.getAuthorId().equals(answer.getAuthorId())) {
-			throw new QuestionForbiddenException();
+			throw new SelfAcceptanceNotAllowedException();
 		}
 		if (question.isResolved()) {
 			throw new QuestionAlreadyResolvedException();

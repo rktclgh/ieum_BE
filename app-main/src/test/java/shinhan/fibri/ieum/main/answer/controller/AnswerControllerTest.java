@@ -38,6 +38,7 @@ import shinhan.fibri.ieum.main.answer.dto.CreateAnswerResponse;
 import shinhan.fibri.ieum.main.answer.exception.AnswerNotFoundException;
 import shinhan.fibri.ieum.main.answer.exception.InvalidAnswerRequestException;
 import shinhan.fibri.ieum.main.answer.exception.QuestionAlreadyResolvedException;
+import shinhan.fibri.ieum.main.answer.exception.SelfAcceptanceNotAllowedException;
 import shinhan.fibri.ieum.main.answer.service.AnswerService;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
 import shinhan.fibri.ieum.main.question.exception.QuestionForbiddenException;
@@ -173,6 +174,16 @@ class AnswerControllerTest {
 		mockMvc.perform(post("/api/v1/answers/300/accept").with(authenticated()))
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.code", is("FORBIDDEN")));
+	}
+
+	@Test
+	void selfAcceptanceMapsTo400() throws Exception {
+		doThrow(new SelfAcceptanceNotAllowedException())
+			.when(answerService).accept(any(AuthenticatedUser.class), eq(300L));
+
+		mockMvc.perform(post("/api/v1/answers/300/accept").with(authenticated()))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("SELF_ACCEPT_NOT_ALLOWED")));
 	}
 
 	@Test

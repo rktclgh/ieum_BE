@@ -15,6 +15,7 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import shinhan.fibri.ieum.main.answer.exception.AnswerNotFoundException;
 import shinhan.fibri.ieum.main.answer.exception.InvalidAnswerRequestException;
 import shinhan.fibri.ieum.main.answer.exception.QuestionAlreadyResolvedException;
+import shinhan.fibri.ieum.main.answer.exception.SelfAcceptanceNotAllowedException;
 import shinhan.fibri.ieum.main.auth.dto.AuthErrorResponse;
 import shinhan.fibri.ieum.main.question.exception.QuestionForbiddenException;
 import shinhan.fibri.ieum.main.question.exception.QuestionNotFoundException;
@@ -45,6 +46,12 @@ public class AnswerExceptionHandler {
 	public ResponseEntity<AuthErrorResponse> handleQuestionAlreadyResolved(QuestionAlreadyResolvedException exception) {
 		return ResponseEntity.status(HttpStatus.CONFLICT)
 			.body(new AuthErrorResponse("QUESTION_ALREADY_RESOLVED", exception.getMessage()));
+	}
+
+	@ExceptionHandler(SelfAcceptanceNotAllowedException.class)
+	public ResponseEntity<AuthErrorResponse> handleSelfAcceptanceNotAllowed(SelfAcceptanceNotAllowedException exception) {
+		return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+			.body(new AuthErrorResponse("SELF_ACCEPT_NOT_ALLOWED", exception.getMessage()));
 	}
 
 	@ExceptionHandler(InvalidAnswerRequestException.class)

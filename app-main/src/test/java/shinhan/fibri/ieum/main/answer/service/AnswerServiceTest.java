@@ -34,6 +34,7 @@ import shinhan.fibri.ieum.main.answer.dto.CreateAnswerRequest;
 import shinhan.fibri.ieum.main.answer.exception.AnswerNotFoundException;
 import shinhan.fibri.ieum.main.answer.exception.InvalidAnswerRequestException;
 import shinhan.fibri.ieum.main.answer.exception.QuestionAlreadyResolvedException;
+import shinhan.fibri.ieum.main.answer.exception.SelfAcceptanceNotAllowedException;
 import shinhan.fibri.ieum.main.answer.repository.AnswerImageRepository;
 import shinhan.fibri.ieum.main.answer.repository.AnswerRepository;
 import shinhan.fibri.ieum.main.question.domain.Question;
@@ -284,7 +285,7 @@ class AnswerServiceTest {
 		when(questionRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(question));
 
 		assertThatThrownBy(() -> service.accept(principal(), 300L))
-			.isInstanceOf(QuestionForbiddenException.class);
+			.isInstanceOf(SelfAcceptanceNotAllowedException.class);
 
 		assertThat(answer.isAccepted()).isFalse();
 		assertThat(question.isResolved()).isFalse();
