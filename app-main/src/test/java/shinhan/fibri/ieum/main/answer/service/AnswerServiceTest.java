@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -62,10 +63,8 @@ class AnswerServiceTest {
 		Question question = Question.create(100L, 99L, "title", "question");
 		setId(question, 200L);
 		when(questionRepository.existsById(200L)).thenReturn(true);
-		when(fileRepository.findByFileIdAndUploaderId(firstImageId, 42L))
-			.thenReturn(Optional.of(uploadedFile(firstImageId, 42L)));
-		when(fileRepository.findByFileIdAndUploaderId(secondImageId, 42L))
-			.thenReturn(Optional.of(uploadedFile(secondImageId, 42L)));
+		when(fileRepository.findAllByFileIdInAndUploaderId(List.of(firstImageId, secondImageId), 42L))
+			.thenReturn(List.of(uploadedFile(firstImageId, 42L), uploadedFile(secondImageId, 42L)));
 		when(answerRepository.save(any(Answer.class))).thenAnswer(invocation -> {
 			Answer answer = invocation.getArgument(0);
 			setId(answer, 300L);
@@ -99,10 +98,10 @@ class AnswerServiceTest {
 
 		InOrder inOrder = inOrder(questionRepository, fileRepository, answerRepository, answerImageRepository);
 		inOrder.verify(questionRepository).existsById(200L);
-		inOrder.verify(fileRepository).findByFileIdAndUploaderId(firstImageId, 42L);
-		inOrder.verify(fileRepository).findByFileIdAndUploaderId(secondImageId, 42L);
+		inOrder.verify(fileRepository, times(1)).findAllByFileIdInAndUploaderId(List.of(firstImageId, secondImageId), 42L);
 		inOrder.verify(answerRepository).save(any(Answer.class));
 		inOrder.verify(answerImageRepository).saveAll(any());
+		verify(fileRepository, never()).findByFileIdAndUploaderId(any(), any());
 	}
 
 	@Test
@@ -116,7 +115,7 @@ class AnswerServiceTest {
 			new CreateAnswerRequest("answer body", List.of(imageId))
 		)).isInstanceOf(QuestionNotFoundException.class);
 
-		verify(fileRepository, never()).findByFileIdAndUploaderId(any(), any());
+		verify(fileRepository, never()).findAllByFileIdInAndUploaderId(any(), any());
 		verify(answerRepository, never()).save(any());
 	}
 
@@ -133,7 +132,7 @@ class AnswerServiceTest {
 		)).isInstanceOf(InvalidAnswerRequestException.class)
 			.hasMessage("content or imageFileIds is required");
 
-		verify(fileRepository, never()).findByFileIdAndUploaderId(any(), any());
+		verify(fileRepository, never()).findAllByFileIdInAndUploaderId(any(), any());
 		verify(answerRepository, never()).save(any());
 	}
 
@@ -159,8 +158,8 @@ class AnswerServiceTest {
 		Question question = Question.create(100L, 99L, "title", "question");
 		setId(question, 200L);
 		when(questionRepository.existsById(200L)).thenReturn(true);
-		when(fileRepository.findByFileIdAndUploaderId(imageId, 42L))
-			.thenReturn(Optional.of(uploadedFile(imageId, 42L)));
+		when(fileRepository.findAllByFileIdInAndUploaderId(List.of(imageId), 42L))
+			.thenReturn(List.of(uploadedFile(imageId, 42L)));
 		when(answerRepository.save(any(Answer.class))).thenAnswer(invocation -> {
 			Answer answer = invocation.getArgument(0);
 			setId(answer, 301L);
@@ -198,7 +197,7 @@ class AnswerServiceTest {
 		Question question = Question.create(100L, 99L, "title", "question");
 		setId(question, 200L);
 		when(questionRepository.existsById(200L)).thenReturn(true);
-		when(fileRepository.findByFileIdAndUploaderId(imageId, 42L)).thenReturn(Optional.empty());
+		when(fileRepository.findAllByFileIdInAndUploaderId(List.of(imageId), 42L)).thenReturn(List.of());
 
 		assertThatThrownBy(() -> service.create(
 			principal(),

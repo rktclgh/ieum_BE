@@ -3,7 +3,10 @@ package shinhan.fibri.ieum.main.answer.service;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -110,13 +113,22 @@ public class AnswerService {
 	}
 
 	private List<File> validateImages(List<UUID> imageFileIds, Long userId) {
-		List<File> files = new ArrayList<>();
-		for (UUID imageFileId : imageFileIds) {
-			File file = fileRepository.findByFileIdAndUploaderId(imageFileId, userId)
-				.filter(File::isUploaded)
-				.orElseThrow(() -> new InvalidAnswerRequestException("INVALID_IMAGE", "imageFileIds", "Invalid image"));
-			files.add(file);
+		if (imageFileIds.isEmpty()) {
+			return List.of();
 		}
-		return files;
+		Map<UUID, File> filesById = fileRepository.findAllByFileIdInAndUploaderId(imageFileIds, userId)
+			.stream()
+			.collect(Collectors.toMap(File::getFileId, Function.identity()));
+		return imageFileIds.stream()
+			.map(imageFileId -> requireUploadedFile(filesById, imageFileId))
+			.toList();
+	}
+
+	private File requireUploadedFile(Map<UUID, File> filesById, UUID imageFileId) {
+		File file = filesById.get(imageFileId);
+		if (file == null || !file.isUploaded()) {
+			throw new InvalidAnswerRequestException("INVALID_IMAGE", "imageFileIds", "Invalid image");
+		}
+		return file;
 	}
 }
