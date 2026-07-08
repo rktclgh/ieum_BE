@@ -20,7 +20,7 @@ public interface QuestionRepository extends JpaRepository<Question, Long> {
 			       q.is_resolved AS resolved,
 			       u.user_id AS authorId,
 			       u.nickname AS authorNickname,
-			       NULL AS authorProfileFileId
+			       u.profile_file_id AS authorProfileFileId
 			FROM questions q
 			JOIN users u ON u.user_id = q.author_id
 			WHERE q.question_id = :questionId

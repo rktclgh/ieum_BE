@@ -7,6 +7,8 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
@@ -38,6 +40,7 @@ public class QuestionService {
 
 	private static final String DISPLAY_URL_TEMPLATE = "/api/v1/files/%s?v=display";
 	private static final String THUMB_URL_TEMPLATE = "/api/v1/files/%s?v=thumb";
+	private static final String PROFILE_URL_TEMPLATE = "/api/v1/files/%s";
 
 	private final QuestionRepository questionRepository;
 	private final QuestionImageRepository questionImageRepository;
@@ -77,7 +80,7 @@ public class QuestionService {
 			question.getTitle(),
 			question.getContent(),
 			question.isResolved(),
-			new AuthorSummary(author.getId(), author.getNickname(), null),
+			new AuthorSummary(author.getId(), author.getNickname(), profileUrl(author.getProfileFileId())),
 			imageFileIds.stream()
 				.map(fileId -> DISPLAY_URL_TEMPLATE.formatted(fileId))
 				.toList(),
@@ -150,7 +153,7 @@ public class QuestionService {
 		}
 
 		if (!removedFileIds.isEmpty()) {
-			imageCleanupService.cleanRemovedImagesAfterCommit(removedFileIds);
+			scheduleRemovedImagesCleanupAfterCommit(removedFileIds);
 		}
 		User author = userRepository.findByIdAndDeletedAtIsNull(principal.userId())
 			.orElseThrow(() -> new InvalidQuestionRequestException("QUESTION_AUTHOR_NOT_FOUND", "author", "Author not found"));
@@ -165,7 +168,7 @@ public class QuestionService {
 			question.getTitle(),
 			question.getContent(),
 			question.isResolved(),
-			new AuthorSummary(author.getId(), author.getNickname(), null),
+			new AuthorSummary(author.getId(), author.getNickname(), profileUrl(author.getProfileFileId())),
 			imageUrls,
 			List.<AnswerItem>of()
 		);
@@ -180,11 +183,29 @@ public class QuestionService {
 			new AuthorSummary(
 				detail.getAuthorId(),
 				detail.getAuthorNickname(),
-				detail.getAuthorProfileFileId() == null ? null : DISPLAY_URL_TEMPLATE.formatted(detail.getAuthorProfileFileId())
+				profileUrl(detail.getAuthorProfileFileId())
 			),
 			imageUrls,
 			List.<AnswerItem>of()
 		);
+	}
+
+	private void scheduleRemovedImagesCleanupAfterCommit(List<UUID> removedFileIds) {
+		List<UUID> cleanupFileIds = List.copyOf(removedFileIds);
+		if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+			imageCleanupService.cleanRemovedImagesAfterCommit(cleanupFileIds);
+			return;
+		}
+		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+			@Override
+			public void afterCommit() {
+				imageCleanupService.cleanRemovedImagesAfterCommit(cleanupFileIds);
+			}
+		});
+	}
+
+	private String profileUrl(UUID fileId) {
+		return fileId == null ? null : PROFILE_URL_TEMPLATE.formatted(fileId);
 	}
 
 	private List<UUID> normalizeImageFileIds(List<UUID> imageFileIds) {

@@ -9,6 +9,8 @@ public interface QuestionImageRepository extends JpaRepository<QuestionImage, Lo
 
 	List<QuestionImage> findByQuestionIdOrderBySortOrderAsc(Long questionId);
 
+	boolean existsByFileId(java.util.UUID fileId);
+
 	@Modifying
 	void deleteByQuestionId(Long questionId);
 }

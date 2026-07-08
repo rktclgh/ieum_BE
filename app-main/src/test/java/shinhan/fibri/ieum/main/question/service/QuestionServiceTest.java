@@ -16,6 +16,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import shinhan.fibri.ieum.common.auth.domain.GenderType;
 import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
@@ -59,8 +60,9 @@ class QuestionServiceTest {
 	@Test
 	void createValidatesImagesCreatesPinQuestionAndImageLinksInOrder() {
 		UUID imageId = UUID.fromString("00000000-0000-0000-0000-000000000001");
+		UUID profileId = UUID.fromString("00000000-0000-0000-0000-000000000101");
 		File uploadedFile = uploadedFile(imageId, 42L);
-		User author = user();
+		User author = user(profileId);
 		when(fileRepository.findByFileIdAndUploaderId(imageId, 42L)).thenReturn(Optional.of(uploadedFile));
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(author));
 		when(pinWriter.create(42L, PinType.question, 37.4979, 127.0276)).thenReturn(100L);
@@ -82,6 +84,7 @@ class QuestionServiceTest {
 
 		assertThat(response.questionId()).isEqualTo(200L);
 		assertThat(response.title()).isEqualTo("title");
+		assertThat(response.author().profileImageUrl()).isEqualTo("/api/v1/files/%s".formatted(profileId));
 		assertThat(response.imageUrls()).containsExactly("/api/v1/files/%s?v=display".formatted(imageId));
 		InOrder inOrder = inOrder(fileRepository, pinWriter, questionRepository, questionImageRepository);
 		inOrder.verify(fileRepository).findByFileIdAndUploaderId(imageId, 42L);
@@ -113,8 +116,9 @@ class QuestionServiceTest {
 	void getDetailAssemblesDisplayImageUrlsInSortOrder() {
 		UUID first = UUID.fromString("00000000-0000-0000-0000-000000000011");
 		UUID second = UUID.fromString("00000000-0000-0000-0000-000000000012");
+		UUID profileId = UUID.fromString("00000000-0000-0000-0000-000000000102");
 		when(questionRepository.findDetailByQuestionId(200L)).thenReturn(Optional.of(
-			new DetailProjection(200L, "title", "content", false, 42L, "nickname", null)
+			new DetailProjection(200L, "title", "content", false, 42L, "nickname", profileId)
 		));
 		when(questionImageRepository.findByQuestionIdOrderBySortOrderAsc(200L))
 			.thenReturn(List.of(
@@ -129,6 +133,7 @@ class QuestionServiceTest {
 			"/api/v1/files/%s?v=display".formatted(first),
 			"/api/v1/files/%s?v=display".formatted(second)
 		);
+		assertThat(response.author().profileImageUrl()).isEqualTo("/api/v1/files/%s".formatted(profileId));
 		assertThat(response.answers()).isEmpty();
 	}
 
@@ -166,22 +171,34 @@ class QuestionServiceTest {
 	void updateReplacesImagesAndSchedulesRemovedImageCleanup() {
 		UUID oldImage = UUID.fromString("00000000-0000-0000-0000-000000000031");
 		UUID newImage = UUID.fromString("00000000-0000-0000-0000-000000000032");
+		UUID profileId = UUID.fromString("00000000-0000-0000-0000-000000000103");
 		Question question = Question.create(100L, 42L, "title", "content");
 		setId(question, 200L);
 		when(questionRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(question));
 		when(questionImageRepository.findByQuestionIdOrderBySortOrderAsc(200L))
 			.thenReturn(List.of(QuestionImage.link(200L, oldImage, 0)));
 		when(fileRepository.findByFileIdAndUploaderId(newImage, 42L)).thenReturn(Optional.of(uploadedFile(newImage, 42L)));
-		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user()));
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user(profileId)));
 
-		QuestionDetailResponse response = service.update(
-			principal(),
-			200L,
-			new QuestionUpdateRequest("updated", "changed", List.of(newImage))
-		);
+		TransactionSynchronizationManager.initSynchronization();
+		QuestionDetailResponse response;
+		try {
+			response = service.update(
+				principal(),
+				200L,
+				new QuestionUpdateRequest("updated", "changed", List.of(newImage))
+			);
+
+			verify(imageCleanupService, never()).cleanRemovedImagesAfterCommit(any());
+			TransactionSynchronizationManager.getSynchronizations()
+				.forEach(synchronization -> synchronization.afterCommit());
+		} finally {
+			TransactionSynchronizationManager.clearSynchronization();
+		}
 
 		assertThat(response.title()).isEqualTo("updated");
 		assertThat(response.content()).isEqualTo("changed");
+		assertThat(response.author().profileImageUrl()).isEqualTo("/api/v1/files/%s".formatted(profileId));
 		verify(questionImageRepository).deleteByQuestionId(200L);
 		verify(questionImageRepository).saveAll(any());
 		verify(imageCleanupService).cleanRemovedImagesAfterCommit(List.of(oldImage));
@@ -192,6 +209,10 @@ class QuestionServiceTest {
 	}
 
 	private User user() {
+		return user(null);
+	}
+
+	private User user(UUID profileFileId) {
 		User user = User.createEmailUser(
 			"user@example.com",
 			"hash",
@@ -201,11 +222,16 @@ class QuestionServiceTest {
 			"KR"
 		);
 		setId(user, 42L);
+		if (profileFileId != null) {
+			user.linkProfileImage(profileFileId);
+		}
 		return user;
 	}
 
 	private File uploadedFile(UUID fileId, Long uploaderId) {
-		return File.uploaded(fileId, uploaderId, "questions/%s".formatted(fileId), "image/jpeg", 1024L, OffsetDateTime.now());
+		File file = File.pending(fileId, uploaderId, "questions/%s".formatted(fileId), "image/jpeg", 1024L);
+		file.markUploaded(OffsetDateTime.now(), "image/jpeg", 1024L);
+		return file;
 	}
 
 	private void setId(Question question, Long id) {
