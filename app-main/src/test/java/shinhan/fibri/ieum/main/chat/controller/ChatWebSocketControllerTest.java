@@ -10,6 +10,7 @@ import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.main.chat.dto.SendChatMessageRequest;
 import shinhan.fibri.ieum.main.chat.exception.ChatRoomNotFoundException;
 import shinhan.fibri.ieum.main.chat.exception.InvalidChatMessageException;
+import shinhan.fibri.ieum.main.chat.exception.InvalidChatSessionException;
 import shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException;
 import shinhan.fibri.ieum.main.chat.service.ChatMessageService;
 import shinhan.fibri.ieum.main.chat.websocket.ChatWebSocketErrorResponse;
@@ -39,6 +40,19 @@ class ChatWebSocketControllerTest {
 		assertThat(response).isEqualTo(new ChatWebSocketErrorResponse(
 			"VALIDATION_FAILED",
 			"content or imageFileId is required",
+			null
+		));
+	}
+
+	@Test
+	void handleInvalidSessionReturnsInvalidSessionError() {
+		ChatWebSocketErrorResponse response = controller.handleInvalidSession(
+			new InvalidChatSessionException("Unauthenticated chat session")
+		);
+
+		assertThat(response).isEqualTo(new ChatWebSocketErrorResponse(
+			"INVALID_SESSION",
+			"Unauthenticated chat session",
 			null
 		));
 	}

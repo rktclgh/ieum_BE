@@ -11,6 +11,7 @@ import org.springframework.stereotype.Controller;
 import shinhan.fibri.ieum.main.chat.dto.SendChatMessageRequest;
 import shinhan.fibri.ieum.main.chat.exception.ChatRoomNotFoundException;
 import shinhan.fibri.ieum.main.chat.exception.InvalidChatMessageException;
+import shinhan.fibri.ieum.main.chat.exception.InvalidChatSessionException;
 import shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException;
 import shinhan.fibri.ieum.main.chat.service.ChatMessageService;
 import shinhan.fibri.ieum.main.chat.websocket.ChatWebSocketErrorResponse;
@@ -28,7 +29,9 @@ public class ChatWebSocketController {
 		@DestinationVariable Long roomId,
 		@Payload SendChatMessageRequest request
 	) {
-		ChatWebSocketPrincipal chatPrincipal = (ChatWebSocketPrincipal) principal;
+		if (!(principal instanceof ChatWebSocketPrincipal chatPrincipal)) {
+			throw new InvalidChatSessionException("Unauthenticated chat session");
+		}
 		chatMessageService.send(chatPrincipal.authenticatedUser(), roomId, request);
 	}
 
@@ -36,6 +39,12 @@ public class ChatWebSocketController {
 	@SendToUser("/queue/errors")
 	public ChatWebSocketErrorResponse handleInvalidMessage(InvalidChatMessageException exception) {
 		return new ChatWebSocketErrorResponse("VALIDATION_FAILED", exception.getMessage(), null);
+	}
+
+	@MessageExceptionHandler(InvalidChatSessionException.class)
+	@SendToUser("/queue/errors")
+	public ChatWebSocketErrorResponse handleInvalidSession(InvalidChatSessionException exception) {
+		return new ChatWebSocketErrorResponse("INVALID_SESSION", exception.getMessage(), null);
 	}
 
 	@MessageExceptionHandler(NotRoomMemberException.class)
