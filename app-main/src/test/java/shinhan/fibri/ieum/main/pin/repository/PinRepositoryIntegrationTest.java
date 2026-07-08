@@ -1,0 +1,218 @@
+package shinhan.fibri.ieum.main.pin.repository;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
+import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.utility.DockerImageName;
+
+@DataJpaTest
+@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
+@Testcontainers(disabledWithoutDocker = true)
+class PinRepositoryIntegrationTest {
+
+	private static final UUID QUESTION_IMAGE_ID = UUID.fromString("00000000-0000-0000-0000-000000000101");
+	private static final UUID MEETING_IMAGE_ID = UUID.fromString("00000000-0000-0000-0000-000000000201");
+	private static final UUID MEETING_THUMBNAIL_ID = UUID.fromString("00000000-0000-0000-0000-000000000202");
+
+	@Container
+	@SuppressWarnings("resource")
+	static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(
+		DockerImageName.parse("postgis/postgis:16-3.4-alpine").asCompatibleSubstituteFor("postgres")
+	);
+
+	@DynamicPropertySource
+	static void registerDataSourceProperties(DynamicPropertyRegistry registry) {
+		registry.add("spring.datasource.url", postgres::getJdbcUrl);
+		registry.add("spring.datasource.username", postgres::getUsername);
+		registry.add("spring.datasource.password", postgres::getPassword);
+		registry.add("spring.datasource.driver-class-name", postgres::getDriverClassName);
+		registry.add("spring.jpa.hibernate.ddl-auto", () -> "none");
+	}
+
+	@Autowired
+	private PinRepository pinRepository;
+
+	@Autowired
+	private JdbcTemplate jdbcTemplate;
+
+	@BeforeEach
+	void setUpSchemaAndRows() {
+		createSchema();
+		jdbcTemplate.update("TRUNCATE TABLE friendships, question_images, questions, meetings, pins RESTART IDENTITY");
+
+		insertPin(7L, "question", 127.0, 37.5);
+		jdbcTemplate.update(
+			"INSERT INTO questions (pin_id, title, is_resolved) VALUES (1, 'alive question', false)"
+		);
+		jdbcTemplate.update(
+			"INSERT INTO question_images (question_id, file_id, sort_order) VALUES (1, ?::uuid, 0)",
+			QUESTION_IMAGE_ID.toString()
+		);
+
+		insertPin(42L, "meeting", 127.1, 37.6);
+		jdbcTemplate.update(
+			"""
+				INSERT INTO meetings (pin_id, title, image_file_id, thumbnail_file_id, deleted_at)
+				VALUES (2, 'alive meeting', ?::uuid, ?::uuid, NULL)
+				""",
+			MEETING_IMAGE_ID.toString(),
+			MEETING_THUMBNAIL_ID.toString()
+		);
+
+		insertPin(8L, "question", 127.2, 37.7);
+		jdbcTemplate.update(
+			"INSERT INTO questions (pin_id, title, is_resolved) VALUES (3, 'resolved question', true)"
+		);
+
+		insertPin(99L, "meeting", 127.3, 37.8);
+		jdbcTemplate.update(
+			"INSERT INTO meetings (pin_id, title, deleted_at) VALUES (4, 'blocked meeting', NULL)"
+		);
+		jdbcTemplate.update(
+			"INSERT INTO friendships (requester_id, addressee_id, status) VALUES (42, 99, 'blocked')"
+		);
+
+		insertPin(10L, "meeting", 129.0, 35.0);
+		jdbcTemplate.update(
+			"INSERT INTO meetings (pin_id, title, deleted_at) VALUES (5, 'outside meeting', NULL)"
+		);
+	}
+
+	@Test
+	void findMapPinsExecutesNativePostgisQueryAndMapsProjectionFields() {
+		List<PinProjection> rows = pinRepository.findMapPins(
+			42L,
+			null,
+			37.0,
+			126.0,
+			38.0,
+			128.0,
+			501
+		);
+
+		assertThat(rows).hasSize(2);
+		PinProjection meeting = rows.get(0);
+		assertThat(meeting.getPinId()).isEqualTo(2L);
+		assertThat(meeting.getPinType()).isEqualTo("meeting");
+		assertThat(meeting.getTitle()).isEqualTo("alive meeting");
+		assertThat(meeting.getThumbnailFileId()).isEqualTo(MEETING_THUMBNAIL_ID);
+		assertThat(meeting.getLatitude()).isEqualTo(37.6);
+		assertThat(meeting.getLongitude()).isEqualTo(127.1);
+		assertThat(meeting.getAuthorId()).isEqualTo(42L);
+		assertThat(meeting.getMine()).isTrue();
+		assertThat(meeting.getCreatedAt()).isBeforeOrEqualTo(Instant.now());
+
+		PinProjection question = rows.get(1);
+		assertThat(question.getPinId()).isEqualTo(1L);
+		assertThat(question.getPinType()).isEqualTo("question");
+		assertThat(question.getTitle()).isEqualTo("alive question");
+		assertThat(question.getThumbnailFileId()).isEqualTo(QUESTION_IMAGE_ID);
+		assertThat(question.getMine()).isFalse();
+	}
+
+	@Test
+	void findListPinsExecutesNullTypeAndCursorFilters() {
+		List<PinProjection> firstPage = pinRepository.findListPins(42L, null, null, 3);
+
+		assertThat(firstPage).extracting(PinProjection::getPinId)
+			.containsExactly(5L, 2L, 1L);
+
+		List<PinProjection> afterCursor = pinRepository.findListPins(42L, null, 2L, 3);
+
+		assertThat(afterCursor).extracting(PinProjection::getPinId)
+			.containsExactly(1L);
+	}
+
+	@Test
+	void findListPinsExecutesTypeFilter() {
+		List<PinProjection> rows = pinRepository.findListPins(42L, "meeting", null, 3);
+
+		assertThat(rows).hasSize(2);
+		assertThat(rows).extracting(PinProjection::getPinId)
+			.containsExactly(5L, 2L);
+		assertThat(rows).allSatisfy(row -> assertThat(row.getPinType()).isEqualTo("meeting"));
+	}
+
+	private void createSchema() {
+		jdbcTemplate.execute("CREATE EXTENSION IF NOT EXISTS postgis");
+		jdbcTemplate.execute("""
+			DO $$
+			BEGIN
+				IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'pin_type') THEN
+					CREATE TYPE pin_type AS ENUM ('question', 'meeting');
+				END IF;
+			END
+			$$
+			""");
+		jdbcTemplate.execute("""
+			CREATE TABLE IF NOT EXISTS pins (
+				pin_id BIGSERIAL PRIMARY KEY,
+				author_id BIGINT NOT NULL,
+				pin_type pin_type NOT NULL,
+				location geography(Point,4326) NOT NULL,
+				created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+				deleted_at TIMESTAMPTZ
+			)
+			""");
+		jdbcTemplate.execute("""
+			CREATE TABLE IF NOT EXISTS questions (
+				question_id BIGSERIAL PRIMARY KEY,
+				pin_id BIGINT UNIQUE,
+				title VARCHAR(200),
+				is_resolved BOOLEAN NOT NULL DEFAULT false
+			)
+			""");
+		jdbcTemplate.execute("""
+			CREATE TABLE IF NOT EXISTS meetings (
+				meeting_id BIGSERIAL PRIMARY KEY,
+				pin_id BIGINT UNIQUE,
+				title VARCHAR(200),
+				image_file_id UUID,
+				thumbnail_file_id UUID,
+				deleted_at TIMESTAMPTZ
+			)
+			""");
+		jdbcTemplate.execute("""
+			CREATE TABLE IF NOT EXISTS question_images (
+				question_image_id BIGSERIAL PRIMARY KEY,
+				question_id BIGINT NOT NULL,
+				file_id UUID NOT NULL,
+				sort_order INTEGER NOT NULL
+			)
+			""");
+		jdbcTemplate.execute("""
+			CREATE TABLE IF NOT EXISTS friendships (
+				friendship_id BIGSERIAL PRIMARY KEY,
+				requester_id BIGINT NOT NULL,
+				addressee_id BIGINT NOT NULL,
+				status VARCHAR(30) NOT NULL
+			)
+			""");
+	}
+
+	private void insertPin(Long authorId, String pinType, double longitude, double latitude) {
+		jdbcTemplate.update(
+			"""
+				INSERT INTO pins (author_id, pin_type, location)
+				VALUES (?, ?::pin_type, ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography)
+				""",
+			authorId,
+			pinType,
+			longitude,
+			latitude
+		);
+	}
+}
