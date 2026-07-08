@@ -42,6 +42,18 @@ class ProtectedEndpointSecurityTest {
 	}
 
 	@Test
+	void pinsEndpointReturnsJsonUnauthorizedWhenAccessCookieIsMissing() throws Exception {
+		mockMvc.perform(get("/api/v1/pins")
+				.param("swLat", "37.0")
+				.param("swLng", "126.0")
+				.param("neLat", "38.0")
+				.param("neLng", "128.0"))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.code", is("AUTHENTICATION_REQUIRED")))
+			.andExpect(jsonPath("$.message", is("Authentication is required")));
+	}
+
+	@Test
 	void adminEndpointReturnsJsonForbiddenForUserRole() throws Exception {
 		when(sessionTokenValidator.validate("user-token"))
 			.thenReturn(Optional.of(new AuthenticatedUser(
