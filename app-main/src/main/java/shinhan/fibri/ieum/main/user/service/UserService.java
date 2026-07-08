@@ -1,11 +1,14 @@
 package shinhan.fibri.ieum.main.user.service;
 
 import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -21,12 +24,15 @@ import shinhan.fibri.ieum.common.file.domain.File;
 import shinhan.fibri.ieum.common.file.repository.FileRepository;
 import shinhan.fibri.ieum.common.auth.validation.AuthValidationRules;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
+import shinhan.fibri.ieum.main.friend.service.FriendService;
 import shinhan.fibri.ieum.main.user.dto.ProfileImageResponse;
+import shinhan.fibri.ieum.main.user.dto.PublicUserProfileResponse;
 import shinhan.fibri.ieum.main.user.dto.UpdateProfileImageRequest;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserLocationRequest;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserProfileRequest;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserSettingsRequest;
 import shinhan.fibri.ieum.main.user.dto.UserMeResponse;
+import shinhan.fibri.ieum.main.user.dto.UserSearchResponse;
 import shinhan.fibri.ieum.main.user.dto.UserSettingsResponse;
 import shinhan.fibri.ieum.main.user.exception.InvalidUserFieldException;
 import shinhan.fibri.ieum.main.user.exception.NicknameAlreadyUsedException;
@@ -37,6 +43,7 @@ import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
 public class UserService {
 
 	private static final Logger log = LoggerFactory.getLogger(UserService.class);
+	private static final int USER_SEARCH_LIMIT = 30;
 
 	private final UserRepository userRepository;
 	private final UserSettingsRepository userSettingsRepository;
@@ -44,6 +51,7 @@ public class UserService {
 	private final RedisAuthSessionStore sessionStore;
 	private final FileRepository fileRepository;
 	private final ProfileFileCleanupService profileFileCleanupService;
+	private final FriendService friendService;
 
 	@Transactional
 	public UserMeResponse getMe(AuthenticatedUser principal) {
@@ -143,6 +151,34 @@ public class UserService {
 		User user = findActiveUser(principal.userId());
 		user.markDeleted(OffsetDateTime.now());
 		revokeSessionsAfterCommit(user.getId());
+	}
+
+	@Transactional(readOnly = true)
+	public List<UserSearchResponse> searchUsers(AuthenticatedUser principal, String nickname) {
+		if (nickname == null || nickname.isBlank()) {
+			throw new IllegalArgumentException("nickname is required");
+		}
+		User currentUser = findActiveUser(principal.userId());
+		Set<Long> blockedUserIds = friendService.blockedUserIdsOf(currentUser.getId());
+		Set<Long> friendUserIds = friendService.acceptedFriendIdsOf(currentUser.getId());
+		return userRepository.searchActiveUsersByNickname(nickname.trim(), PageRequest.of(0, USER_SEARCH_LIMIT)).stream()
+			.filter(target -> !target.getId().equals(currentUser.getId()))
+			.filter(target -> !blockedUserIds.contains(target.getId()))
+			.map(target -> UserSearchResponse.from(target, friendUserIds.contains(target.getId())))
+			.toList();
+	}
+
+	@Transactional(readOnly = true)
+	public PublicUserProfileResponse getPublicProfile(AuthenticatedUser principal, Long userId) {
+		User currentUser = findActiveUser(principal.userId());
+		User targetUser = findActiveUser(userId);
+		if (friendService.hasBlockBetween(currentUser.getId(), targetUser.getId())) {
+			throw new UserNotFoundException();
+		}
+		return PublicUserProfileResponse.from(
+			targetUser,
+			friendService.areFriends(currentUser.getId(), targetUser.getId())
+		);
 	}
 
 	private User findActiveUser(Long userId) {

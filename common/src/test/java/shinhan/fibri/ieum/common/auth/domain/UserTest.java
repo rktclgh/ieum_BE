@@ -33,6 +33,7 @@ class UserTest {
 		assertThat(user.getGrade()).isEqualTo(UserGrade.bronze);
 		assertThat(user.getAcceptedCount()).isZero();
 		assertThat(user.isPasswordResetRequired()).isFalse();
+		assertThat(user.getLastActiveAt()).isNull();
 		assertThat(user.getDeletedAt()).isNull();
 	}
 

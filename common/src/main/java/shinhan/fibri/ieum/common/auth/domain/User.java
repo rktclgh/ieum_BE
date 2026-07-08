@@ -80,6 +80,9 @@ public class User {
 	@Column(name = "password_reset_required", nullable = false)
 	private boolean passwordResetRequired;
 
+	@Column(name = "last_active_at")
+	private OffsetDateTime lastActiveAt;
+
 	@Column(name = "profile_file_id")
 	private UUID profileFileId;
 
@@ -236,6 +239,10 @@ public class User {
 
 	public boolean isPasswordResetRequired() {
 		return passwordResetRequired;
+	}
+
+	public OffsetDateTime getLastActiveAt() {
+		return lastActiveAt;
 	}
 
 	public UUID getProfileFileId() {

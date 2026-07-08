@@ -1,7 +1,9 @@
 package shinhan.fibri.ieum.common.auth.repository;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -22,6 +24,15 @@ public interface UserRepository extends JpaRepository<User, Long> {
 	Optional<User> findByProviderAndProviderUidAndDeletedAtIsNull(AuthProvider provider, String providerUid);
 
 	Optional<User> findByIdAndDeletedAtIsNull(Long userId);
+
+	@Query("""
+		SELECT u
+		FROM User u
+		WHERE LOWER(u.nickname) LIKE LOWER(CONCAT('%', :nickname, '%'))
+		  AND u.deletedAt IS NULL
+		ORDER BY u.nickname ASC, u.id ASC
+		""")
+	List<User> searchActiveUsersByNickname(@Param("nickname") String nickname, Pageable pageable);
 
 	@Modifying
 	@Query(
