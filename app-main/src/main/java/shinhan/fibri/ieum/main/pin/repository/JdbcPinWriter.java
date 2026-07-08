@@ -13,6 +13,7 @@ public class JdbcPinWriter implements PinWriter {
 
 	@Override
 	public Long create(Long authorId, PinType type, double latitude, double longitude) {
+		// ST_MakePoint(x, y)는 (경도, 위도) 순서를 기대하므로 longitude, latitude로 바꿔 바인딩한다.
 		return jdbcTemplate.queryForObject(
 			"""
 				INSERT INTO pins (author_id, pin_type, location)
