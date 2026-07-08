@@ -1,13 +1,16 @@
 package shinhan.fibri.ieum.main.friend.service;
 
-import java.time.Clock;
+import java.time.OffsetDateTime;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -43,9 +46,10 @@ public class FriendService {
 	@Transactional(readOnly = true)
 	public List<FriendResponse> listFriends(AuthenticatedUser principal) {
 		User currentUser = findActiveUser(principal.userId());
+		OffsetDateTime now = OffsetDateTime.now();
 		return friendshipRepository.findAcceptedByUserId(currentUser.getId()).stream()
 			.map(friendship -> friendship.otherUser(currentUser.getId()))
-			.map(user -> FriendResponse.from(user, Clock.systemDefaultZone()))
+			.map(user -> FriendResponse.from(user, now))
 			.toList();
 	}
 
@@ -90,6 +94,16 @@ public class FriendService {
 		return friendshipRepository.existsBlockedByUserPair(firstUserId, secondUserId);
 	}
 
+	@Transactional(readOnly = true)
+	public Set<Long> acceptedFriendIdsOf(Long userId) {
+		return new HashSet<>(friendshipRepository.findAcceptedUserIdsByUserId(userId));
+	}
+
+	@Transactional(readOnly = true)
+	public Set<Long> blockedUserIdsOf(Long userId) {
+		return new HashSet<>(friendshipRepository.findBlockedUserIdsByUserId(userId));
+	}
+
 	@Transactional
 	public void requestFriend(AuthenticatedUser principal, Long targetUserId) {
 		User requester = findActiveUser(principal.userId());
@@ -102,7 +116,7 @@ public class FriendService {
 			.ifPresent(this::rejectExistingFriendship);
 
 		try {
-			friendshipRepository.save(Friendship.request(requester, addressee));
+			friendshipRepository.saveAndFlush(Friendship.request(requester, addressee));
 		} catch (DataIntegrityViolationException exception) {
 			// 사전 조회와 INSERT 사이의 동시 요청 레이스 → uidx_friend_pair 충돌
 			if (isFriendPairConstraintViolation(exception)) {
@@ -194,8 +208,9 @@ public class FriendService {
 	}
 
 	private void blockInNewTransaction(AuthenticatedUser principal, Long targetUserId) {
-		new TransactionTemplate(transactionManager)
-			.executeWithoutResult(status -> blockUserInTransaction(principal, targetUserId));
+		TransactionTemplate template = new TransactionTemplate(transactionManager);
+		template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+		template.executeWithoutResult(status -> blockUserInTransaction(principal, targetUserId));
 	}
 
 	private void blockUserInTransaction(AuthenticatedUser principal, Long targetUserId) {

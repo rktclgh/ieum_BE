@@ -15,6 +15,7 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -319,11 +320,8 @@ class UserServiceTest {
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
 		when(userRepository.searchActiveUsersByNickname(eq("nick"), any(Pageable.class)))
 			.thenReturn(List.of(currentUser, friend, blocked, stranger));
-		when(friendService.hasBlockBetween(42L, 7L)).thenReturn(false);
-		when(friendService.hasBlockBetween(42L, 8L)).thenReturn(true);
-		when(friendService.hasBlockBetween(42L, 9L)).thenReturn(false);
-		when(friendService.areFriends(42L, 7L)).thenReturn(true);
-		when(friendService.areFriends(42L, 9L)).thenReturn(false);
+		when(friendService.blockedUserIdsOf(42L)).thenReturn(Set.of(8L));
+		when(friendService.acceptedFriendIdsOf(42L)).thenReturn(Set.of(7L));
 
 		List<UserSearchResponse> responses = service.searchUsers(principal(), " nick ");
 
@@ -332,7 +330,6 @@ class UserServiceTest {
 		assertThat(responses.get(0).isFriend()).isTrue();
 		assertThat(responses.get(0).lastActiveAt()).isEqualTo(OffsetDateTime.parse("2026-07-07T01:00:00Z"));
 		assertThat(responses.get(1).isFriend()).isFalse();
-		verify(friendService, never()).areFriends(42L, 8L);
 	}
 
 	@Test

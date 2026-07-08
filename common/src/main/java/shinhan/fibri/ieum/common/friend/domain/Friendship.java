@@ -77,6 +77,9 @@ public class Friendship {
 	}
 
 	public void accept() {
+		if (status != FriendshipStatus.pending) {
+			throw new IllegalStateException("only a pending friendship can be accepted");
+		}
 		this.status = FriendshipStatus.accepted;
 		this.blockedBy = null;
 	}
@@ -84,11 +87,6 @@ public class Friendship {
 	public void blockBy(User user) {
 		this.status = FriendshipStatus.blocked;
 		assignBlockOwner(user);
-	}
-
-	public boolean involves(Long userId) {
-		return userId != null
-			&& (Objects.equals(requester.getId(), userId) || Objects.equals(addressee.getId(), userId));
 	}
 
 	public User otherUser(Long userId) {

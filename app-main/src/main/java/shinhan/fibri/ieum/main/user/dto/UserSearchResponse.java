@@ -2,6 +2,7 @@ package shinhan.fibri.ieum.main.user.dto;
 
 import java.time.OffsetDateTime;
 import shinhan.fibri.ieum.common.auth.domain.User;
+import shinhan.fibri.ieum.main.support.ProfileImageUrls;
 
 public record UserSearchResponse(
 	Long userId,
@@ -17,16 +18,9 @@ public record UserSearchResponse(
 			user.getId(),
 			user.getNickname(),
 			user.getNationality(),
-			profileImageUrl(user),
+			ProfileImageUrls.of(user),
 			isFriend,
 			user.getLastActiveAt()
 		);
-	}
-
-	private static String profileImageUrl(User user) {
-		if (user.getProfileFileId() == null) {
-			return null;
-		}
-		return "/api/v1/files/" + user.getProfileFileId();
 	}
 }

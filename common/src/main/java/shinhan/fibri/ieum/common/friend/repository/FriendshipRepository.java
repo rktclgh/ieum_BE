@@ -86,6 +86,19 @@ public interface FriendshipRepository extends JpaRepository<Friendship, Long> {
 	List<Long> findBlockedUserIdsByUserId(@Param("userId") Long userId);
 
 	@Query("""
+		SELECT DISTINCT CASE
+			WHEN friendship.requester.id = :userId THEN friendship.addressee.id
+			ELSE friendship.requester.id
+		END
+		FROM Friendship friendship
+		WHERE friendship.status = shinhan.fibri.ieum.common.friend.domain.FriendshipStatus.accepted
+		  AND (friendship.requester.id = :userId OR friendship.addressee.id = :userId)
+		  AND friendship.requester.deletedAt IS NULL
+		  AND friendship.addressee.deletedAt IS NULL
+		""")
+	List<Long> findAcceptedUserIdsByUserId(@Param("userId") Long userId);
+
+	@Query("""
 		SELECT COUNT(friendship) > 0
 		FROM Friendship friendship
 		WHERE friendship.status = shinhan.fibri.ieum.common.friend.domain.FriendshipStatus.accepted

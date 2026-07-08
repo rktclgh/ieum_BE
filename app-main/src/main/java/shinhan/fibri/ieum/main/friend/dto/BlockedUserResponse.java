@@ -2,6 +2,7 @@ package shinhan.fibri.ieum.main.friend.dto;
 
 import java.time.OffsetDateTime;
 import shinhan.fibri.ieum.common.auth.domain.User;
+import shinhan.fibri.ieum.main.support.ProfileImageUrls;
 
 public record BlockedUserResponse(
 	Long userId,
@@ -14,15 +15,8 @@ public record BlockedUserResponse(
 		return new BlockedUserResponse(
 			user.getId(),
 			user.getNickname(),
-			profileImageUrl(user),
+			ProfileImageUrls.of(user),
 			blockedAt
 		);
-	}
-
-	private static String profileImageUrl(User user) {
-		if (user.getProfileFileId() == null) {
-			return null;
-		}
-		return "/api/v1/files/" + user.getProfileFileId();
 	}
 }

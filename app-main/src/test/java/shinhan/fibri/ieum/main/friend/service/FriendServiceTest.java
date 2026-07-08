@@ -75,11 +75,11 @@ class FriendServiceTest {
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
 		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(targetUser));
 		when(friendshipRepository.findByUserPair(42L, 77L)).thenReturn(Optional.empty());
-		when(friendshipRepository.save(any(Friendship.class))).thenAnswer(invocation -> invocation.getArgument(0));
+		when(friendshipRepository.saveAndFlush(any(Friendship.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
 		service.requestFriend(principal(42L), 77L);
 
-		verify(friendshipRepository).save(any(Friendship.class));
+		verify(friendshipRepository).saveAndFlush(any(Friendship.class));
 		verify(friendRequestNotifier).notifyRequested(42L, 77L);
 	}
 
@@ -90,7 +90,7 @@ class FriendServiceTest {
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
 		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(targetUser));
 		when(friendshipRepository.findByUserPair(42L, 77L)).thenReturn(Optional.empty());
-		when(friendshipRepository.save(any(Friendship.class)))
+		when(friendshipRepository.saveAndFlush(any(Friendship.class)))
 			.thenThrow(new DataIntegrityViolationException("uidx_friend_pair"));
 
 		assertThatThrownBy(() -> service.requestFriend(principal(42L), 77L))
@@ -106,7 +106,7 @@ class FriendServiceTest {
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
 		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(targetUser));
 		when(friendshipRepository.findByUserPair(42L, 77L)).thenReturn(Optional.empty());
-		when(friendshipRepository.save(any(Friendship.class))).thenAnswer(invocation -> invocation.getArgument(0));
+		when(friendshipRepository.saveAndFlush(any(Friendship.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
 		TransactionSynchronizationManager.initSynchronization();
 		try {
@@ -130,7 +130,7 @@ class FriendServiceTest {
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
 		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(targetUser));
 		when(friendshipRepository.findByUserPair(42L, 77L)).thenReturn(Optional.empty());
-		when(friendshipRepository.save(any(Friendship.class))).thenAnswer(invocation -> {
+		when(friendshipRepository.saveAndFlush(any(Friendship.class))).thenAnswer(invocation -> {
 			Friendship friendship = invocation.getArgument(0);
 			assertThat(friendship.getRequester()).isEqualTo(currentUser);
 			assertThat(friendship.getAddressee()).isEqualTo(targetUser);

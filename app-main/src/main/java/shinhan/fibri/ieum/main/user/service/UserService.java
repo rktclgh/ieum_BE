@@ -2,6 +2,7 @@ package shinhan.fibri.ieum.main.user.service;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -158,13 +159,12 @@ public class UserService {
 			throw new IllegalArgumentException("nickname is required");
 		}
 		User currentUser = findActiveUser(principal.userId());
+		Set<Long> blockedUserIds = friendService.blockedUserIdsOf(currentUser.getId());
+		Set<Long> friendUserIds = friendService.acceptedFriendIdsOf(currentUser.getId());
 		return userRepository.searchActiveUsersByNickname(nickname.trim(), PageRequest.of(0, USER_SEARCH_LIMIT)).stream()
 			.filter(target -> !target.getId().equals(currentUser.getId()))
-			.filter(target -> !friendService.hasBlockBetween(currentUser.getId(), target.getId()))
-			.map(target -> UserSearchResponse.from(
-				target,
-				friendService.areFriends(currentUser.getId(), target.getId())
-			))
+			.filter(target -> !blockedUserIds.contains(target.getId()))
+			.map(target -> UserSearchResponse.from(target, friendUserIds.contains(target.getId())))
 			.toList();
 	}
 
