@@ -334,8 +334,8 @@ class UserServiceTest {
 		User stranger = user(9L, "nick-stranger", "KR");
 		setLastActiveAt(friend, OffsetDateTime.parse("2026-07-07T01:00:00Z"));
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
-		when(userRepository.searchActiveUsersByNickname(eq("nick"), any(Pageable.class)))
-			.thenReturn(List.of(currentUser, friend, blocked, stranger));
+		when(userRepository.searchActiveUsersByNicknameExcludingUserId(eq("nick"), eq(42L), any(Pageable.class)))
+			.thenReturn(List.of(friend, blocked, stranger));
 		when(friendService.blockedUserIdsOf(42L)).thenReturn(Set.of(8L));
 		when(friendService.acceptedFriendIdsOf(42L)).thenReturn(Set.of(7L));
 
@@ -353,7 +353,7 @@ class UserServiceTest {
 		assertThatThrownBy(() -> service.searchUsers(principal(), "  "))
 			.isInstanceOf(IllegalArgumentException.class)
 			.hasMessage("nickname is required");
-		verify(userRepository, never()).searchActiveUsersByNickname(any(), any());
+		verify(userRepository, never()).searchActiveUsersByNicknameExcludingUserId(any(), any(), any());
 	}
 
 	@Test

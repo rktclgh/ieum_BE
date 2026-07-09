@@ -161,8 +161,12 @@ public class UserService {
 		User currentUser = findActiveUser(principal.userId());
 		Set<Long> blockedUserIds = friendService.blockedUserIdsOf(currentUser.getId());
 		Set<Long> friendUserIds = friendService.acceptedFriendIdsOf(currentUser.getId());
-		return userRepository.searchActiveUsersByNickname(nickname.trim(), PageRequest.of(0, USER_SEARCH_LIMIT)).stream()
-			.filter(target -> !target.getId().equals(currentUser.getId()))
+		return userRepository.searchActiveUsersByNicknameExcludingUserId(
+				nickname.trim(),
+				currentUser.getId(),
+				PageRequest.of(0, USER_SEARCH_LIMIT)
+			)
+			.stream()
 			.filter(target -> !blockedUserIds.contains(target.getId()))
 			.map(target -> UserSearchResponse.from(target, friendUserIds.contains(target.getId())))
 			.toList();
