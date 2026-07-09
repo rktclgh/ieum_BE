@@ -162,6 +162,23 @@ class ChatInboundChannelInterceptorTest {
 	}
 
 	@Test
+	void subscribeRejectsOversizedRoomIdWithoutThrowing() {
+		ChatWebSocketPrincipal principal = principal(42L, "sid-1");
+		StompHeaderAccessor accessor = authenticatedAccessor(StompCommand.SUBSCRIBE, principal);
+		accessor.setDestination("/topic/rooms/99999999999999999999");
+
+		Message<?> result = interceptor.preSend(message(accessor), null);
+
+		assertThat(result).isNull();
+		verify(errorSender).send(principal, new ChatWebSocketErrorResponse(
+			"NOT_ROOM_MEMBER",
+			"Room subscription is not allowed",
+			null
+		));
+		verify(chatMemberRepository, never()).existsByRoom_IdAndUser_IdAndLeftAtIsNull(any(), any());
+	}
+
+	@Test
 	void subscribeAllowsOwnUserErrorQueue() {
 		ChatWebSocketPrincipal principal = principal(42L, "sid-1");
 		StompHeaderAccessor accessor = authenticatedAccessor(StompCommand.SUBSCRIBE, principal);

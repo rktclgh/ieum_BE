@@ -72,6 +72,25 @@ class ChatRepositoryTest {
 	}
 
 	@Test
+	void findsAllRoomMembersWithUserFetched() {
+		User me = persist(user("all-me@example.com", "all-me"));
+		User friend = persist(user("all-friend@example.com", "all-friend"));
+		ChatRoom room = chatRoomRepository.save(ChatRoom.direct(me.getId(), friend.getId()));
+		chatMemberRepository.save(ChatMember.join(room, me));
+		ChatMember left = chatMemberRepository.save(ChatMember.join(room, friend));
+		left.leave(OffsetDateTime.parse("2026-07-08T09:00:00+09:00"));
+		entityManager.flush();
+		entityManager.clear();
+
+		List<ChatMember> members = chatMemberRepository.findByRoom_Id(room.getId());
+
+		// left 멤버 포함 전원 반환 + JOIN FETCH로 user가 즉시 로딩되어 clear 이후에도 접근 가능(N+1 없음).
+		assertThat(members)
+			.extracting(member -> member.getUser().getNickname())
+			.containsExactlyInAnyOrder("all-me", "all-friend");
+	}
+
+	@Test
 	void restoresLeftMembersExceptSender() {
 		User me = persist(user("restore-me@example.com", "restore-me"));
 		User friend = persist(user("restore-friend@example.com", "restore-friend"));

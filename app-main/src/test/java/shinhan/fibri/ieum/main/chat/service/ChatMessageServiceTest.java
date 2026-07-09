@@ -129,6 +129,17 @@ class ChatMessageServiceTest {
 	}
 
 	@Test
+	void sendRejectsWhenBothContentAndImageAreProvided() {
+		assertThatThrownBy(() -> service.send(
+			principal(42L),
+			100L,
+			new SendChatMessageRequest("caption", java.util.UUID.randomUUID())
+		))
+			.isInstanceOf(InvalidChatMessageException.class);
+		verify(messageRepository, never()).save(any());
+	}
+
+	@Test
 	void sendRejectsTooLongContent() {
 		String content = "a".repeat(2001);
 

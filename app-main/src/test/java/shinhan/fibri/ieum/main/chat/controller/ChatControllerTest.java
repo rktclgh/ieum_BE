@@ -212,6 +212,17 @@ class ChatControllerTest {
 	}
 
 	@Test
+	void setNotifyValidatesEnabled() throws Exception {
+		mockMvc.perform(put("/api/v1/chat/rooms/{roomId}/notify", 100L)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{}")
+				.with(authenticated()))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
+			.andExpect(jsonPath("$.fieldErrors[0].field", is("enabled")));
+	}
+
+	@Test
 	void createDirectRoomValidatesFriendId() throws Exception {
 		mockMvc.perform(post("/api/v1/chat/rooms/direct")
 				.contentType(MediaType.APPLICATION_JSON)
