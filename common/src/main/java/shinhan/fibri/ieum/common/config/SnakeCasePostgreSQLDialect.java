@@ -19,7 +19,8 @@ public class SnakeCasePostgreSQLDialect extends PostgreSQLDialect {
 
 	@Override
 	public String getEnumTypeDeclaration(Class<? extends Enum<?>> enumType) {
-		return toSnakeCase(enumType.getSimpleName());
+		Class<?> actualEnumType = enumType.isEnum() ? enumType : enumType.getSuperclass();
+		return toSnakeCase(actualEnumType.getSimpleName());
 	}
 
 	/**

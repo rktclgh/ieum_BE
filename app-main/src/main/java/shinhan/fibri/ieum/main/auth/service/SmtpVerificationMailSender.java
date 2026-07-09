@@ -50,7 +50,6 @@ public class SmtpVerificationMailSender implements VerificationMailSender {
 			log.info("SMTP signup mail sent: to={}", email);
 			return CompletableFuture.completedFuture(null);
 		} catch (RuntimeException exception) {
-			log.warn("SMTP signup mail send error: to={}", email, exception);
 			return CompletableFuture.failedFuture(exception);
 		}
 	}

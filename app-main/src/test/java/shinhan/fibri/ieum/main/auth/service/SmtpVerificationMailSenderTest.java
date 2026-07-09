@@ -1,6 +1,9 @@
 package shinhan.fibri.ieum.main.auth.service;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.support.StaticMessageSource;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
@@ -16,6 +19,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
+@ExtendWith(OutputCaptureExtension.class)
 class SmtpVerificationMailSenderTest {
 
 	@Test
@@ -67,7 +71,7 @@ class SmtpVerificationMailSenderTest {
 	}
 
 	@Test
-	void sendSignupCodeReturnsFailedFutureWhenMailSendFails() {
+	void sendSignupCodeReturnsFailedFutureWithoutDuplicatedWarningWhenMailSendFails(CapturedOutput output) {
 		JavaMailSender javaMailSender = mock(JavaMailSender.class);
 		doThrow(new RuntimeException("smtp down"))
 			.when(javaMailSender)
@@ -83,6 +87,7 @@ class SmtpVerificationMailSenderTest {
 			CompletableFuture<Void> result = mailSender.sendSignupCode("user@example.com", "123456", 180);
 
 			assertThat(result).isCompletedExceptionally();
+			assertThat(output).doesNotContain("SMTP signup mail send error");
 		} finally {
 			LocaleContextHolder.resetLocaleContext();
 		}

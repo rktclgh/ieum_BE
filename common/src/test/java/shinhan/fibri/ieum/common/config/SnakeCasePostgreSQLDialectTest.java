@@ -28,10 +28,29 @@ class SnakeCasePostgreSQLDialectTest {
 	}
 
 	@Test
+	void rendersEnumConstantWithClassBodyAsDeclaringEnumTypeName() {
+		@SuppressWarnings("unchecked")
+		Class<? extends Enum<?>> enumConstantClass = (Class<? extends Enum<?>>) StatusWithBody.READY.getClass();
+
+		assertThat(dialect.getEnumTypeDeclaration(enumConstantClass)).isEqualTo("status_with_body");
+	}
+
+	@Test
 	void convertsPascalCaseIncludingConsecutiveCapitals() {
 		assertThat(SnakeCasePostgreSQLDialect.toSnakeCase("FriendshipStatus")).isEqualTo("friendship_status");
 		assertThat(SnakeCasePostgreSQLDialect.toSnakeCase("GenderType")).isEqualTo("gender_type");
 		assertThat(SnakeCasePostgreSQLDialect.toSnakeCase("AIVerdict")).isEqualTo("ai_verdict");
 		assertThat(SnakeCasePostgreSQLDialect.toSnakeCase("PinType")).isEqualTo("pin_type");
+	}
+
+	private enum StatusWithBody {
+		READY {
+			@Override
+			String label() {
+				return "ready";
+			}
+		};
+
+		abstract String label();
 	}
 }
