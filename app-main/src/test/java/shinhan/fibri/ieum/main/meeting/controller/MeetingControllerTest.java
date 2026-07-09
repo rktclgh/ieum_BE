@@ -39,11 +39,15 @@ import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingResponse;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingScheduleResponse;
 import shinhan.fibri.ieum.main.meeting.dto.JoinMeetingResponse;
 import shinhan.fibri.ieum.main.meeting.dto.KickMeetingRequest;
+import shinhan.fibri.ieum.main.meeting.dto.MeetingCalendarItem;
+import shinhan.fibri.ieum.main.meeting.dto.MeetingCalendarResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingDetailResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingHostSummary;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingLocation;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingParticipantItem;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingParticipantsResponse;
+import shinhan.fibri.ieum.main.meeting.dto.MeetingScheduleItem;
+import shinhan.fibri.ieum.main.meeting.dto.MeetingSchedulesResponse;
 import shinhan.fibri.ieum.main.meeting.exception.HostCannotLeaveException;
 import shinhan.fibri.ieum.main.meeting.exception.InvalidMeetingRequestException;
 import shinhan.fibri.ieum.main.meeting.exception.KickedMemberException;
@@ -51,6 +55,7 @@ import shinhan.fibri.ieum.main.meeting.exception.MeetingFullException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingNotFoundException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingNotOpenException;
 import shinhan.fibri.ieum.main.meeting.exception.NotHostException;
+import shinhan.fibri.ieum.main.meeting.exception.NotMeetingMemberException;
 import shinhan.fibri.ieum.main.meeting.exception.ParticipantNotFoundException;
 import shinhan.fibri.ieum.main.meeting.exception.ScheduleAlreadyExistsException;
 import shinhan.fibri.ieum.main.meeting.exception.ScheduleNotCancellableException;
@@ -234,6 +239,73 @@ class MeetingControllerTest {
 				.with(authenticated()))
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.code", is("MEETING_NOT_FOUND")));
+	}
+
+	@Test
+	void getSchedulesReturnsMeetingSchedules() throws Exception {
+		when(meetingService.getSchedules(
+			any(AuthenticatedUser.class),
+			org.mockito.ArgumentMatchers.eq(3L),
+			any(),
+			any()
+		))
+			.thenReturn(new MeetingSchedulesResponse(java.util.List.of(
+				new MeetingScheduleItem(
+					31L,
+					OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
+					OffsetDateTime.parse("2099-07-10T20:00:00+09:00"),
+					"scheduled"
+				)
+			)));
+
+		mockMvc.perform(get("/api/v1/meetings/{meetingId}/schedules", 3L)
+				.param("from", "2099-07-01T00:00:00+09:00")
+				.param("to", "2099-08-01T00:00:00+09:00")
+				.with(authenticated()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.items[0].scheduleId", is(31)))
+			.andExpect(jsonPath("$.items[0].startsAt", is("2099-07-10T19:00:00+09:00")))
+			.andExpect(jsonPath("$.items[0].status", is("scheduled")));
+	}
+
+	@Test
+	void getSchedulesMapsNotMeetingMemberToForbidden() throws Exception {
+		when(meetingService.getSchedules(any(AuthenticatedUser.class), org.mockito.ArgumentMatchers.eq(3L), any(), any()))
+			.thenThrow(new NotMeetingMemberException());
+
+		mockMvc.perform(get("/api/v1/meetings/{meetingId}/schedules", 3L)
+				.with(authenticated()))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code", is("NOT_MEETING_MEMBER")));
+	}
+
+	@Test
+	void getCalendarReturnsMyMeetingSchedules() throws Exception {
+		when(meetingService.getCalendar(any(AuthenticatedUser.class), any(), any()))
+			.thenReturn(new MeetingCalendarResponse(java.util.List.of(
+				new MeetingCalendarItem(
+					3L,
+					31L,
+					"저녁 모임",
+					"동선역 2번 출구",
+					OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
+					OffsetDateTime.parse("2099-07-10T20:00:00+09:00"),
+					"scheduled",
+					9L,
+					true
+				)
+			)));
+
+		mockMvc.perform(get("/api/v1/meetings/calendar")
+				.param("from", "2099-07-01T00:00:00+09:00")
+				.param("to", "2099-08-01T00:00:00+09:00")
+				.with(authenticated()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.items[0].meetingId", is(3)))
+			.andExpect(jsonPath("$.items[0].scheduleId", is(31)))
+			.andExpect(jsonPath("$.items[0].title", is("저녁 모임")))
+			.andExpect(jsonPath("$.items[0].roomId", is(9)))
+			.andExpect(jsonPath("$.items[0].isHost", is(true)));
 	}
 
 	@Test

@@ -17,6 +17,7 @@ import shinhan.fibri.ieum.main.meeting.exception.MeetingFullException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingNotFoundException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingNotOpenException;
 import shinhan.fibri.ieum.main.meeting.exception.NotHostException;
+import shinhan.fibri.ieum.main.meeting.exception.NotMeetingMemberException;
 import shinhan.fibri.ieum.main.meeting.exception.ParticipantNotFoundException;
 import shinhan.fibri.ieum.main.meeting.exception.ScheduleAlreadyExistsException;
 import shinhan.fibri.ieum.main.meeting.exception.ScheduleNotCancellableException;
@@ -88,6 +89,12 @@ public class MeetingExceptionHandler {
 	public ResponseEntity<AuthErrorResponse> handleNotHost(NotHostException exception) {
 		return ResponseEntity.status(HttpStatus.FORBIDDEN)
 			.body(new AuthErrorResponse("NOT_HOST", exception.getMessage()));
+	}
+
+	@ExceptionHandler(NotMeetingMemberException.class)
+	public ResponseEntity<AuthErrorResponse> handleNotMeetingMember(NotMeetingMemberException exception) {
+		return ResponseEntity.status(HttpStatus.FORBIDDEN)
+			.body(new AuthErrorResponse("NOT_MEETING_MEMBER", exception.getMessage()));
 	}
 
 	@ExceptionHandler(ScheduleAlreadyExistsException.class)

@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.main.meeting.service;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
@@ -35,11 +36,15 @@ import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingScheduleRequest;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingScheduleResponse;
 import shinhan.fibri.ieum.main.meeting.dto.JoinMeetingResponse;
 import shinhan.fibri.ieum.main.meeting.dto.KickMeetingRequest;
+import shinhan.fibri.ieum.main.meeting.dto.MeetingCalendarItem;
+import shinhan.fibri.ieum.main.meeting.dto.MeetingCalendarResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingDetailResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingHostSummary;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingLocation;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingParticipantItem;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingParticipantsResponse;
+import shinhan.fibri.ieum.main.meeting.dto.MeetingScheduleItem;
+import shinhan.fibri.ieum.main.meeting.dto.MeetingSchedulesResponse;
 import shinhan.fibri.ieum.main.meeting.exception.HostCannotLeaveException;
 import shinhan.fibri.ieum.main.meeting.exception.InvalidMeetingRequestException;
 import shinhan.fibri.ieum.main.meeting.exception.KickedMemberException;
@@ -47,11 +52,13 @@ import shinhan.fibri.ieum.main.meeting.exception.MeetingFullException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingNotFoundException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingNotOpenException;
 import shinhan.fibri.ieum.main.meeting.exception.NotHostException;
+import shinhan.fibri.ieum.main.meeting.exception.NotMeetingMemberException;
 import shinhan.fibri.ieum.main.meeting.exception.ParticipantNotFoundException;
 import shinhan.fibri.ieum.main.meeting.exception.ScheduleAlreadyExistsException;
 import shinhan.fibri.ieum.main.meeting.exception.ScheduleNotCancellableException;
 import shinhan.fibri.ieum.main.meeting.exception.ScheduleNotFoundException;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingDetailProjection;
+import shinhan.fibri.ieum.main.meeting.repository.MeetingCalendarProjection;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingParticipantRepository;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingRecurrenceRuleRepository;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingRepository;
@@ -65,6 +72,7 @@ public class MeetingService {
 
 	private static final ZoneId RESPONSE_ZONE = ZoneId.of("Asia/Seoul");
 	private static final int INITIAL_RECURRING_SCHEDULE_LIMIT = 12;
+	private static final int DEFAULT_SCHEDULE_RANGE_DAYS = 90;
 
 	private final MeetingRepository meetingRepository;
 	private final MeetingScheduleRepository meetingScheduleRepository;
@@ -160,6 +168,41 @@ public class MeetingService {
 			))
 			.toList();
 		return new MeetingParticipantsResponse(items);
+	}
+
+	@Transactional(readOnly = true)
+	public MeetingSchedulesResponse getSchedules(
+		AuthenticatedUser principal,
+		Long meetingId,
+		OffsetDateTime from,
+		OffsetDateTime to
+	) {
+		Meeting meeting = meetingRepository.findByIdAndDeletedAtIsNull(meetingId)
+			.orElseThrow(MeetingNotFoundException::new);
+		ensureMeetingMemberOrHost(principal, meeting);
+		OffsetDateTime resolvedFrom = resolveRangeFrom(from);
+		OffsetDateTime resolvedTo = resolveRangeTo(resolvedFrom, to);
+		List<MeetingScheduleItem> items = meetingScheduleRepository
+			.findByMeetingIdAndDeletedAtIsNullAndStartsAtBetweenOrderByStartsAtAscIdAsc(meetingId, resolvedFrom, resolvedTo)
+			.stream()
+			.map(this::toScheduleItem)
+			.toList();
+		return new MeetingSchedulesResponse(items);
+	}
+
+	@Transactional(readOnly = true)
+	public MeetingCalendarResponse getCalendar(AuthenticatedUser principal, OffsetDateTime from, OffsetDateTime to) {
+		OffsetDateTime resolvedFrom = resolveRangeFrom(from);
+		OffsetDateTime resolvedTo = resolveRangeTo(resolvedFrom, to);
+		List<MeetingCalendarItem> items = meetingScheduleRepository.findCalendarItems(
+				principal.userId(),
+				resolvedFrom,
+				resolvedTo
+			)
+			.stream()
+			.map(this::toCalendarItem)
+			.toList();
+		return new MeetingCalendarResponse(items);
 	}
 
 	@Transactional
@@ -266,6 +309,21 @@ public class MeetingService {
 		if (participant.map(row -> row.getStatus() == ParticipantStatus.kicked).orElse(false)) {
 			throw new KickedMemberException();
 		}
+	}
+
+	private void ensureMeetingMemberOrHost(AuthenticatedUser principal, Meeting meeting) {
+		if (meeting.getHostId().equals(principal.userId())) {
+			return;
+		}
+		Optional<MeetingParticipant> participant = participantRepository.findByIdMeetingIdAndIdUserId(
+			meeting.getId(),
+			principal.userId()
+		);
+		ensureNotKicked(participant);
+		if (participant.map(row -> row.getStatus() == ParticipantStatus.joined).orElse(false)) {
+			return;
+		}
+		throw new NotMeetingMemberException();
 	}
 
 	private void ensureHasCapacity(Meeting meeting) {
@@ -516,5 +574,53 @@ public class MeetingService {
 		}
 		String url = "/api/v1/files/" + fileId;
 		return variant == null ? url : url + "?v=" + variant;
+	}
+
+	private OffsetDateTime resolveRangeFrom(OffsetDateTime from) {
+		if (from != null) {
+			return from;
+		}
+		return java.time.LocalDate.now(RESPONSE_ZONE)
+			.atStartOfDay(RESPONSE_ZONE)
+			.toOffsetDateTime();
+	}
+
+	private OffsetDateTime resolveRangeTo(OffsetDateTime resolvedFrom, OffsetDateTime to) {
+		OffsetDateTime resolvedTo = to == null ? resolvedFrom.plusDays(DEFAULT_SCHEDULE_RANGE_DAYS) : to;
+		if (resolvedTo.isBefore(resolvedFrom)) {
+			throw new InvalidMeetingRequestException("VALIDATION_FAILED", "from", "must be before to");
+		}
+		return resolvedTo;
+	}
+
+	private MeetingScheduleItem toScheduleItem(MeetingSchedule schedule) {
+		return new MeetingScheduleItem(
+			schedule.getId(),
+			toResponseTime(schedule.getStartsAt()),
+			toResponseTime(schedule.getEndsAt()),
+			schedule.getStatus().name()
+		);
+	}
+
+	private MeetingCalendarItem toCalendarItem(MeetingCalendarProjection row) {
+		return new MeetingCalendarItem(
+			row.getMeetingId(),
+			row.getScheduleId(),
+			row.getTitle(),
+			row.getPlaceName(),
+			toResponseTime(row.getStartsAt()),
+			toResponseTime(row.getEndsAt()),
+			row.getStatus(),
+			row.getRoomId(),
+			Boolean.TRUE.equals(row.getHost())
+		);
+	}
+
+	private OffsetDateTime toResponseTime(OffsetDateTime value) {
+		return value == null ? null : value.atZoneSameInstant(RESPONSE_ZONE).toOffsetDateTime();
+	}
+
+	private OffsetDateTime toResponseTime(Instant value) {
+		return value == null ? null : value.atZone(RESPONSE_ZONE).toOffsetDateTime();
 	}
 }

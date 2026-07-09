@@ -2,6 +2,7 @@ package shinhan.fibri.ieum.main.meeting.controller;
 
 import jakarta.validation.Valid;
 import java.net.URI;
+import java.time.OffsetDateTime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -11,6 +12,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingRequest;
@@ -19,8 +21,10 @@ import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingScheduleRequest;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingScheduleResponse;
 import shinhan.fibri.ieum.main.meeting.dto.JoinMeetingResponse;
 import shinhan.fibri.ieum.main.meeting.dto.KickMeetingRequest;
+import shinhan.fibri.ieum.main.meeting.dto.MeetingCalendarResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingDetailResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingParticipantsResponse;
+import shinhan.fibri.ieum.main.meeting.dto.MeetingSchedulesResponse;
 import shinhan.fibri.ieum.main.meeting.service.MeetingService;
 
 @RestController
@@ -40,6 +44,15 @@ public class MeetingController {
 			.body(response);
 	}
 
+	@GetMapping("/calendar")
+	public ResponseEntity<MeetingCalendarResponse> getCalendar(
+		@AuthenticationPrincipal AuthenticatedUser principal,
+		@RequestParam(required = false) OffsetDateTime from,
+		@RequestParam(required = false) OffsetDateTime to
+	) {
+		return ResponseEntity.ok(meetingService.getCalendar(principal, from, to));
+	}
+
 	@GetMapping("/{meetingId}")
 	public ResponseEntity<MeetingDetailResponse> getDetail(
 		@AuthenticationPrincipal AuthenticatedUser principal,
@@ -54,6 +67,16 @@ public class MeetingController {
 		@PathVariable Long meetingId
 	) {
 		return ResponseEntity.ok(meetingService.getParticipants(principal, meetingId));
+	}
+
+	@GetMapping("/{meetingId}/schedules")
+	public ResponseEntity<MeetingSchedulesResponse> getSchedules(
+		@AuthenticationPrincipal AuthenticatedUser principal,
+		@PathVariable Long meetingId,
+		@RequestParam(required = false) OffsetDateTime from,
+		@RequestParam(required = false) OffsetDateTime to
+	) {
+		return ResponseEntity.ok(meetingService.getSchedules(principal, meetingId, from, to));
 	}
 
 	@PostMapping("/{meetingId}/join")
