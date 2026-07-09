@@ -32,6 +32,7 @@ import shinhan.fibri.ieum.main.chat.dto.ChatRoomResponse;
 import shinhan.fibri.ieum.main.chat.dto.ChatRoomSummaryResponse;
 import shinhan.fibri.ieum.main.chat.exception.BlockedChatException;
 import shinhan.fibri.ieum.main.chat.exception.ChatRoomNotFoundException;
+import shinhan.fibri.ieum.main.chat.exception.GroupLeaveViaMeetingException;
 import shinhan.fibri.ieum.main.chat.exception.NotFriendsException;
 import shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException;
 import shinhan.fibri.ieum.main.chat.exception.SelfChatRoomException;
@@ -172,7 +173,11 @@ public class ChatService {
 
 	@Transactional
 	public void leaveRoom(AuthenticatedUser principal, Long roomId) {
-		findActiveMember(roomId, principal.userId()).leave(java.time.OffsetDateTime.now());
+		ChatMember member = findActiveMember(roomId, principal.userId());
+		if (member.getRoom().getRoomType() == RoomType.group) {
+			throw new GroupLeaveViaMeetingException();
+		}
+		member.leave(java.time.OffsetDateTime.now());
 	}
 
 	private ChatRoom insertDirectRoom(User currentUser, User friend) {

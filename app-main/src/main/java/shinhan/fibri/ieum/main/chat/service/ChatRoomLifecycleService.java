@@ -31,24 +31,8 @@ public class ChatRoomLifecycleService implements ChatRoomLifecycle {
 	private final PlatformTransactionManager transactionManager;
 
 	@Override
+	@Transactional
 	public Long createGroupRoom(Long meetingId, Long hostUserId) {
-		try {
-			return createGroupRoomInNewTransaction(meetingId, hostUserId);
-		} catch (DataIntegrityViolationException exception) {
-			if (!isChatRoomConstraintViolation(exception)) {
-				throw exception;
-			}
-			return createGroupRoomInNewTransaction(meetingId, hostUserId);
-		}
-	}
-
-	private Long createGroupRoomInNewTransaction(Long meetingId, Long hostUserId) {
-		TransactionTemplate template = new TransactionTemplate(transactionManager);
-		template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
-		return template.execute(status -> createGroupRoomInTransaction(meetingId, hostUserId));
-	}
-
-	private Long createGroupRoomInTransaction(Long meetingId, Long hostUserId) {
 		User host = findActiveUser(hostUserId);
 		ChatRoom room = chatRoomRepository.findByMeetingId(meetingId)
 			.orElseGet(() -> chatRoomRepository.saveAndFlush(ChatRoom.group(meetingId)));

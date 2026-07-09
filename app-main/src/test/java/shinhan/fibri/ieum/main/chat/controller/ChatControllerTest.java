@@ -44,6 +44,7 @@ import shinhan.fibri.ieum.main.chat.dto.ChatRoomResponse;
 import shinhan.fibri.ieum.main.chat.dto.ChatRoomSummaryResponse;
 import shinhan.fibri.ieum.main.chat.exception.BlockedChatException;
 import shinhan.fibri.ieum.main.chat.exception.ChatRoomNotFoundException;
+import shinhan.fibri.ieum.main.chat.exception.GroupLeaveViaMeetingException;
 import shinhan.fibri.ieum.main.chat.exception.NotFriendsException;
 import shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException;
 import shinhan.fibri.ieum.main.chat.exception.SelfChatRoomException;
@@ -198,6 +199,16 @@ class ChatControllerTest {
 			.andExpect(status().isNoContent());
 
 		verify(chatService).leaveRoom(any(AuthenticatedUser.class), eq(100L));
+	}
+
+	@Test
+	void mapsGroupLeaveViaMeetingToConflict() throws Exception {
+		doThrow(new GroupLeaveViaMeetingException())
+			.when(chatService).leaveRoom(any(AuthenticatedUser.class), eq(100L));
+
+		mockMvc.perform(post("/api/v1/chat/rooms/{roomId}/leave", 100L).with(authenticated()))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code", is("GROUP_LEAVE_VIA_MEETING")));
 	}
 
 	@Test

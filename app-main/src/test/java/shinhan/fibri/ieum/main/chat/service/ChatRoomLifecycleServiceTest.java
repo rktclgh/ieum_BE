@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.main.chat.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -26,12 +27,14 @@ import shinhan.fibri.ieum.common.chat.repository.ChatRoomRepository;
 
 class ChatRoomLifecycleServiceTest {
 
+	private final List<TransactionDefinition> transactionDefinitions = new java.util.ArrayList<>();
 	private final UserRepository userRepository = org.mockito.Mockito.mock(UserRepository.class);
 	private final ChatRoomRepository chatRoomRepository = org.mockito.Mockito.mock(ChatRoomRepository.class);
 	private final ChatMemberRepository chatMemberRepository = org.mockito.Mockito.mock(ChatMemberRepository.class);
 	private final PlatformTransactionManager transactionManager = new PlatformTransactionManager() {
 		@Override
 		public TransactionStatus getTransaction(TransactionDefinition definition) {
+			transactionDefinitions.add(definition);
 			return new SimpleTransactionStatus();
 		}
 
@@ -67,22 +70,33 @@ class ChatRoomLifecycleServiceTest {
 	}
 
 	@Test
-	void createGroupRoomRetriesAndRestoresHostWhenMeetingIdRaceOccurs() {
+	void createGroupRoomDoesNotUseRequiresNewTransaction() {
 		User host = user(42L, "host@example.com", "host");
-		ChatRoom room = room(ChatRoom.group(7L), 100L);
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(host));
-		when(chatRoomRepository.findByMeetingId(7L))
-			.thenReturn(Optional.empty())
-			.thenReturn(Optional.of(room));
-		when(chatRoomRepository.saveAndFlush(any(ChatRoom.class)))
-			.thenThrow(new DataIntegrityViolationException("uidx_chat_rooms_meeting_id"));
-		when(chatMemberRepository.findByRoom_Id(100L)).thenReturn(List.of());
+		when(chatRoomRepository.saveAndFlush(any(ChatRoom.class))).thenAnswer(invocation -> {
+			ChatRoom room = invocation.getArgument(0);
+			setField(room, "id", 100L);
+			return room;
+		});
 
 		Long roomId = service.createGroupRoom(7L, 42L);
 
 		assertThat(roomId).isEqualTo(100L);
+		assertThat(transactionDefinitions)
+			.noneMatch(definition -> definition.getPropagationBehavior() == TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+	}
+
+	@Test
+	void createGroupRoomDoesNotRetryWhenMeetingIdRaceOccurs() {
+		User host = user(42L, "host@example.com", "host");
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(host));
+		when(chatRoomRepository.findByMeetingId(7L)).thenReturn(Optional.empty());
+		when(chatRoomRepository.saveAndFlush(any(ChatRoom.class)))
+			.thenThrow(new DataIntegrityViolationException("uidx_chat_rooms_meeting_id"));
+
+		assertThatThrownBy(() -> service.createGroupRoom(7L, 42L))
+			.isInstanceOf(DataIntegrityViolationException.class);
 		verify(chatRoomRepository).saveAndFlush(any(ChatRoom.class));
-		verify(chatMemberRepository).save(any(ChatMember.class));
 	}
 
 	@Test

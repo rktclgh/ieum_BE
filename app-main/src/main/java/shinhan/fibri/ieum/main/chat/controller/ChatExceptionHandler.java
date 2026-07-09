@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import shinhan.fibri.ieum.main.auth.dto.AuthErrorResponse;
 import shinhan.fibri.ieum.main.chat.exception.BlockedChatException;
 import shinhan.fibri.ieum.main.chat.exception.ChatRoomNotFoundException;
+import shinhan.fibri.ieum.main.chat.exception.GroupLeaveViaMeetingException;
 import shinhan.fibri.ieum.main.chat.exception.NotFriendsException;
 import shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException;
 import shinhan.fibri.ieum.main.chat.exception.SelfChatRoomException;
@@ -53,6 +54,12 @@ public class ChatExceptionHandler {
 	public ResponseEntity<AuthErrorResponse> handleNotRoomMember(NotRoomMemberException exception) {
 		return ResponseEntity.status(HttpStatus.FORBIDDEN)
 			.body(new AuthErrorResponse("NOT_ROOM_MEMBER", exception.getMessage()));
+	}
+
+	@ExceptionHandler(GroupLeaveViaMeetingException.class)
+	public ResponseEntity<AuthErrorResponse> handleGroupLeaveViaMeeting(GroupLeaveViaMeetingException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+			.body(new AuthErrorResponse("GROUP_LEAVE_VIA_MEETING", exception.getMessage()));
 	}
 
 	@ExceptionHandler(UserNotFoundException.class)

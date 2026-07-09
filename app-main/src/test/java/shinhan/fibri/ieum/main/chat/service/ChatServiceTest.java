@@ -337,6 +337,18 @@ class ChatServiceTest {
 		assertThat(member.getLeftAt()).isNotNull();
 	}
 
+	@Test
+	void leaveRoomRejectsGroupRoomBecauseMeetingLeaveIsCanonical() {
+		User me = user(42L, "me@example.com", "me");
+		ChatRoom room = room(ChatRoom.group(7L), 100L);
+		ChatMember member = ChatMember.join(room, me);
+		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(member));
+
+		assertThatThrownBy(() -> service.leaveRoom(principal(42L), 100L))
+			.hasMessage("Leave group chat via meeting leave API");
+		assertThat(member.getLeftAt()).isNull();
+	}
+
 	private AuthenticatedUser principal(Long userId) {
 		return new AuthenticatedUser(userId, "user" + userId + "@example.com", UserRole.user, UserStatus.active);
 	}
