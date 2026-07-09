@@ -86,6 +86,22 @@ class UserServiceTest {
 	}
 
 	@Test
+	void getMeReturnsNullGenderWithoutThrowingWhenGenderIsNull() {
+		// 스키마상 users.gender 는 nullable — 레거시/직접 INSERT 행은 gender 가 NULL 일 수 있다.
+		// 이 경우 getMe 가 NPE 로 500 을 내지 않고 gender=null 로 응답해야 한다.
+		User user = user();
+		setGender(user, null);
+		UserSettings settings = UserSettings.defaultFor(user);
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user));
+		when(userSettingsRepository.findById(42L)).thenReturn(Optional.of(settings));
+
+		UserMeResponse response = service.getMe(principal());
+
+		assertThat(response.gender()).isNull();
+		assertThat(response.userId()).isEqualTo(42L);
+	}
+
+	@Test
 	void getMeReturnsProfileImageUrlWhenProfileFileIdExists() {
 		User user = user();
 		UUID profileFileId = UUID.fromString("11111111-1111-1111-1111-111111111111");
@@ -412,6 +428,16 @@ class UserServiceTest {
 			java.lang.reflect.Field field = User.class.getDeclaredField("id");
 			field.setAccessible(true);
 			field.set(user, id);
+		} catch (ReflectiveOperationException exception) {
+			throw new IllegalStateException(exception);
+		}
+	}
+
+	private void setGender(User user, GenderType gender) {
+		try {
+			java.lang.reflect.Field field = User.class.getDeclaredField("gender");
+			field.setAccessible(true);
+			field.set(user, gender);
 		} catch (ReflectiveOperationException exception) {
 			throw new IllegalStateException(exception);
 		}

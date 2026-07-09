@@ -22,7 +22,7 @@ public record UserMeResponse(
 			user.getEmail(),
 			user.getNickname(),
 			user.getBirthDate(),
-			user.getGender().name(),
+			user.getGender() == null ? null : user.getGender().name(),
 			user.getNationality(),
 			user.getGrade().name(),
 			user.getAcceptedCount(),
