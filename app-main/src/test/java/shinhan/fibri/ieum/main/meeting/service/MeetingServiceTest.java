@@ -255,6 +255,18 @@ class MeetingServiceTest {
 	}
 
 	@Test
+	void getDetailRejectsKickedViewer() {
+		when(meetingRepository.findDetailById(3L))
+			.thenReturn(Optional.of(detailRow(null, null, OffsetDateTime.parse("2026-07-10T19:00:00+09:00"), OffsetDateTime.parse("2026-07-09T10:00:00+09:00"))));
+		MeetingParticipant participant = MeetingParticipant.join(3L, 42L, OffsetDateTime.parse("2026-07-09T10:00:00+09:00"));
+		participant.kick();
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L)).thenReturn(Optional.of(participant));
+
+		assertThatThrownBy(() -> service.getDetail(principal(42L), 3L))
+			.isInstanceOf(KickedMemberException.class);
+	}
+
+	@Test
 	void getDetailThrowsWhenMeetingDoesNotExist() {
 		when(meetingRepository.findDetailById(3L)).thenReturn(Optional.empty());
 
@@ -299,6 +311,18 @@ class MeetingServiceTest {
 		assertThat(response.items().get(1).profileImageUrl()).isEqualTo("/api/v1/files/" + profileFileId);
 		assertThat(response.items().get(1).isHost()).isFalse();
 		assertThat(response.items().get(1).joinedAt()).isEqualTo(memberJoinedAt);
+	}
+
+	@Test
+	void getParticipantsRejectsKickedViewer() {
+		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2026-07-10T19:00:00+09:00"), 7);
+		MeetingParticipant participant = MeetingParticipant.join(3L, 42L, OffsetDateTime.parse("2026-07-09T10:00:00+09:00"));
+		participant.kick();
+		when(meetingRepository.findByIdAndDeletedAtIsNull(3L)).thenReturn(Optional.of(meeting));
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L)).thenReturn(Optional.of(participant));
+
+		assertThatThrownBy(() -> service.getParticipants(principal(42L), 3L))
+			.isInstanceOf(KickedMemberException.class);
 	}
 
 	@Test

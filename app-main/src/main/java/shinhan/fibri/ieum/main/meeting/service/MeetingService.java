@@ -111,6 +111,11 @@ public class MeetingService {
 	public MeetingDetailResponse getDetail(AuthenticatedUser principal, Long meetingId) {
 		MeetingDetailProjection detail = meetingRepository.findDetailById(meetingId)
 			.orElseThrow(MeetingNotFoundException::new);
+		Optional<MeetingParticipant> participant = participantRepository.findByIdMeetingIdAndIdUserId(
+			meetingId,
+			principal.userId()
+		);
+		ensureNotKicked(participant);
 		long participantCount = participantRepository.countByIdMeetingIdAndStatus(
 			meetingId,
 			shinhan.fibri.ieum.main.meeting.domain.ParticipantStatus.joined
@@ -134,7 +139,7 @@ public class MeetingService {
 			fileUrl(detail.getImageFileId(), "display"),
 			fileUrl(detail.getThumbnailFileId(), "thumb"),
 			new MeetingLocation(detail.getLatitude(), detail.getLongitude()),
-			myStatus(principal.userId(), detail),
+			myStatus(principal.userId(), detail, participant),
 			detail.getCreatedAt().atZone(RESPONSE_ZONE).toOffsetDateTime()
 		);
 	}
@@ -143,6 +148,7 @@ public class MeetingService {
 	public MeetingParticipantsResponse getParticipants(AuthenticatedUser principal, Long meetingId) {
 		Meeting meeting = meetingRepository.findByIdAndDeletedAtIsNull(meetingId)
 			.orElseThrow(MeetingNotFoundException::new);
+		ensureNotKicked(participantRepository.findByIdMeetingIdAndIdUserId(meetingId, principal.userId()));
 		List<MeetingParticipantItem> items = participantRepository.findJoinedParticipantsByMeetingId(meetingId)
 			.stream()
 			.map(row -> new MeetingParticipantItem(
@@ -253,6 +259,12 @@ public class MeetingService {
 	private void ensureScheduleManager(AuthenticatedUser principal, Meeting meeting) {
 		if (!meeting.getHostId().equals(principal.userId()) && principal.role() != UserRole.admin) {
 			throw new NotHostException();
+		}
+	}
+
+	private void ensureNotKicked(Optional<MeetingParticipant> participant) {
+		if (participant.map(row -> row.getStatus() == ParticipantStatus.kicked).orElse(false)) {
+			throw new KickedMemberException();
 		}
 	}
 
@@ -489,12 +501,12 @@ public class MeetingService {
 		return file.getContentType() != null && file.getContentType().toLowerCase(java.util.Locale.ROOT).startsWith("image/");
 	}
 
-	private String myStatus(Long userId, MeetingDetailProjection detail) {
+	private String myStatus(Long userId, MeetingDetailProjection detail, Optional<MeetingParticipant> participant) {
 		if (detail.getHostUserId().equals(userId)) {
 			return "host";
 		}
-		return participantRepository.findByIdMeetingIdAndIdUserId(detail.getMeetingId(), userId)
-			.map(participant -> participant.getStatus().name())
+		return participant
+			.map(row -> row.getStatus().name())
 			.orElse("none");
 	}
 

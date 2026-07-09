@@ -51,7 +51,7 @@ class PinRepositoryIntegrationTest {
 	@BeforeEach
 	void setUpSchemaAndRows() {
 		createSchema();
-		jdbcTemplate.update("TRUNCATE TABLE friendships, question_images, questions, meetings, pins RESTART IDENTITY");
+		jdbcTemplate.update("TRUNCATE TABLE meeting_participants, meeting_schedules, friendships, question_images, questions, meetings, pins RESTART IDENTITY");
 
 		insertPin(7L, "question", 127.0, 37.5);
 		jdbcTemplate.update(
@@ -65,12 +65,13 @@ class PinRepositoryIntegrationTest {
 		insertPin(42L, "meeting", 127.1, 37.6);
 		jdbcTemplate.update(
 			"""
-				INSERT INTO meetings (pin_id, title, image_file_id, thumbnail_file_id, deleted_at)
-				VALUES (2, 'alive meeting', ?::uuid, ?::uuid, NULL)
+				INSERT INTO meetings (pin_id, title, image_file_id, thumbnail_file_id, status, deleted_at)
+				VALUES (2, 'alive meeting', ?::uuid, ?::uuid, 'open'::meeting_status, NULL)
 				""",
 			MEETING_IMAGE_ID.toString(),
 			MEETING_THUMBNAIL_ID.toString()
 		);
+		insertSchedule(1L, "2099-07-10T19:00:00+09:00", "2099-07-10T23:59:59+09:00");
 
 		insertPin(8L, "question", 127.2, 37.7);
 		jdbcTemplate.update(
@@ -79,16 +80,33 @@ class PinRepositoryIntegrationTest {
 
 		insertPin(99L, "meeting", 127.3, 37.8);
 		jdbcTemplate.update(
-			"INSERT INTO meetings (pin_id, title, deleted_at) VALUES (4, 'blocked meeting', NULL)"
+			"INSERT INTO meetings (pin_id, title, status, deleted_at) VALUES (4, 'blocked meeting', 'open'::meeting_status, NULL)"
 		);
+		insertSchedule(2L, "2099-07-11T19:00:00+09:00", "2099-07-11T23:59:59+09:00");
 		jdbcTemplate.update(
 			"INSERT INTO friendships (requester_id, addressee_id, status) VALUES (42, 99, 'blocked')"
 		);
 
 		insertPin(10L, "meeting", 129.0, 35.0);
 		jdbcTemplate.update(
-			"INSERT INTO meetings (pin_id, title, deleted_at) VALUES (5, 'outside meeting', NULL)"
+			"INSERT INTO meetings (pin_id, title, status, deleted_at) VALUES (5, 'outside meeting', 'open'::meeting_status, NULL)"
 		);
+		insertSchedule(3L, "2099-07-12T19:00:00+09:00", "2099-07-12T23:59:59+09:00");
+
+		insertPin(77L, "meeting", 127.4, 37.9);
+		jdbcTemplate.update(
+			"INSERT INTO meetings (pin_id, title, status, deleted_at) VALUES (6, 'kicked meeting', 'open'::meeting_status, NULL)"
+		);
+		insertSchedule(4L, "2099-07-13T19:00:00+09:00", "2099-07-13T23:59:59+09:00");
+		jdbcTemplate.update(
+			"INSERT INTO meeting_participants (meeting_id, user_id, status, joined_at) VALUES (4, 42, 'kicked'::participant_status, now())"
+		);
+
+		insertPin(88L, "meeting", 127.5, 37.95);
+		jdbcTemplate.update(
+			"INSERT INTO meetings (pin_id, title, status, deleted_at) VALUES (7, 'outdated meeting', 'open'::meeting_status, NULL)"
+		);
+		insertSchedule(5L, "2026-07-01T19:00:00+09:00", "2026-07-01T23:59:59+09:00");
 	}
 
 	@Test
@@ -145,6 +163,22 @@ class PinRepositoryIntegrationTest {
 		assertThat(rows).allSatisfy(row -> assertThat(row.getPinType()).isEqualTo("meeting"));
 	}
 
+	@Test
+	void findPinsHideKickedAndOutdatedMeetings() {
+		List<PinProjection> rows = pinRepository.findMapPins(
+			42L,
+			"meeting",
+			37.0,
+			126.0,
+			38.0,
+			128.0,
+			501
+		);
+
+		assertThat(rows).extracting(PinProjection::getTitle)
+			.containsExactly("alive meeting");
+	}
+
 	private void createSchema() {
 		jdbcTemplate.execute("CREATE EXTENSION IF NOT EXISTS postgis");
 		jdbcTemplate.execute("""
@@ -152,6 +186,15 @@ class PinRepositoryIntegrationTest {
 			BEGIN
 				IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'pin_type') THEN
 					CREATE TYPE pin_type AS ENUM ('question', 'meeting');
+				END IF;
+				IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'meeting_status') THEN
+					CREATE TYPE meeting_status AS ENUM ('open', 'closed', 'cancelled');
+				END IF;
+				IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'meeting_schedule_status') THEN
+					CREATE TYPE meeting_schedule_status AS ENUM ('scheduled', 'completed', 'cancelled');
+				END IF;
+				IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'participant_status') THEN
+					CREATE TYPE participant_status AS ENUM ('joined', 'left', 'kicked');
 				END IF;
 			END
 			$$
@@ -181,7 +224,27 @@ class PinRepositoryIntegrationTest {
 				title VARCHAR(200),
 				image_file_id UUID,
 				thumbnail_file_id UUID,
+				status meeting_status NOT NULL DEFAULT 'open',
 				deleted_at TIMESTAMPTZ
+			)
+			""");
+		jdbcTemplate.execute("""
+			CREATE TABLE IF NOT EXISTS meeting_schedules (
+				schedule_id BIGSERIAL PRIMARY KEY,
+				meeting_id BIGINT NOT NULL,
+				starts_at TIMESTAMPTZ NOT NULL,
+				visible_until TIMESTAMPTZ NOT NULL,
+				status meeting_schedule_status NOT NULL,
+				deleted_at TIMESTAMPTZ
+			)
+			""");
+		jdbcTemplate.execute("""
+			CREATE TABLE IF NOT EXISTS meeting_participants (
+				meeting_id BIGINT NOT NULL,
+				user_id BIGINT NOT NULL,
+				status participant_status NOT NULL,
+				joined_at TIMESTAMPTZ NOT NULL,
+				PRIMARY KEY (meeting_id, user_id)
 			)
 			""");
 		jdbcTemplate.execute("""
@@ -212,6 +275,18 @@ class PinRepositoryIntegrationTest {
 			pinType,
 			longitude,
 			latitude
+		);
+	}
+
+	private void insertSchedule(Long meetingId, String startsAt, String visibleUntil) {
+		jdbcTemplate.update(
+			"""
+				INSERT INTO meeting_schedules (meeting_id, starts_at, visible_until, status)
+				VALUES (?, ?::timestamptz, ?::timestamptz, 'scheduled'::meeting_schedule_status)
+				""",
+			meetingId,
+			startsAt,
+			visibleUntil
 		);
 	}
 }

@@ -21,7 +21,24 @@ public interface PinRepository extends JpaRepository<Pin, Long> {
 			       p.created_at                                 AS "createdAt"
 			FROM pins p
 			LEFT JOIN questions q ON q.pin_id = p.pin_id AND q.is_resolved = false
-			LEFT JOIN meetings  m ON m.pin_id = p.pin_id AND m.deleted_at IS NULL
+			LEFT JOIN meetings  m ON m.pin_id = p.pin_id
+			                    AND m.deleted_at IS NULL
+			                    AND m.status = 'open'
+			                    AND EXISTS (
+			                       SELECT 1
+			                         FROM meeting_schedules ms
+			                        WHERE ms.meeting_id = m.meeting_id
+			                          AND ms.status = 'scheduled'
+			                          AND ms.visible_until >= now()
+			                          AND ms.deleted_at IS NULL
+			                    )
+			                    AND NOT EXISTS (
+			                       SELECT 1
+			                         FROM meeting_participants mp
+			                        WHERE mp.meeting_id = m.meeting_id
+			                          AND mp.user_id = :userId
+			                          AND mp.status = 'kicked'
+			                    )
 			LEFT JOIN LATERAL (
 			   SELECT file_id FROM question_images qi
 			   WHERE qi.question_id = q.question_id ORDER BY qi.sort_order LIMIT 1
@@ -63,7 +80,24 @@ public interface PinRepository extends JpaRepository<Pin, Long> {
 			       p.created_at                                 AS "createdAt"
 			FROM pins p
 			LEFT JOIN questions q ON q.pin_id = p.pin_id AND q.is_resolved = false
-			LEFT JOIN meetings  m ON m.pin_id = p.pin_id AND m.deleted_at IS NULL
+			LEFT JOIN meetings  m ON m.pin_id = p.pin_id
+			                    AND m.deleted_at IS NULL
+			                    AND m.status = 'open'
+			                    AND EXISTS (
+			                       SELECT 1
+			                         FROM meeting_schedules ms
+			                        WHERE ms.meeting_id = m.meeting_id
+			                          AND ms.status = 'scheduled'
+			                          AND ms.visible_until >= now()
+			                          AND ms.deleted_at IS NULL
+			                    )
+			                    AND NOT EXISTS (
+			                       SELECT 1
+			                         FROM meeting_participants mp
+			                        WHERE mp.meeting_id = m.meeting_id
+			                          AND mp.user_id = :userId
+			                          AND mp.status = 'kicked'
+			                    )
 			LEFT JOIN LATERAL (
 			   SELECT file_id FROM question_images qi
 			   WHERE qi.question_id = q.question_id ORDER BY qi.sort_order LIMIT 1
