@@ -15,6 +15,7 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.file.domain.File;
 import shinhan.fibri.ieum.common.file.repository.FileRepository;
@@ -30,6 +31,8 @@ import shinhan.fibri.ieum.main.meeting.domain.ParticipantStatus;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingRecurrenceRuleRequest;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingRequest;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingResponse;
+import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingScheduleRequest;
+import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingScheduleResponse;
 import shinhan.fibri.ieum.main.meeting.dto.JoinMeetingResponse;
 import shinhan.fibri.ieum.main.meeting.dto.KickMeetingRequest;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingDetailResponse;
@@ -45,6 +48,9 @@ import shinhan.fibri.ieum.main.meeting.exception.MeetingNotFoundException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingNotOpenException;
 import shinhan.fibri.ieum.main.meeting.exception.NotHostException;
 import shinhan.fibri.ieum.main.meeting.exception.ParticipantNotFoundException;
+import shinhan.fibri.ieum.main.meeting.exception.ScheduleAlreadyExistsException;
+import shinhan.fibri.ieum.main.meeting.exception.ScheduleNotCancellableException;
+import shinhan.fibri.ieum.main.meeting.exception.ScheduleNotFoundException;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingDetailProjection;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingParticipantRepository;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingRecurrenceRuleRepository;
@@ -195,6 +201,59 @@ public class MeetingService {
 		participantRepository.save(MeetingParticipant.join(meeting.getId(), userId, OffsetDateTime.now()));
 		chatRoomLifecycle.addMember(roomId, userId);
 		return new JoinMeetingResponse(roomId);
+	}
+
+	@Transactional
+	public CreateMeetingScheduleResponse addSchedule(
+		AuthenticatedUser principal,
+		Long meetingId,
+		CreateMeetingScheduleRequest request
+	) {
+		Meeting meeting = meetingRepository.findActiveByIdForUpdate(meetingId)
+			.orElseThrow(MeetingNotFoundException::new);
+		ensureScheduleManager(principal, meeting);
+		if (meeting.getType() == MeetingType.recurring) {
+			throw new InvalidMeetingRequestException(
+				"VALIDATION_FAILED",
+				"type",
+				"recurring schedule is managed by recurrenceRule"
+			);
+		}
+		OffsetDateTime now = OffsetDateTime.now();
+		if (meetingScheduleRepository.existsActiveSchedule(meetingId, now)) {
+			throw new ScheduleAlreadyExistsException();
+		}
+		MeetingSchedule schedule = meetingScheduleRepository.save(createSchedule(
+			meetingId,
+			request.startsAt(),
+			request.endsAt(),
+			meetingScheduleRepository.findMaxSequenceNoByMeetingId(meetingId) + 1
+		));
+		meeting.updateMeetingAtCache(schedule.getStartsAt());
+		return new CreateMeetingScheduleResponse(schedule.getId());
+	}
+
+	@Transactional
+	public void cancelSchedule(AuthenticatedUser principal, Long meetingId, Long scheduleId) {
+		Meeting meeting = meetingRepository.findActiveByIdForUpdate(meetingId)
+			.orElseThrow(MeetingNotFoundException::new);
+		ensureScheduleManager(principal, meeting);
+		MeetingSchedule schedule = meetingScheduleRepository
+			.findByIdAndMeetingIdAndDeletedAtIsNull(scheduleId, meetingId)
+			.orElseThrow(ScheduleNotFoundException::new);
+		try {
+			schedule.cancel();
+		} catch (IllegalStateException exception) {
+			throw new ScheduleNotCancellableException();
+		}
+		meetingScheduleRepository.findNextActiveStartsAt(meetingId, OffsetDateTime.now())
+			.ifPresent(meeting::updateMeetingAtCache);
+	}
+
+	private void ensureScheduleManager(AuthenticatedUser principal, Meeting meeting) {
+		if (!meeting.getHostId().equals(principal.userId()) && principal.role() != UserRole.admin) {
+			throw new NotHostException();
+		}
 	}
 
 	private void ensureHasCapacity(Meeting meeting) {

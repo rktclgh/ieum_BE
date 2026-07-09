@@ -15,6 +15,8 @@ import org.springframework.web.bind.annotation.RestController;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingRequest;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingResponse;
+import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingScheduleRequest;
+import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingScheduleResponse;
 import shinhan.fibri.ieum.main.meeting.dto.JoinMeetingResponse;
 import shinhan.fibri.ieum.main.meeting.dto.KickMeetingRequest;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingDetailResponse;
@@ -60,6 +62,29 @@ public class MeetingController {
 		@PathVariable Long meetingId
 	) {
 		return ResponseEntity.ok(meetingService.join(principal, meetingId));
+	}
+
+	@PostMapping("/{meetingId}/schedules")
+	public ResponseEntity<CreateMeetingScheduleResponse> addSchedule(
+		@AuthenticationPrincipal AuthenticatedUser principal,
+		@PathVariable Long meetingId,
+		@Valid @RequestBody CreateMeetingScheduleRequest request
+	) {
+		CreateMeetingScheduleResponse response = meetingService.addSchedule(principal, meetingId, request);
+		return ResponseEntity.created(URI.create(
+				"/api/v1/meetings/" + meetingId + "/schedules/" + response.scheduleId()
+			))
+			.body(response);
+	}
+
+	@DeleteMapping("/{meetingId}/schedules/{scheduleId}")
+	public ResponseEntity<Void> cancelSchedule(
+		@AuthenticationPrincipal AuthenticatedUser principal,
+		@PathVariable Long meetingId,
+		@PathVariable Long scheduleId
+	) {
+		meetingService.cancelSchedule(principal, meetingId, scheduleId);
+		return ResponseEntity.noContent().build();
 	}
 
 	@PostMapping("/{meetingId}/leave")

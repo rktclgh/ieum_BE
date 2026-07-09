@@ -18,6 +18,9 @@ import shinhan.fibri.ieum.main.meeting.exception.MeetingNotFoundException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingNotOpenException;
 import shinhan.fibri.ieum.main.meeting.exception.NotHostException;
 import shinhan.fibri.ieum.main.meeting.exception.ParticipantNotFoundException;
+import shinhan.fibri.ieum.main.meeting.exception.ScheduleAlreadyExistsException;
+import shinhan.fibri.ieum.main.meeting.exception.ScheduleNotCancellableException;
+import shinhan.fibri.ieum.main.meeting.exception.ScheduleNotFoundException;
 
 @RestControllerAdvice(assignableTypes = MeetingController.class)
 @Order(Ordered.HIGHEST_PRECEDENCE)
@@ -85,5 +88,23 @@ public class MeetingExceptionHandler {
 	public ResponseEntity<AuthErrorResponse> handleNotHost(NotHostException exception) {
 		return ResponseEntity.status(HttpStatus.FORBIDDEN)
 			.body(new AuthErrorResponse("NOT_HOST", exception.getMessage()));
+	}
+
+	@ExceptionHandler(ScheduleAlreadyExistsException.class)
+	public ResponseEntity<AuthErrorResponse> handleScheduleAlreadyExists(ScheduleAlreadyExistsException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+			.body(new AuthErrorResponse("SCHEDULE_ALREADY_EXISTS", exception.getMessage()));
+	}
+
+	@ExceptionHandler(ScheduleNotFoundException.class)
+	public ResponseEntity<AuthErrorResponse> handleScheduleNotFound(ScheduleNotFoundException exception) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND)
+			.body(new AuthErrorResponse("SCHEDULE_NOT_FOUND", exception.getMessage()));
+	}
+
+	@ExceptionHandler(ScheduleNotCancellableException.class)
+	public ResponseEntity<AuthErrorResponse> handleScheduleNotCancellable(ScheduleNotCancellableException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+			.body(new AuthErrorResponse("SCHEDULE_NOT_CANCELLABLE", exception.getMessage()));
 	}
 }

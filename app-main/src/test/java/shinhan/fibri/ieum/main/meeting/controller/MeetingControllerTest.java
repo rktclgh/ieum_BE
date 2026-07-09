@@ -36,6 +36,7 @@ import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingResponse;
+import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingScheduleResponse;
 import shinhan.fibri.ieum.main.meeting.dto.JoinMeetingResponse;
 import shinhan.fibri.ieum.main.meeting.dto.KickMeetingRequest;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingDetailResponse;
@@ -51,6 +52,9 @@ import shinhan.fibri.ieum.main.meeting.exception.MeetingNotFoundException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingNotOpenException;
 import shinhan.fibri.ieum.main.meeting.exception.NotHostException;
 import shinhan.fibri.ieum.main.meeting.exception.ParticipantNotFoundException;
+import shinhan.fibri.ieum.main.meeting.exception.ScheduleAlreadyExistsException;
+import shinhan.fibri.ieum.main.meeting.exception.ScheduleNotCancellableException;
+import shinhan.fibri.ieum.main.meeting.exception.ScheduleNotFoundException;
 import shinhan.fibri.ieum.main.meeting.service.MeetingService;
 
 @WebMvcTest(MeetingController.class)
@@ -274,6 +278,98 @@ class MeetingControllerTest {
 				.with(authenticated()))
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.code", is("KICKED_MEMBER")));
+	}
+
+	@Test
+	void addScheduleReturnsCreatedScheduleId() throws Exception {
+		when(meetingService.addSchedule(
+			any(AuthenticatedUser.class),
+			org.mockito.ArgumentMatchers.eq(3L),
+			any()
+		))
+			.thenReturn(new CreateMeetingScheduleResponse(32L));
+
+		mockMvc.perform(post("/api/v1/meetings/{meetingId}/schedules", 3L)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "startsAt": "2099-07-10T19:00:00+09:00",
+					  "endsAt": "2099-07-10T20:00:00+09:00"
+					}
+					""")
+				.with(authenticated()))
+			.andExpect(status().isCreated())
+			.andExpect(header().string(HttpHeaders.LOCATION, "/api/v1/meetings/3/schedules/32"))
+			.andExpect(jsonPath("$.scheduleId", is(32)));
+	}
+
+	@Test
+	void addScheduleMapsScheduleAlreadyExistsToConflict() throws Exception {
+		when(meetingService.addSchedule(any(AuthenticatedUser.class), org.mockito.ArgumentMatchers.eq(3L), any()))
+			.thenThrow(new ScheduleAlreadyExistsException());
+
+		mockMvc.perform(post("/api/v1/meetings/{meetingId}/schedules", 3L)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"startsAt\":\"2099-07-10T19:00:00+09:00\"}")
+				.with(authenticated()))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code", is("SCHEDULE_ALREADY_EXISTS")));
+	}
+
+	@Test
+	void addScheduleMapsNotHostToForbidden() throws Exception {
+		when(meetingService.addSchedule(any(AuthenticatedUser.class), org.mockito.ArgumentMatchers.eq(3L), any()))
+			.thenThrow(new NotHostException());
+
+		mockMvc.perform(post("/api/v1/meetings/{meetingId}/schedules", 3L)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"startsAt\":\"2099-07-10T19:00:00+09:00\"}")
+				.with(authenticated()))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code", is("NOT_HOST")));
+	}
+
+	@Test
+	void deleteScheduleReturnsNoContent() throws Exception {
+		mockMvc.perform(delete("/api/v1/meetings/{meetingId}/schedules/{scheduleId}", 3L, 31L)
+				.with(authenticated()))
+			.andExpect(status().isNoContent());
+
+		verify(meetingService).cancelSchedule(
+			any(AuthenticatedUser.class),
+			org.mockito.ArgumentMatchers.eq(3L),
+			org.mockito.ArgumentMatchers.eq(31L)
+		);
+	}
+
+	@Test
+	void deleteScheduleMapsScheduleNotFoundToNotFound() throws Exception {
+		org.mockito.Mockito.doThrow(new ScheduleNotFoundException())
+			.when(meetingService).cancelSchedule(
+				any(AuthenticatedUser.class),
+				org.mockito.ArgumentMatchers.eq(3L),
+				org.mockito.ArgumentMatchers.eq(31L)
+			);
+
+		mockMvc.perform(delete("/api/v1/meetings/{meetingId}/schedules/{scheduleId}", 3L, 31L)
+				.with(authenticated()))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code", is("SCHEDULE_NOT_FOUND")));
+	}
+
+	@Test
+	void deleteScheduleMapsScheduleNotCancellableToConflict() throws Exception {
+		org.mockito.Mockito.doThrow(new ScheduleNotCancellableException())
+			.when(meetingService).cancelSchedule(
+				any(AuthenticatedUser.class),
+				org.mockito.ArgumentMatchers.eq(3L),
+				org.mockito.ArgumentMatchers.eq(31L)
+			);
+
+		mockMvc.perform(delete("/api/v1/meetings/{meetingId}/schedules/{scheduleId}", 3L, 31L)
+				.with(authenticated()))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code", is("SCHEDULE_NOT_CANCELLABLE")));
 	}
 
 	@Test

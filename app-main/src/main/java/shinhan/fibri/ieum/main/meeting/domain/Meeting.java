@@ -167,6 +167,11 @@ public class Meeting {
 		this.updatedAt = deletedAt;
 	}
 
+	public void updateMeetingAtCache(OffsetDateTime meetingAt) {
+		this.meetingAt = Objects.requireNonNull(meetingAt, "meetingAt must not be null");
+		this.updatedAt = OffsetDateTime.now();
+	}
+
 	public boolean isJoinable(OffsetDateTime now) {
 		return status == MeetingStatus.open
 			&& deletedAt == null
