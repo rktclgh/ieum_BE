@@ -143,7 +143,12 @@ public class ChatInboundChannelInterceptor implements ChannelInterceptor {
 		if (!matcher.matches()) {
 			return Optional.empty();
 		}
-		return Optional.of(Long.valueOf(matcher.group(1)));
+		try {
+			return Optional.of(Long.valueOf(matcher.group(1)));
+		} catch (NumberFormatException e) {
+			// 20자리 이상 등 Long 범위를 넘는 방 ID는 잘못된 목적지로 취급(연결 종료 대신 에러 응답).
+			return Optional.empty();
+		}
 	}
 
 	private boolean hasActiveSession(ChatWebSocketPrincipal principal) {

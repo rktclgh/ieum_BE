@@ -27,7 +27,13 @@ public interface ChatMemberRepository extends JpaRepository<ChatMember, ChatMemb
 
 	boolean existsByRoom_IdAndUser_IdAndLeftAtIsNull(Long roomId, Long userId);
 
-	List<ChatMember> findByRoom_Id(Long roomId);
+	@Query("""
+		SELECT member
+		FROM ChatMember member
+		JOIN FETCH member.user
+		WHERE member.room.id = :roomId
+		""")
+	List<ChatMember> findByRoom_Id(@Param("roomId") Long roomId);
 
 	@Modifying
 	@Query("""

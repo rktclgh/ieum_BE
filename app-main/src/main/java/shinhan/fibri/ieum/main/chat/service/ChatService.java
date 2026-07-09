@@ -125,8 +125,12 @@ public class ChatService {
 	public ChatRoomDetailResponse getRoom(AuthenticatedUser principal, Long roomId) {
 		ChatRoom room = chatRoomRepository.findById(roomId)
 			.orElseThrow(ChatRoomNotFoundException::new);
-		ChatMember currentMember = findActiveMember(roomId, principal.userId());
-		return ChatRoomDetailResponse.from(room, currentMember, chatMemberRepository.findByRoom_Id(roomId));
+		List<ChatMember> members = chatMemberRepository.findByRoom_Id(roomId);
+		ChatMember currentMember = members.stream()
+			.filter(member -> member.isActive() && member.getUser().getId().equals(principal.userId()))
+			.findFirst()
+			.orElseThrow(NotRoomMemberException::new);
+		return ChatRoomDetailResponse.from(room, currentMember, members);
 	}
 
 	@Transactional(readOnly = true)

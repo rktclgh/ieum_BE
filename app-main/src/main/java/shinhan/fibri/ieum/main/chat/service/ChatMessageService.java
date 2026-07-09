@@ -59,6 +59,9 @@ public class ChatMessageService {
 		if (content != null && content.length() > MAX_CONTENT_LENGTH) {
 			throw new InvalidChatMessageException("content must be 2000 characters or less");
 		}
+		if (imageFileId != null && content != null && !content.isBlank()) {
+			throw new InvalidChatMessageException("content and imageFileId cannot both be provided");
+		}
 	}
 
 	private Message toMessage(ChatMember member, SendChatMessageRequest request) {
