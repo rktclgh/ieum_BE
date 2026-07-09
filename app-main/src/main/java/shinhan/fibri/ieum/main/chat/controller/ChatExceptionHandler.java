@@ -15,6 +15,7 @@ import shinhan.fibri.ieum.main.chat.exception.GroupLeaveViaMeetingException;
 import shinhan.fibri.ieum.main.chat.exception.NotFriendsException;
 import shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException;
 import shinhan.fibri.ieum.main.chat.exception.SelfChatRoomException;
+import shinhan.fibri.ieum.main.meeting.exception.NotHostException;
 import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
 
 @RestControllerAdvice(assignableTypes = ChatController.class)
@@ -72,6 +73,12 @@ public class ChatExceptionHandler {
 	public ResponseEntity<AuthErrorResponse> handleChatRoomNotFound(ChatRoomNotFoundException exception) {
 		return ResponseEntity.status(HttpStatus.NOT_FOUND)
 			.body(new AuthErrorResponse("ROOM_NOT_FOUND", exception.getMessage()));
+	}
+
+	@ExceptionHandler(NotHostException.class)
+	public ResponseEntity<AuthErrorResponse> handleNotHost(NotHostException exception) {
+		return ResponseEntity.status(HttpStatus.FORBIDDEN)
+			.body(new AuthErrorResponse("NOT_HOST", exception.getMessage()));
 	}
 
 	@ExceptionHandler(IllegalArgumentException.class)

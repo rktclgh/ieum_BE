@@ -5,6 +5,7 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -101,6 +102,15 @@ public class ChatController {
 		@PathVariable Long roomId
 	) {
 		chatService.leaveRoom(principal, roomId);
+		return ResponseEntity.noContent().build();
+	}
+
+	@DeleteMapping("/rooms/{roomId}")
+	public ResponseEntity<Void> disbandRoom(
+		@AuthenticationPrincipal AuthenticatedUser principal,
+		@PathVariable Long roomId
+	) {
+		chatService.disbandRoom(principal, roomId);
 		return ResponseEntity.noContent().build();
 	}
 }

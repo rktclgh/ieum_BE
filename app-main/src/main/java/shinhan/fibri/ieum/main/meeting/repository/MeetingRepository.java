@@ -13,6 +13,8 @@ public interface MeetingRepository extends JpaRepository<Meeting, Long> {
 
 	Optional<Meeting> findByIdAndDeletedAtIsNull(Long id);
 
+	boolean existsByIdAndHostIdAndDeletedAtIsNull(Long id, Long hostId);
+
 	@Query(value = """
 		SELECT m.meeting_id                         AS "meetingId",
 		       m.pin_id                             AS "pinId",
