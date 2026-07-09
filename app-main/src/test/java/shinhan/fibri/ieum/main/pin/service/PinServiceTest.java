@@ -61,6 +61,7 @@ class PinServiceTest {
 		PinItem item = response.items().getFirst();
 		assertThat(item.pinId()).isEqualTo(10L);
 		assertThat(item.pinType()).isEqualTo(PinType.meeting);
+		assertThat(item.targetId()).isEqualTo(300L);
 		assertThat(item.thumbnailUrl()).isEqualTo("/api/v1/files/%s?v=thumb".formatted(thumbnailFileId));
 		assertThat(item.location().latitude()).isEqualTo(37.55);
 		assertThat(item.location().longitude()).isEqualTo(126.98);
@@ -133,6 +134,11 @@ class PinServiceTest {
 			@Override
 			public String getPinType() {
 				return pinType;
+			}
+
+			@Override
+			public Long getTargetId() {
+				return pinId * 30;
 			}
 
 			@Override

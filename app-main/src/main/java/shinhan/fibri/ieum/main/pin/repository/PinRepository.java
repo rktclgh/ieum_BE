@@ -12,6 +12,7 @@ public interface PinRepository extends JpaRepository<Pin, Long> {
 		value = """
 			SELECT p.pin_id                                     AS "pinId",
 			       CAST(p.pin_type AS text)                     AS "pinType",
+			       COALESCE(q.question_id, m.meeting_id)         AS "targetId",
 			       COALESCE(q.title, m.title)                   AS "title",
 			       COALESCE(m.thumbnail_file_id, m.image_file_id, qi.file_id) AS "thumbnailFileId",
 			       ST_Y(p.location::geometry)                   AS "latitude",
@@ -53,6 +54,7 @@ public interface PinRepository extends JpaRepository<Pin, Long> {
 		value = """
 			SELECT p.pin_id                                     AS "pinId",
 			       CAST(p.pin_type AS text)                     AS "pinType",
+			       COALESCE(q.question_id, m.meeting_id)         AS "targetId",
 			       COALESCE(q.title, m.title)                   AS "title",
 			       COALESCE(m.thumbnail_file_id, m.image_file_id, qi.file_id) AS "thumbnailFileId",
 			       ST_Y(p.location::geometry)                   AS "latitude",

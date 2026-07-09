@@ -76,6 +76,7 @@ public class PinService {
 		return new PinItem(
 			row.getPinId(),
 			PinType.valueOf(row.getPinType()),
+			row.getTargetId(),
 			row.getTitle(),
 			thumbnailUrl(row.getThumbnailFileId()),
 			new PinLocation(row.getLatitude(), row.getLongitude()),

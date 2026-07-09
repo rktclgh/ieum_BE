@@ -6,6 +6,7 @@ import shinhan.fibri.ieum.main.pin.domain.PinType;
 public record PinItem(
 	Long pinId,
 	PinType pinType,
+	Long targetId,
 	String title,
 	String thumbnailUrl,
 	PinLocation location,

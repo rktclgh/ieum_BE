@@ -9,6 +9,8 @@ public interface PinProjection {
 
 	String getPinType();
 
+	Long getTargetId();
+
 	String getTitle();
 
 	UUID getThumbnailFileId();

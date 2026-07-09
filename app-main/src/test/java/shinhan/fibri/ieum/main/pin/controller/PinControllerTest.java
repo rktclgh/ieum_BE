@@ -74,6 +74,7 @@ class PinControllerTest {
 			.andExpect(jsonPath("$.truncated", is(true)))
 			.andExpect(jsonPath("$.items[0].pinId", is(10)))
 			.andExpect(jsonPath("$.items[0].pinType", is("meeting")))
+			.andExpect(jsonPath("$.items[0].targetId", is(3)))
 			.andExpect(jsonPath("$.items[0].thumbnailUrl", is("/api/v1/files/file-id?v=thumb")))
 			.andExpect(jsonPath("$.items[0].location.latitude", is(37.55)))
 			.andExpect(jsonPath("$.items[0].authorId").doesNotExist())
@@ -138,6 +139,7 @@ class PinControllerTest {
 		return new PinItem(
 			10L,
 			PinType.meeting,
+			3L,
 			"coffee",
 			"/api/v1/files/file-id?v=thumb",
 			new PinLocation(37.55, 126.98),
