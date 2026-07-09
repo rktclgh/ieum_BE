@@ -1,18 +1,31 @@
 package shinhan.fibri.ieum.main.meeting.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
+import shinhan.fibri.ieum.main.meeting.domain.MeetingRecurrenceRule;
+import shinhan.fibri.ieum.main.meeting.domain.MeetingSchedule;
+import shinhan.fibri.ieum.main.meeting.repository.MeetingRecurrenceRuleRepository;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingScheduleRepository;
 
 class MeetingScheduleMaintenanceServiceTest {
 
 	private final MeetingScheduleRepository repository = mock(MeetingScheduleRepository.class);
-	private final MeetingScheduleMaintenanceService service = new MeetingScheduleMaintenanceService(repository);
+	private final MeetingRecurrenceRuleRepository recurrenceRuleRepository = mock(MeetingRecurrenceRuleRepository.class);
+	private final MeetingScheduleMaintenanceService service = new MeetingScheduleMaintenanceService(
+		repository,
+		recurrenceRuleRepository
+	);
 
 	@Test
 	void completeExpiredSchedulesDelegatesVisibleUntilBulkUpdate() {
@@ -23,5 +36,100 @@ class MeetingScheduleMaintenanceServiceTest {
 
 		assertThat(updated).isEqualTo(2);
 		verify(repository).completeExpiredSchedules(now);
+	}
+
+	@Test
+	void expandRecurringSchedulesCreatesSchedulesUntilFourFutureOccurrences() {
+		OffsetDateTime now = OffsetDateTime.parse("2026-07-10T09:00:00+09:00");
+		MeetingRecurrenceRule rule = MeetingRecurrenceRule.createDaily(
+			3L,
+			1,
+			LocalDate.parse("2026-07-07"),
+			null,
+			null,
+			"Asia/Seoul"
+		);
+		List<MeetingSchedule> schedules = List.of(
+			schedule(3L, "2026-07-10T19:00:00+09:00", 4),
+			schedule(3L, "2026-07-11T19:00:00+09:00", 5)
+		);
+		when(recurrenceRuleRepository.findRulesNeedingExpansion(now, now.toLocalDate(), 4))
+			.thenReturn(List.of(rule));
+		when(repository.findByMeetingIdAndDeletedAtIsNullOrderBySequenceNoAsc(3L)).thenReturn(schedules);
+
+		int created = service.expandRecurringSchedules(now);
+
+		assertThat(created).isEqualTo(2);
+		verify(repository).saveAndFlush(scheduleMatching("2026-07-12T19:00:00+09:00", 6));
+		verify(repository).saveAndFlush(scheduleMatching("2026-07-13T19:00:00+09:00", 7));
+	}
+
+	@Test
+	void expandRecurringSchedulesStopsWhenMaxOccurrencesAlreadyReached() {
+		OffsetDateTime now = OffsetDateTime.parse("2026-07-10T09:00:00+09:00");
+		MeetingRecurrenceRule rule = MeetingRecurrenceRule.createDaily(
+			3L,
+			1,
+			LocalDate.parse("2026-07-07"),
+			null,
+			2,
+			"Asia/Seoul"
+		);
+		when(recurrenceRuleRepository.findRulesNeedingExpansion(now, now.toLocalDate(), 4))
+			.thenReturn(List.of(rule));
+		when(repository.findByMeetingIdAndDeletedAtIsNullOrderBySequenceNoAsc(3L)).thenReturn(List.of(
+			schedule(3L, "2026-07-10T19:00:00+09:00", 1),
+			schedule(3L, "2026-07-11T19:00:00+09:00", 2)
+		));
+
+		int created = service.expandRecurringSchedules(now);
+
+		assertThat(created).isZero();
+		verify(repository, never()).saveAndFlush(any(MeetingSchedule.class));
+	}
+
+	@Test
+	void expandRecurringSchedulesSkipsMeetingWhenUniqueConstraintCollides() {
+		OffsetDateTime now = OffsetDateTime.parse("2026-07-10T09:00:00+09:00");
+		MeetingRecurrenceRule rule = MeetingRecurrenceRule.createDaily(
+			3L,
+			1,
+			LocalDate.parse("2026-07-07"),
+			null,
+			null,
+			"Asia/Seoul"
+		);
+		when(recurrenceRuleRepository.findRulesNeedingExpansion(now, now.toLocalDate(), 4))
+			.thenReturn(List.of(rule));
+		when(repository.findByMeetingIdAndDeletedAtIsNullOrderBySequenceNoAsc(3L)).thenReturn(List.of(
+			schedule(3L, "2026-07-10T19:00:00+09:00", 4)
+		));
+		doThrow(new DataIntegrityViolationException("duplicate sequence"))
+			.when(repository)
+			.saveAndFlush(any(MeetingSchedule.class));
+
+		int created = service.expandRecurringSchedules(now);
+
+		assertThat(created).isZero();
+	}
+
+	private MeetingSchedule schedule(Long meetingId, String startsAt, int sequenceNo) {
+		OffsetDateTime start = OffsetDateTime.parse(startsAt);
+		return MeetingSchedule.create(
+			meetingId,
+			start,
+			start.plusHours(1),
+			start.withHour(23).withMinute(59).withSecond(59),
+			sequenceNo
+		);
+	}
+
+	private MeetingSchedule scheduleMatching(String startsAt, int sequenceNo) {
+		return org.mockito.ArgumentMatchers.argThat(schedule ->
+			schedule.getStartsAt().isEqual(OffsetDateTime.parse(startsAt))
+				&& schedule.getEndsAt().isEqual(OffsetDateTime.parse(startsAt).plusHours(1))
+				&& schedule.getVisibleUntil().isEqual(OffsetDateTime.parse(startsAt).withHour(23).withMinute(59).withSecond(59))
+				&& schedule.getSequenceNo() == sequenceNo
+		);
 	}
 }

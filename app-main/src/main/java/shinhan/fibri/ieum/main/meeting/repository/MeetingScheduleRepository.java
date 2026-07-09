@@ -34,6 +34,8 @@ public interface MeetingScheduleRepository extends JpaRepository<MeetingSchedule
 
 	Optional<MeetingSchedule> findByIdAndMeetingIdAndDeletedAtIsNull(Long id, Long meetingId);
 
+	List<MeetingSchedule> findByMeetingIdAndDeletedAtIsNullOrderBySequenceNoAsc(Long meetingId);
+
 	List<MeetingSchedule> findByMeetingIdAndDeletedAtIsNullAndStartsAtBetweenOrderByStartsAtAscIdAsc(
 		Long meetingId,
 		OffsetDateTime from,
