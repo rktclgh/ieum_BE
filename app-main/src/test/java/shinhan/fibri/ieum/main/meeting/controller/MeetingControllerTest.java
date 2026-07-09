@@ -36,6 +36,7 @@ import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingResponse;
 import shinhan.fibri.ieum.main.meeting.dto.JoinMeetingResponse;
+import shinhan.fibri.ieum.main.meeting.dto.KickMeetingRequest;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingDetailResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingHostSummary;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingLocation;
@@ -47,6 +48,7 @@ import shinhan.fibri.ieum.main.meeting.exception.KickedMemberException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingFullException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingNotFoundException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingNotOpenException;
+import shinhan.fibri.ieum.main.meeting.exception.NotHostException;
 import shinhan.fibri.ieum.main.meeting.exception.ParticipantNotFoundException;
 import shinhan.fibri.ieum.main.meeting.service.MeetingService;
 
@@ -296,6 +298,66 @@ class MeetingControllerTest {
 			.when(meetingService).leave(any(AuthenticatedUser.class), org.mockito.ArgumentMatchers.eq(3L));
 
 		mockMvc.perform(post("/api/v1/meetings/{meetingId}/leave", 3L)
+				.with(authenticated()))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code", is("PARTICIPANT_NOT_FOUND")));
+	}
+
+	@Test
+	void kickReturnsOk() throws Exception {
+		mockMvc.perform(post("/api/v1/meetings/{meetingId}/kick", 3L)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"userId\":42}")
+				.with(authenticated()))
+			.andExpect(status().isOk());
+
+		verify(meetingService).kick(
+			any(AuthenticatedUser.class),
+			org.mockito.ArgumentMatchers.eq(3L),
+			org.mockito.ArgumentMatchers.eq(new KickMeetingRequest(42L))
+		);
+	}
+
+	@Test
+	void kickValidatesUserId() throws Exception {
+		mockMvc.perform(post("/api/v1/meetings/{meetingId}/kick", 3L)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{}")
+				.with(authenticated()))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
+			.andExpect(jsonPath("$.fieldErrors[0].field", is("userId")));
+	}
+
+	@Test
+	void kickMapsNotHostToForbidden() throws Exception {
+		org.mockito.Mockito.doThrow(new NotHostException())
+			.when(meetingService).kick(
+				any(AuthenticatedUser.class),
+				org.mockito.ArgumentMatchers.eq(3L),
+				any(KickMeetingRequest.class)
+			);
+
+		mockMvc.perform(post("/api/v1/meetings/{meetingId}/kick", 3L)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"userId\":42}")
+				.with(authenticated()))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code", is("NOT_HOST")));
+	}
+
+	@Test
+	void kickMapsParticipantNotFoundToNotFound() throws Exception {
+		org.mockito.Mockito.doThrow(new ParticipantNotFoundException())
+			.when(meetingService).kick(
+				any(AuthenticatedUser.class),
+				org.mockito.ArgumentMatchers.eq(3L),
+				any(KickMeetingRequest.class)
+			);
+
+		mockMvc.perform(post("/api/v1/meetings/{meetingId}/kick", 3L)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"userId\":42}")
 				.with(authenticated()))
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.code", is("PARTICIPANT_NOT_FOUND")));

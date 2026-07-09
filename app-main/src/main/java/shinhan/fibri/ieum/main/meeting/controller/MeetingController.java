@@ -15,6 +15,7 @@ import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingRequest;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingResponse;
 import shinhan.fibri.ieum.main.meeting.dto.JoinMeetingResponse;
+import shinhan.fibri.ieum.main.meeting.dto.KickMeetingRequest;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingDetailResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingParticipantsResponse;
 import shinhan.fibri.ieum.main.meeting.service.MeetingService;
@@ -66,6 +67,16 @@ public class MeetingController {
 		@PathVariable Long meetingId
 	) {
 		meetingService.leave(principal, meetingId);
+		return ResponseEntity.ok().build();
+	}
+
+	@PostMapping("/{meetingId}/kick")
+	public ResponseEntity<Void> kick(
+		@AuthenticationPrincipal AuthenticatedUser principal,
+		@PathVariable Long meetingId,
+		@Valid @RequestBody KickMeetingRequest request
+	) {
+		meetingService.kick(principal, meetingId, request);
 		return ResponseEntity.ok().build();
 	}
 }

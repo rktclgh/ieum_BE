@@ -16,6 +16,7 @@ import shinhan.fibri.ieum.main.meeting.exception.KickedMemberException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingFullException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingNotFoundException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingNotOpenException;
+import shinhan.fibri.ieum.main.meeting.exception.NotHostException;
 import shinhan.fibri.ieum.main.meeting.exception.ParticipantNotFoundException;
 
 @RestControllerAdvice(assignableTypes = MeetingController.class)
@@ -78,5 +79,11 @@ public class MeetingExceptionHandler {
 	public ResponseEntity<AuthErrorResponse> handleParticipantNotFound(ParticipantNotFoundException exception) {
 		return ResponseEntity.status(HttpStatus.NOT_FOUND)
 			.body(new AuthErrorResponse("PARTICIPANT_NOT_FOUND", exception.getMessage()));
+	}
+
+	@ExceptionHandler(NotHostException.class)
+	public ResponseEntity<AuthErrorResponse> handleNotHost(NotHostException exception) {
+		return ResponseEntity.status(HttpStatus.FORBIDDEN)
+			.body(new AuthErrorResponse("NOT_HOST", exception.getMessage()));
 	}
 }

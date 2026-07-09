@@ -18,6 +18,7 @@ import shinhan.fibri.ieum.main.meeting.domain.ParticipantStatus;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingRequest;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingResponse;
 import shinhan.fibri.ieum.main.meeting.dto.JoinMeetingResponse;
+import shinhan.fibri.ieum.main.meeting.dto.KickMeetingRequest;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingDetailResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingHostSummary;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingLocation;
@@ -29,6 +30,7 @@ import shinhan.fibri.ieum.main.meeting.exception.KickedMemberException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingFullException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingNotFoundException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingNotOpenException;
+import shinhan.fibri.ieum.main.meeting.exception.NotHostException;
 import shinhan.fibri.ieum.main.meeting.exception.ParticipantNotFoundException;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingDetailProjection;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingParticipantRepository;
@@ -182,6 +184,30 @@ public class MeetingService {
 		participant.leave();
 		try {
 			chatRoomLifecycle.removeMember(roomId, principal.userId());
+		} catch (NotRoomMemberException ignored) {
+			// meeting_participants is the source of truth; tolerate older chat-only leave history.
+		}
+	}
+
+	@Transactional
+	public void kick(AuthenticatedUser principal, Long meetingId, KickMeetingRequest request) {
+		Meeting meeting = meetingRepository.findById(meetingId)
+			.orElseThrow(MeetingNotFoundException::new);
+		if (!meeting.getHostId().equals(principal.userId())) {
+			throw new NotHostException();
+		}
+		if (meeting.getHostId().equals(request.userId())) {
+			throw new InvalidMeetingRequestException("VALIDATION_FAILED", "userId", "Host cannot be kicked");
+		}
+		MeetingParticipant participant = participantRepository
+			.findByIdMeetingIdAndIdUserId(meetingId, request.userId())
+			.filter(row -> row.getStatus() == ParticipantStatus.joined)
+			.orElseThrow(ParticipantNotFoundException::new);
+		Long roomId = meetingRepository.findGroupRoomIdByMeetingId(meetingId)
+			.orElseThrow(MeetingNotFoundException::new);
+		participant.kick();
+		try {
+			chatRoomLifecycle.removeMember(roomId, request.userId());
 		} catch (NotRoomMemberException ignored) {
 			// meeting_participants is the source of truth; tolerate older chat-only leave history.
 		}
