@@ -34,6 +34,12 @@ class MeetingScheduleRepositoryIntegrationTest {
 		registry.add("spring.datasource.password", postgres::getPassword);
 		registry.add("spring.datasource.driver-class-name", postgres::getDriverClassName);
 		registry.add("spring.jpa.hibernate.ddl-auto", () -> "none");
+		// 운영과 동일하게 native enum 캐스팅을 snake_case 로 렌더(예: 'completed'::meeting_schedule_status).
+		// 기본 PostgreSQLDialect면 ::MeetingScheduleStatus 로 캐스팅해 42704가 난다.
+		registry.add(
+			"spring.jpa.properties.hibernate.dialect",
+			() -> "shinhan.fibri.ieum.common.config.SnakeCasePostgreSQLDialect"
+		);
 	}
 
 	@Autowired

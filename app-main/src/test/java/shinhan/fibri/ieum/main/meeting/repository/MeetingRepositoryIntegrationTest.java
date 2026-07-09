@@ -155,6 +155,9 @@ class MeetingRepositoryIntegrationTest {
 				IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'meeting_status') THEN
 					CREATE TYPE meeting_status AS ENUM ('open', 'closed', 'cancelled');
 				END IF;
+				IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'meeting_type') THEN
+					CREATE TYPE meeting_type AS ENUM ('one_time', 'recurring');
+				END IF;
 				IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'room_type') THEN
 					CREATE TYPE room_type AS ENUM ('direct', 'group', 'question');
 				END IF;
@@ -189,6 +192,7 @@ class MeetingRepositoryIntegrationTest {
 				title VARCHAR(200) NOT NULL,
 				content TEXT,
 				place_name VARCHAR(100) NOT NULL,
+				type meeting_type NOT NULL DEFAULT 'one_time',
 				meeting_at TIMESTAMPTZ NOT NULL,
 				max_members SMALLINT NOT NULL,
 				image_file_id UUID,
