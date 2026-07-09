@@ -13,7 +13,12 @@ import shinhan.fibri.ieum.main.meeting.domain.Meeting;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingParticipant;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingRequest;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingResponse;
+import shinhan.fibri.ieum.main.meeting.dto.MeetingDetailResponse;
+import shinhan.fibri.ieum.main.meeting.dto.MeetingHostSummary;
+import shinhan.fibri.ieum.main.meeting.dto.MeetingLocation;
 import shinhan.fibri.ieum.main.meeting.exception.InvalidMeetingRequestException;
+import shinhan.fibri.ieum.main.meeting.exception.MeetingNotFoundException;
+import shinhan.fibri.ieum.main.meeting.repository.MeetingDetailProjection;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingParticipantRepository;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingRepository;
 import shinhan.fibri.ieum.main.pin.domain.PinType;
@@ -49,6 +54,38 @@ public class MeetingService {
 		return new CreateMeetingResponse(meeting.getId(), pinId, roomId);
 	}
 
+	@Transactional(readOnly = true)
+	public MeetingDetailResponse getDetail(AuthenticatedUser principal, Long meetingId) {
+		MeetingDetailProjection detail = meetingRepository.findDetailById(meetingId)
+			.orElseThrow(MeetingNotFoundException::new);
+		long participantCount = participantRepository.countByIdMeetingIdAndStatus(
+			meetingId,
+			shinhan.fibri.ieum.main.meeting.domain.ParticipantStatus.joined
+		);
+		return new MeetingDetailResponse(
+			detail.getMeetingId(),
+			detail.getPinId(),
+			detail.getRoomId(),
+			detail.getTitle(),
+			detail.getContent(),
+			detail.getPlaceName(),
+			detail.getMeetingAt(),
+			detail.getStatus(),
+			detail.getMaxMembers(),
+			participantCount,
+			new MeetingHostSummary(
+				detail.getHostUserId(),
+				detail.getHostNickname(),
+				fileUrl(detail.getHostProfileFileId(), null)
+			),
+			fileUrl(detail.getImageFileId(), "display"),
+			fileUrl(detail.getThumbnailFileId(), "thumb"),
+			new MeetingLocation(detail.getLatitude(), detail.getLongitude()),
+			myStatus(principal.userId(), detail),
+			detail.getCreatedAt()
+		);
+	}
+
 	private UUID validateImage(UUID imageFileId, Long userId) {
 		if (imageFileId == null) {
 			return null;
@@ -66,5 +103,22 @@ public class MeetingService {
 
 	private boolean isImage(File file) {
 		return file.getContentType() != null && file.getContentType().toLowerCase(java.util.Locale.ROOT).startsWith("image/");
+	}
+
+	private String myStatus(Long userId, MeetingDetailProjection detail) {
+		if (detail.getHostUserId().equals(userId)) {
+			return "host";
+		}
+		return participantRepository.findByIdMeetingIdAndIdUserId(detail.getMeetingId(), userId)
+			.map(participant -> participant.getStatus().name())
+			.orElse("none");
+	}
+
+	private String fileUrl(UUID fileId, String variant) {
+		if (fileId == null) {
+			return null;
+		}
+		String url = "/api/v1/files/" + fileId;
+		return variant == null ? url : url + "?v=" + variant;
 	}
 }

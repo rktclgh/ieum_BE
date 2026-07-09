@@ -22,9 +22,13 @@ import shinhan.fibri.ieum.common.file.repository.FileRepository;
 import shinhan.fibri.ieum.main.chat.service.ChatRoomLifecycle;
 import shinhan.fibri.ieum.main.meeting.domain.Meeting;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingParticipant;
+import shinhan.fibri.ieum.main.meeting.domain.ParticipantStatus;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingRequest;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingResponse;
+import shinhan.fibri.ieum.main.meeting.dto.MeetingDetailResponse;
 import shinhan.fibri.ieum.main.meeting.exception.InvalidMeetingRequestException;
+import shinhan.fibri.ieum.main.meeting.exception.MeetingNotFoundException;
+import shinhan.fibri.ieum.main.meeting.repository.MeetingDetailProjection;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingParticipantRepository;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingRepository;
 import shinhan.fibri.ieum.main.pin.domain.PinType;
@@ -92,6 +96,63 @@ class MeetingServiceTest {
 			.hasMessage("Invalid image");
 	}
 
+	@Test
+	void getDetailAssemblesMeetingDetailForJoinedMember() {
+		UUID hostProfileFileId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+		UUID imageFileId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+		OffsetDateTime meetingAt = OffsetDateTime.parse("2026-07-10T19:00:00+09:00");
+		OffsetDateTime createdAt = OffsetDateTime.parse("2026-07-09T10:00:00+09:00");
+		when(meetingRepository.findDetailById(3L))
+			.thenReturn(Optional.of(detailRow(hostProfileFileId, imageFileId, meetingAt, createdAt)));
+		when(participantRepository.countByIdMeetingIdAndStatus(3L, ParticipantStatus.joined)).thenReturn(7L);
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L))
+			.thenReturn(Optional.of(MeetingParticipant.join(3L, 42L, createdAt)));
+
+		MeetingDetailResponse response = service.getDetail(principal(42L), 3L);
+
+		assertThat(response.meetingId()).isEqualTo(3L);
+		assertThat(response.pinId()).isEqualTo(11L);
+		assertThat(response.roomId()).isEqualTo(9L);
+		assertThat(response.title()).isEqualTo("저녁 모임");
+		assertThat(response.content()).isEqualTo("같이 밥 먹어요");
+		assertThat(response.placeName()).isEqualTo("동선역 2번 출구");
+		assertThat(response.meetingAt()).isEqualTo(meetingAt);
+		assertThat(response.status()).isEqualTo("open");
+		assertThat(response.maxMembers()).isEqualTo(7);
+		assertThat(response.participantCount()).isEqualTo(7L);
+		assertThat(response.host().userId()).isEqualTo(1L);
+		assertThat(response.host().nickname()).isEqualTo("오이정");
+		assertThat(response.host().profileImageUrl()).isEqualTo("/api/v1/files/" + hostProfileFileId);
+		assertThat(response.imageUrl()).isEqualTo("/api/v1/files/%s?v=display".formatted(imageFileId));
+		assertThat(response.thumbnailUrl()).isEqualTo("/api/v1/files/%s?v=thumb".formatted(imageFileId));
+		assertThat(response.location().lat()).isEqualTo(37.5);
+		assertThat(response.location().lng()).isEqualTo(127.0);
+		assertThat(response.myStatus()).isEqualTo("joined");
+		assertThat(response.createdAt()).isEqualTo(createdAt);
+	}
+
+	@Test
+	void getDetailReturnsHostStatusForHost() {
+		when(meetingRepository.findDetailById(3L))
+			.thenReturn(Optional.of(detailRow(null, null, OffsetDateTime.parse("2026-07-10T19:00:00+09:00"), OffsetDateTime.parse("2026-07-09T10:00:00+09:00"))));
+		when(participantRepository.countByIdMeetingIdAndStatus(3L, ParticipantStatus.joined)).thenReturn(1L);
+
+		MeetingDetailResponse response = service.getDetail(principal(1L), 3L);
+
+		assertThat(response.myStatus()).isEqualTo("host");
+		assertThat(response.imageUrl()).isNull();
+		assertThat(response.thumbnailUrl()).isNull();
+	}
+
+	@Test
+	void getDetailThrowsWhenMeetingDoesNotExist() {
+		when(meetingRepository.findDetailById(3L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.getDetail(principal(42L), 3L))
+			.isInstanceOf(MeetingNotFoundException.class)
+			.hasMessage("Meeting not found");
+	}
+
 	private CreateMeetingRequest request(UUID imageFileId) {
 		return new CreateMeetingRequest(
 			"저녁 모임",
@@ -107,6 +168,100 @@ class MeetingServiceTest {
 
 	private AuthenticatedUser principal(Long userId) {
 		return new AuthenticatedUser(userId, "user" + userId + "@example.com", UserRole.user, UserStatus.active);
+	}
+
+	private MeetingDetailProjection detailRow(
+		UUID hostProfileFileId,
+		UUID imageFileId,
+		OffsetDateTime meetingAt,
+		OffsetDateTime createdAt
+	) {
+		return new MeetingDetailProjection() {
+			@Override
+			public Long getMeetingId() {
+				return 3L;
+			}
+
+			@Override
+			public Long getPinId() {
+				return 11L;
+			}
+
+			@Override
+			public Long getRoomId() {
+				return 9L;
+			}
+
+			@Override
+			public String getTitle() {
+				return "저녁 모임";
+			}
+
+			@Override
+			public String getContent() {
+				return "같이 밥 먹어요";
+			}
+
+			@Override
+			public String getPlaceName() {
+				return "동선역 2번 출구";
+			}
+
+			@Override
+			public OffsetDateTime getMeetingAt() {
+				return meetingAt;
+			}
+
+			@Override
+			public String getStatus() {
+				return "open";
+			}
+
+			@Override
+			public int getMaxMembers() {
+				return 7;
+			}
+
+			@Override
+			public Long getHostUserId() {
+				return 1L;
+			}
+
+			@Override
+			public String getHostNickname() {
+				return "오이정";
+			}
+
+			@Override
+			public UUID getHostProfileFileId() {
+				return hostProfileFileId;
+			}
+
+			@Override
+			public UUID getImageFileId() {
+				return imageFileId;
+			}
+
+			@Override
+			public UUID getThumbnailFileId() {
+				return imageFileId;
+			}
+
+			@Override
+			public double getLatitude() {
+				return 37.5;
+			}
+
+			@Override
+			public double getLongitude() {
+				return 127.0;
+			}
+
+			@Override
+			public OffsetDateTime getCreatedAt() {
+				return createdAt;
+			}
+		};
 	}
 
 	private File uploadedFile(UUID fileId, Long uploaderId, String contentType) {

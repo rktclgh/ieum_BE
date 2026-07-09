@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import shinhan.fibri.ieum.main.auth.dto.AuthErrorResponse;
 import shinhan.fibri.ieum.main.meeting.exception.InvalidMeetingRequestException;
+import shinhan.fibri.ieum.main.meeting.exception.MeetingNotFoundException;
 
 @RestControllerAdvice(assignableTypes = MeetingController.class)
 @Order(Ordered.HIGHEST_PRECEDENCE)
@@ -36,5 +37,11 @@ public class MeetingExceptionHandler {
 				exception.getMessage(),
 				List.of(new AuthErrorResponse.FieldError(exception.field(), exception.getMessage()))
 			));
+	}
+
+	@ExceptionHandler(MeetingNotFoundException.class)
+	public ResponseEntity<AuthErrorResponse> handleMeetingNotFound(MeetingNotFoundException exception) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND)
+			.body(new AuthErrorResponse("MEETING_NOT_FOUND", exception.getMessage()));
 	}
 }

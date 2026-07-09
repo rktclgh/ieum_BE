@@ -6,11 +6,13 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.OffsetDateTime;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,7 +35,11 @@ import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingResponse;
+import shinhan.fibri.ieum.main.meeting.dto.MeetingDetailResponse;
+import shinhan.fibri.ieum.main.meeting.dto.MeetingHostSummary;
+import shinhan.fibri.ieum.main.meeting.dto.MeetingLocation;
 import shinhan.fibri.ieum.main.meeting.exception.InvalidMeetingRequestException;
+import shinhan.fibri.ieum.main.meeting.exception.MeetingNotFoundException;
 import shinhan.fibri.ieum.main.meeting.service.MeetingService;
 
 @WebMvcTest(MeetingController.class)
@@ -114,6 +120,58 @@ class MeetingControllerTest {
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
 			.andExpect(jsonPath("$.fieldErrors[0].field", is("imageFileId")));
+	}
+
+	@Test
+	void getDetailReturnsMeetingDetail() throws Exception {
+		when(meetingService.getDetail(any(AuthenticatedUser.class), org.mockito.ArgumentMatchers.eq(3L)))
+			.thenReturn(new MeetingDetailResponse(
+				3L,
+				11L,
+				9L,
+				"저녁 모임",
+				"같이 밥 먹어요",
+				"동선역 2번 출구",
+				OffsetDateTime.parse("2026-07-10T19:00:00+09:00"),
+				"open",
+				7,
+				7L,
+				new MeetingHostSummary(1L, "오이정", "/api/v1/files/11111111-1111-1111-1111-111111111111"),
+				"/api/v1/files/22222222-2222-2222-2222-222222222222?v=display",
+				"/api/v1/files/22222222-2222-2222-2222-222222222222?v=thumb",
+				new MeetingLocation(37.5, 127.0),
+				"joined",
+				OffsetDateTime.parse("2026-07-09T10:00:00+09:00")
+			));
+
+		mockMvc.perform(get("/api/v1/meetings/{meetingId}", 3L)
+				.with(authenticated()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.meetingId", is(3)))
+			.andExpect(jsonPath("$.pinId", is(11)))
+			.andExpect(jsonPath("$.roomId", is(9)))
+			.andExpect(jsonPath("$.title", is("저녁 모임")))
+			.andExpect(jsonPath("$.placeName", is("동선역 2번 출구")))
+			.andExpect(jsonPath("$.status", is("open")))
+			.andExpect(jsonPath("$.participantCount", is(7)))
+			.andExpect(jsonPath("$.host.userId", is(1)))
+			.andExpect(jsonPath("$.host.nickname", is("오이정")))
+			.andExpect(jsonPath("$.imageUrl", is("/api/v1/files/22222222-2222-2222-2222-222222222222?v=display")))
+			.andExpect(jsonPath("$.thumbnailUrl", is("/api/v1/files/22222222-2222-2222-2222-222222222222?v=thumb")))
+			.andExpect(jsonPath("$.location.lat", is(37.5)))
+			.andExpect(jsonPath("$.location.lng", is(127.0)))
+			.andExpect(jsonPath("$.myStatus", is("joined")));
+	}
+
+	@Test
+	void getDetailMapsMissingMeetingToNotFound() throws Exception {
+		when(meetingService.getDetail(any(AuthenticatedUser.class), org.mockito.ArgumentMatchers.eq(3L)))
+			.thenThrow(new MeetingNotFoundException());
+
+		mockMvc.perform(get("/api/v1/meetings/{meetingId}", 3L)
+				.with(authenticated()))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code", is("MEETING_NOT_FOUND")));
 	}
 
 	private static RequestPostProcessor authenticated() {

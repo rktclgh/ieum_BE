@@ -1,0 +1,171 @@
+package shinhan.fibri.ieum.main.meeting.repository;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.time.OffsetDateTime;
+import java.util.Optional;
+import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
+import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.utility.DockerImageName;
+
+@DataJpaTest
+@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
+@Testcontainers(disabledWithoutDocker = true)
+class MeetingRepositoryIntegrationTest {
+
+	private static final UUID HOST_PROFILE_FILE_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
+	private static final UUID IMAGE_FILE_ID = UUID.fromString("22222222-2222-2222-2222-222222222222");
+	private static final UUID THUMBNAIL_FILE_ID = UUID.fromString("33333333-3333-3333-3333-333333333333");
+
+	@Container
+	@SuppressWarnings("resource")
+	static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(
+		DockerImageName.parse("postgis/postgis:16-3.4-alpine").asCompatibleSubstituteFor("postgres")
+	);
+
+	@DynamicPropertySource
+	static void registerDataSourceProperties(DynamicPropertyRegistry registry) {
+		registry.add("spring.datasource.url", postgres::getJdbcUrl);
+		registry.add("spring.datasource.username", postgres::getUsername);
+		registry.add("spring.datasource.password", postgres::getPassword);
+		registry.add("spring.datasource.driver-class-name", postgres::getDriverClassName);
+		registry.add("spring.jpa.hibernate.ddl-auto", () -> "none");
+	}
+
+	@Autowired
+	private MeetingRepository meetingRepository;
+
+	@Autowired
+	private JdbcTemplate jdbcTemplate;
+
+	@BeforeEach
+	void setUpSchemaAndRows() {
+		createSchema();
+		jdbcTemplate.update("TRUNCATE TABLE chat_rooms, meetings, pins, users RESTART IDENTITY");
+
+		jdbcTemplate.update("""
+			INSERT INTO users (nickname, profile_file_id, deleted_at)
+			VALUES ('오이정', ?::uuid, NULL)
+			""", HOST_PROFILE_FILE_ID.toString());
+		jdbcTemplate.update("""
+			INSERT INTO pins (author_id, pin_type, location, deleted_at)
+			VALUES (1, 'meeting'::pin_type, ST_SetSRID(ST_MakePoint(127.0, 37.5), 4326)::geography, NULL)
+			""");
+		jdbcTemplate.update("""
+			INSERT INTO meetings (
+				pin_id, host_id, title, content, place_name, meeting_at, max_members,
+				image_file_id, thumbnail_file_id, status, created_at, updated_at, deleted_at
+			)
+			VALUES (
+				1, 1, '저녁 모임', '같이 밥 먹어요', '동선역 2번 출구',
+				'2026-07-10T19:00:00+09:00', 7,
+				?::uuid, ?::uuid, 'open'::meeting_status,
+				'2026-07-09T10:00:00+09:00', '2026-07-09T10:00:00+09:00', NULL
+			)
+			""", IMAGE_FILE_ID.toString(), THUMBNAIL_FILE_ID.toString());
+		jdbcTemplate.update("INSERT INTO chat_rooms (room_type, meeting_id) VALUES ('group'::room_type, 1)");
+	}
+
+	@Test
+	void findDetailByIdMapsMeetingHostRoomAndLocationFields() {
+		MeetingDetailProjection detail = meetingRepository.findDetailById(1L).orElseThrow();
+
+		assertThat(detail.getMeetingId()).isEqualTo(1L);
+		assertThat(detail.getPinId()).isEqualTo(1L);
+		assertThat(detail.getRoomId()).isEqualTo(1L);
+		assertThat(detail.getTitle()).isEqualTo("저녁 모임");
+		assertThat(detail.getContent()).isEqualTo("같이 밥 먹어요");
+		assertThat(detail.getPlaceName()).isEqualTo("동선역 2번 출구");
+		assertThat(detail.getMeetingAt()).isEqualTo(OffsetDateTime.parse("2026-07-10T19:00:00+09:00"));
+		assertThat(detail.getStatus()).isEqualTo("open");
+		assertThat(detail.getMaxMembers()).isEqualTo(7);
+		assertThat(detail.getHostUserId()).isEqualTo(1L);
+		assertThat(detail.getHostNickname()).isEqualTo("오이정");
+		assertThat(detail.getHostProfileFileId()).isEqualTo(HOST_PROFILE_FILE_ID);
+		assertThat(detail.getImageFileId()).isEqualTo(IMAGE_FILE_ID);
+		assertThat(detail.getThumbnailFileId()).isEqualTo(THUMBNAIL_FILE_ID);
+		assertThat(detail.getLatitude()).isEqualTo(37.5);
+		assertThat(detail.getLongitude()).isEqualTo(127.0);
+		assertThat(detail.getCreatedAt()).isEqualTo(OffsetDateTime.parse("2026-07-09T10:00:00+09:00"));
+	}
+
+	@Test
+	void findDetailByIdHidesDeletedMeeting() {
+		jdbcTemplate.update("UPDATE meetings SET deleted_at = now() WHERE meeting_id = 1");
+
+		Optional<MeetingDetailProjection> detail = meetingRepository.findDetailById(1L);
+
+		assertThat(detail).isEmpty();
+	}
+
+	private void createSchema() {
+		jdbcTemplate.execute("CREATE EXTENSION IF NOT EXISTS postgis");
+		jdbcTemplate.execute("""
+			DO $$
+			BEGIN
+				IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'pin_type') THEN
+					CREATE TYPE pin_type AS ENUM ('question', 'meeting');
+				END IF;
+				IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'meeting_status') THEN
+					CREATE TYPE meeting_status AS ENUM ('open', 'closed', 'cancelled');
+				END IF;
+				IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'room_type') THEN
+					CREATE TYPE room_type AS ENUM ('direct', 'group', 'question');
+				END IF;
+			END
+			$$
+			""");
+		jdbcTemplate.execute("""
+			CREATE TABLE IF NOT EXISTS users (
+				user_id BIGSERIAL PRIMARY KEY,
+				nickname VARCHAR(50),
+				profile_file_id UUID,
+				deleted_at TIMESTAMPTZ
+			)
+			""");
+		jdbcTemplate.execute("""
+			CREATE TABLE IF NOT EXISTS pins (
+				pin_id BIGSERIAL PRIMARY KEY,
+				author_id BIGINT NOT NULL,
+				pin_type pin_type NOT NULL,
+				location geography(Point,4326) NOT NULL,
+				deleted_at TIMESTAMPTZ
+			)
+			""");
+		jdbcTemplate.execute("""
+			CREATE TABLE IF NOT EXISTS meetings (
+				meeting_id BIGSERIAL PRIMARY KEY,
+				pin_id BIGINT NOT NULL,
+				host_id BIGINT NOT NULL,
+				title VARCHAR(200) NOT NULL,
+				content TEXT,
+				place_name VARCHAR(100) NOT NULL,
+				meeting_at TIMESTAMPTZ NOT NULL,
+				max_members SMALLINT NOT NULL,
+				image_file_id UUID,
+				thumbnail_file_id UUID,
+				status meeting_status NOT NULL,
+				created_at TIMESTAMPTZ NOT NULL,
+				updated_at TIMESTAMPTZ NOT NULL,
+				deleted_at TIMESTAMPTZ
+			)
+			""");
+		jdbcTemplate.execute("""
+			CREATE TABLE IF NOT EXISTS chat_rooms (
+				room_id BIGSERIAL PRIMARY KEY,
+				room_type room_type NOT NULL,
+				meeting_id BIGINT UNIQUE
+			)
+			""");
+	}
+}
