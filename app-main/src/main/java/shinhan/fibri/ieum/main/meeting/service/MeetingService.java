@@ -90,6 +90,7 @@ public class MeetingService {
 	public CreateMeetingResponse create(AuthenticatedUser principal, CreateMeetingRequest request) {
 		validateCreateRuleCombination(request);
 		validateRecurrenceRule(request);
+		OffsetDateTime meetingAtCache = initialMeetingAtCache(request);
 		UUID imageFileId = validateImage(request.imageFileId(), principal.userId());
 		Long pinId = pinWriter.create(principal.userId(), PinType.meeting, request.lat(), request.lng());
 		Meeting meeting = meetingRepository.save(Meeting.create(
@@ -99,7 +100,7 @@ public class MeetingService {
 			request.title(),
 			request.content(),
 			request.placeName(),
-			request.schedule().startsAt(),
+			meetingAtCache,
 			request.maxMembers(),
 			imageFileId,
 			imageFileId
@@ -407,6 +408,21 @@ public class MeetingService {
 		return schedules;
 	}
 
+	private OffsetDateTime initialMeetingAtCache(CreateMeetingRequest request) {
+		if (request.type() == MeetingType.one_time) {
+			return request.schedule().startsAt();
+		}
+		List<OffsetDateTime> startsAtList = recurringStartsAt(request);
+		if (startsAtList.isEmpty()) {
+			throw new InvalidMeetingRequestException(
+				"VALIDATION_FAILED",
+				"recurrenceRule",
+				"recurrenceRule does not create schedules"
+			);
+		}
+		return startsAtList.getFirst();
+	}
+
 	private MeetingSchedule createSchedule(Long meetingId, OffsetDateTime startsAt, OffsetDateTime endsAt, int sequenceNo) {
 		return MeetingSchedule.create(
 			meetingId,
@@ -423,15 +439,19 @@ public class MeetingService {
 		ZonedDateTime firstStart = request.schedule().startsAt().atZoneSameInstant(zone);
 		LocalTime time = firstStart.toLocalTime();
 		LocalDate firstDate = firstStart.toLocalDate();
-		LocalDate anchorDate = firstDate;
 		LocalDate current = firstDate.isAfter(rule.startsOn()) ? firstDate : rule.startsOn();
 		LocalDate until = rule.endsOn() == null ? rule.startsOn().plusYears(1) : rule.endsOn();
 		int limit = rule.maxOccurrences() == null
 			? INITIAL_RECURRING_SCHEDULE_LIMIT
 			: Math.min(rule.maxOccurrences(), INITIAL_RECURRING_SCHEDULE_LIMIT);
+		Optional<LocalDate> anchorDate = firstActualDate(current, until, rule);
+		if (anchorDate.isEmpty()) {
+			return List.of();
+		}
+		current = anchorDate.get();
 		List<OffsetDateTime> startsAtList = new ArrayList<>(limit);
 		while (!current.isAfter(until) && startsAtList.size() < limit) {
-			if (matchesRecurrence(current, rule, anchorDate)) {
+			if (matchesRecurrence(current, rule, anchorDate.get())) {
 				OffsetDateTime startsAt = current.atTime(time).atZone(zone).toOffsetDateTime();
 				if (!startsAt.isBefore(request.schedule().startsAt())) {
 					startsAtList.add(startsAt);
@@ -440,6 +460,29 @@ public class MeetingService {
 			current = current.plusDays(1);
 		}
 		return startsAtList;
+	}
+
+	private Optional<LocalDate> firstActualDate(
+		LocalDate start,
+		LocalDate until,
+		CreateMeetingRecurrenceRuleRequest rule
+	) {
+		LocalDate current = start;
+		while (!current.isAfter(until)) {
+			if (matchesFrequencyDay(current, rule)) {
+				return Optional.of(current);
+			}
+			current = current.plusDays(1);
+		}
+		return Optional.empty();
+	}
+
+	private boolean matchesFrequencyDay(LocalDate date, CreateMeetingRecurrenceRuleRequest rule) {
+		return switch (rule.frequency()) {
+			case daily -> true;
+			case weekly -> rule.daysOfWeek() != null && rule.daysOfWeek().contains(date.getDayOfWeek().getValue());
+			case monthly -> rule.dayOfMonth() != null && date.getDayOfMonth() == rule.dayOfMonth();
+		};
 	}
 
 	private boolean matchesRecurrence(LocalDate date, CreateMeetingRecurrenceRuleRequest rule, LocalDate anchorDate) {
@@ -459,7 +502,7 @@ public class MeetingService {
 	}
 
 	private long weeksBetween(LocalDate start, LocalDate end) {
-		return ChronoUnit.WEEKS.between(start, end);
+		return ChronoUnit.WEEKS.between(startOfWeek(start), startOfWeek(end));
 	}
 
 	private long monthsBetween(LocalDate start, LocalDate end) {
@@ -467,6 +510,10 @@ public class MeetingService {
 			YearMonth.from(start).atDay(1),
 			YearMonth.from(end).atDay(1)
 		);
+	}
+
+	private LocalDate startOfWeek(LocalDate date) {
+		return date.minusDays(date.getDayOfWeek().getValue() - 1L);
 	}
 
 	private MeetingRecurrenceRule createRecurrenceRule(Long meetingId, CreateMeetingRecurrenceRuleRequest rule) {

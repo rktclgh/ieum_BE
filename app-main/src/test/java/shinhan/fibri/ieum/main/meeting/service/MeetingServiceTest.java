@@ -250,6 +250,78 @@ class MeetingServiceTest {
 	}
 
 	@Test
+	void createRecurringWeeklyMeetingUsesCalendarWeekBoundariesForInterval() {
+		when(pinWriter.create(42L, PinType.meeting, 37.5, 127.0)).thenReturn(11L);
+		when(meetingRepository.save(any(Meeting.class))).thenAnswer(invocation -> {
+			Meeting meeting = invocation.getArgument(0);
+			setField(meeting, "id", 3L);
+			return meeting;
+		});
+		when(meetingScheduleRepository.save(any(MeetingSchedule.class))).thenAnswer(invocation -> invocation.getArgument(0));
+		when(recurrenceRuleRepository.save(any(MeetingRecurrenceRule.class))).thenAnswer(invocation -> invocation.getArgument(0));
+		when(chatRoomLifecycle.createGroupRoom(3L, 42L)).thenReturn(9L);
+		CreateMeetingRecurrenceRuleRequest recurrenceRule = new CreateMeetingRecurrenceRuleRequest(
+			RecurrenceFrequency.weekly,
+			2,
+			List.of(1, 2),
+			null,
+			LocalDate.parse("2026-07-07"),
+			LocalDate.parse("2026-08-31"),
+			4,
+			"Asia/Seoul"
+		);
+
+		service.create(
+			principal(42L),
+			request(null, MeetingType.recurring, OffsetDateTime.parse("2026-07-07T19:00:00+09:00"), recurrenceRule)
+		);
+
+		ArgumentCaptor<MeetingSchedule> scheduleCaptor = ArgumentCaptor.forClass(MeetingSchedule.class);
+		verify(meetingScheduleRepository, org.mockito.Mockito.times(4)).save(scheduleCaptor.capture());
+		assertThat(scheduleCaptor.getAllValues())
+			.extracting(MeetingSchedule::getStartsAt)
+			.containsExactly(
+				OffsetDateTime.parse("2026-07-07T19:00:00+09:00"),
+				OffsetDateTime.parse("2026-07-20T19:00:00+09:00"),
+				OffsetDateTime.parse("2026-07-21T19:00:00+09:00"),
+				OffsetDateTime.parse("2026-08-03T19:00:00+09:00")
+			);
+	}
+
+	@Test
+	void createRecurringMeetingCachesFirstGeneratedScheduleStart() {
+		when(pinWriter.create(42L, PinType.meeting, 37.5, 127.0)).thenReturn(11L);
+		when(meetingRepository.save(any(Meeting.class))).thenAnswer(invocation -> {
+			Meeting meeting = invocation.getArgument(0);
+			setField(meeting, "id", 3L);
+			return meeting;
+		});
+		when(meetingScheduleRepository.save(any(MeetingSchedule.class))).thenAnswer(invocation -> invocation.getArgument(0));
+		when(recurrenceRuleRepository.save(any(MeetingRecurrenceRule.class))).thenAnswer(invocation -> invocation.getArgument(0));
+		when(chatRoomLifecycle.createGroupRoom(3L, 42L)).thenReturn(9L);
+		CreateMeetingRecurrenceRuleRequest recurrenceRule = new CreateMeetingRecurrenceRuleRequest(
+			RecurrenceFrequency.monthly,
+			1,
+			null,
+			15,
+			LocalDate.parse("2026-01-20"),
+			LocalDate.parse("2026-03-31"),
+			null,
+			"Asia/Seoul"
+		);
+
+		service.create(
+			principal(42L),
+			request(null, MeetingType.recurring, OffsetDateTime.parse("2026-01-20T19:00:00+09:00"), recurrenceRule)
+		);
+
+		ArgumentCaptor<Meeting> meetingCaptor = ArgumentCaptor.forClass(Meeting.class);
+		verify(meetingRepository).save(meetingCaptor.capture());
+		assertThat(meetingCaptor.getValue().getMeetingAt())
+			.isEqualTo(OffsetDateTime.parse("2026-02-15T19:00:00+09:00"));
+	}
+
+	@Test
 	void createRecurringMeetingRejectsInvalidTimezoneBeforeWritingRows() {
 		CreateMeetingRecurrenceRuleRequest recurrenceRule = new CreateMeetingRecurrenceRuleRequest(
 			RecurrenceFrequency.daily,

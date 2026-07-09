@@ -10,7 +10,6 @@ import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingRecurrenceRule;
@@ -79,19 +78,18 @@ public class MeetingScheduleMaintenanceService {
 				break;
 			}
 			if (matchesRecurrence(current, rule, anchorDate)) {
-				OffsetDateTime startsAt = current.atTime(meetingTime).atZone(zone).toOffsetDateTime();
-				OffsetDateTime endsAt = duration == null ? null : startsAt.plus(duration);
-				try {
-					meetingScheduleRepository.saveAndFlush(MeetingSchedule.create(
-						rule.getMeetingId(),
-						startsAt,
-						endsAt,
-						MeetingScheduleTimePolicy.visibleUntil(startsAt),
-						sequenceNo
-					));
-				} catch (DataIntegrityViolationException ignored) {
+				if (meetingScheduleRepository.existsByMeetingIdAndSequenceNo(rule.getMeetingId(), sequenceNo)) {
 					return created;
 				}
+				OffsetDateTime startsAt = current.atTime(meetingTime).atZone(zone).toOffsetDateTime();
+				OffsetDateTime endsAt = duration == null ? null : startsAt.plus(duration);
+				meetingScheduleRepository.save(MeetingSchedule.create(
+					rule.getMeetingId(),
+					startsAt,
+					endsAt,
+					MeetingScheduleTimePolicy.visibleUntil(startsAt),
+					sequenceNo
+				));
 				created++;
 				totalCount++;
 				sequenceNo++;
@@ -153,7 +151,7 @@ public class MeetingScheduleMaintenanceService {
 	}
 
 	private long weeksBetween(LocalDate start, LocalDate end) {
-		return ChronoUnit.WEEKS.between(start, end);
+		return ChronoUnit.WEEKS.between(startOfWeek(start), startOfWeek(end));
 	}
 
 	private long monthsBetween(LocalDate start, LocalDate end) {
@@ -161,5 +159,9 @@ public class MeetingScheduleMaintenanceService {
 			YearMonth.from(start).atDay(1),
 			YearMonth.from(end).atDay(1)
 		);
+	}
+
+	private LocalDate startOfWeek(LocalDate date) {
+		return date.minusDays(date.getDayOfWeek().getValue() - 1L);
 	}
 }

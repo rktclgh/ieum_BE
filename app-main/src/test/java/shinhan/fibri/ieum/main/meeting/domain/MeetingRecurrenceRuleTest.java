@@ -54,4 +54,22 @@ class MeetingRecurrenceRuleTest {
 		assertThat(rule.getTimezone()).isEqualTo("Asia/Seoul");
 		assertThat(rule.getMaxOccurrences()).isEqualTo(12);
 	}
+
+	@Test
+	void getDaysOfWeekReturnsDefensiveCopy() {
+		MeetingRecurrenceRule rule = MeetingRecurrenceRule.createWeekly(
+			3L,
+			1,
+			List.of(1, 2),
+			LocalDate.parse("2026-07-10"),
+			null,
+			null,
+			"Asia/Seoul"
+		);
+
+		Short[] returned = rule.getDaysOfWeek();
+		returned[0] = 7;
+
+		assertThat(rule.getDaysOfWeek()).containsExactly((short) 1, (short) 2);
+	}
 }

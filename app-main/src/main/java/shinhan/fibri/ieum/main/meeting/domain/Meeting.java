@@ -162,6 +162,9 @@ public class Meeting {
 	}
 
 	public void cancel(OffsetDateTime deletedAt) {
+		if (status == MeetingStatus.cancelled) {
+			throw new IllegalStateException("Meeting is already cancelled");
+		}
 		this.status = MeetingStatus.cancelled;
 		this.deletedAt = Objects.requireNonNull(deletedAt, "deletedAt must not be null");
 		this.updatedAt = deletedAt;

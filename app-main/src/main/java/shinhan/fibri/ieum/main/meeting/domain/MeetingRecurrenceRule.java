@@ -10,6 +10,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import org.hibernate.annotations.JdbcType;
@@ -231,7 +232,7 @@ public class MeetingRecurrenceRule {
 	}
 
 	public Short[] getDaysOfWeek() {
-		return daysOfWeek;
+		return daysOfWeek == null ? null : Arrays.copyOf(daysOfWeek, daysOfWeek.length);
 	}
 
 	public Short getDayOfMonth() {

@@ -49,6 +49,8 @@ public interface MeetingScheduleRepository extends JpaRepository<MeetingSchedule
 		);
 	}
 
+	boolean existsByMeetingIdAndSequenceNo(Long meetingId, int sequenceNo);
+
 	List<MeetingSchedule> findByMeetingIdAndDeletedAtIsNullOrderBySequenceNoAsc(Long meetingId);
 
 	@Query(value = """

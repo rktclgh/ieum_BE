@@ -59,6 +59,18 @@ class MeetingTest {
 		assertThat(meeting.getDeletedAt()).isEqualTo(cancelledAt);
 	}
 
+	@Test
+	void cancelRejectsAlreadyCancelledMeeting() {
+		Meeting meeting = openMeeting();
+		OffsetDateTime firstCancelledAt = OffsetDateTime.parse("2026-07-09T12:00:00+09:00");
+		meeting.cancel(firstCancelledAt);
+
+		assertThatThrownBy(() -> meeting.cancel(OffsetDateTime.parse("2026-07-10T12:00:00+09:00")))
+			.isInstanceOf(IllegalStateException.class)
+			.hasMessage("Meeting is already cancelled");
+		assertThat(meeting.getDeletedAt()).isEqualTo(firstCancelledAt);
+	}
+
 	private Meeting openMeeting() {
 		return Meeting.create(
 			11L,
