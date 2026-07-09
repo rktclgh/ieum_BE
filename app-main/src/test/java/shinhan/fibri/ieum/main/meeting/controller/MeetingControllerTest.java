@@ -363,6 +363,37 @@ class MeetingControllerTest {
 			.andExpect(jsonPath("$.code", is("PARTICIPANT_NOT_FOUND")));
 	}
 
+	@Test
+	void closeReturnsOk() throws Exception {
+		mockMvc.perform(post("/api/v1/meetings/{meetingId}/close", 3L)
+				.with(authenticated()))
+			.andExpect(status().isOk());
+
+		verify(meetingService).close(any(AuthenticatedUser.class), org.mockito.ArgumentMatchers.eq(3L));
+	}
+
+	@Test
+	void closeMapsNotHostToForbidden() throws Exception {
+		org.mockito.Mockito.doThrow(new NotHostException())
+			.when(meetingService).close(any(AuthenticatedUser.class), org.mockito.ArgumentMatchers.eq(3L));
+
+		mockMvc.perform(post("/api/v1/meetings/{meetingId}/close", 3L)
+				.with(authenticated()))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code", is("NOT_HOST")));
+	}
+
+	@Test
+	void closeMapsMeetingNotOpenToConflict() throws Exception {
+		org.mockito.Mockito.doThrow(new MeetingNotOpenException())
+			.when(meetingService).close(any(AuthenticatedUser.class), org.mockito.ArgumentMatchers.eq(3L));
+
+		mockMvc.perform(post("/api/v1/meetings/{meetingId}/close", 3L)
+				.with(authenticated()))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code", is("MEETING_NOT_OPEN")));
+	}
+
 	private static RequestPostProcessor authenticated() {
 		return request -> {
 			AuthenticatedUser principal = new AuthenticatedUser(

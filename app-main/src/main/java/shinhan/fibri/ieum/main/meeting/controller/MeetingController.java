@@ -79,4 +79,13 @@ public class MeetingController {
 		meetingService.kick(principal, meetingId, request);
 		return ResponseEntity.ok().build();
 	}
+
+	@PostMapping("/{meetingId}/close")
+	public ResponseEntity<Void> close(
+		@AuthenticationPrincipal AuthenticatedUser principal,
+		@PathVariable Long meetingId
+	) {
+		meetingService.close(principal, meetingId);
+		return ResponseEntity.ok().build();
+	}
 }

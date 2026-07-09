@@ -213,6 +213,20 @@ public class MeetingService {
 		}
 	}
 
+	@Transactional
+	public void close(AuthenticatedUser principal, Long meetingId) {
+		Meeting meeting = meetingRepository.findById(meetingId)
+			.orElseThrow(MeetingNotFoundException::new);
+		if (!meeting.getHostId().equals(principal.userId())) {
+			throw new NotHostException();
+		}
+		try {
+			meeting.close();
+		} catch (IllegalStateException exception) {
+			throw new MeetingNotOpenException();
+		}
+	}
+
 	private UUID validateImage(UUID imageFileId, Long userId) {
 		if (imageFileId == null) {
 			return null;

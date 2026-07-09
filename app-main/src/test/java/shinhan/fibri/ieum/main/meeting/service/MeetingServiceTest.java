@@ -417,6 +417,36 @@ class MeetingServiceTest {
 		assertThat(participant.getStatus()).isEqualTo(ParticipantStatus.kicked);
 	}
 
+	@Test
+	void closeMarksOpenMeetingClosed() {
+		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
+		when(meetingRepository.findById(3L)).thenReturn(Optional.of(meeting));
+
+		service.close(principal(1L), 3L);
+
+		assertThat(meeting.getStatus()).isEqualTo(shinhan.fibri.ieum.main.meeting.domain.MeetingStatus.closed);
+	}
+
+	@Test
+	void closeRejectsNonHost() {
+		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
+		when(meetingRepository.findById(3L)).thenReturn(Optional.of(meeting));
+
+		assertThatThrownBy(() -> service.close(principal(42L), 3L))
+			.isInstanceOf(NotHostException.class);
+		assertThat(meeting.getStatus()).isEqualTo(shinhan.fibri.ieum.main.meeting.domain.MeetingStatus.open);
+	}
+
+	@Test
+	void closeRejectsAlreadyClosedMeeting() {
+		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
+		meeting.close();
+		when(meetingRepository.findById(3L)).thenReturn(Optional.of(meeting));
+
+		assertThatThrownBy(() -> service.close(principal(1L), 3L))
+			.isInstanceOf(MeetingNotOpenException.class);
+	}
+
 	private CreateMeetingRequest request(UUID imageFileId) {
 		return new CreateMeetingRequest(
 			"저녁 모임",
