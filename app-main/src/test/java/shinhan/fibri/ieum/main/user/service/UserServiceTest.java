@@ -3,6 +3,9 @@ package shinhan.fibri.ieum.main.user.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
@@ -36,6 +39,7 @@ import shinhan.fibri.ieum.common.file.repository.FileRepository;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
 import shinhan.fibri.ieum.main.friend.service.FriendService;
 import shinhan.fibri.ieum.main.notification.sse.SseConnectionRegistry;
+import shinhan.fibri.ieum.main.notification.presence.PresenceRegistry;
 import shinhan.fibri.ieum.main.user.dto.ProfileImageResponse;
 import shinhan.fibri.ieum.main.user.dto.PublicUserProfileResponse;
 import shinhan.fibri.ieum.main.user.dto.UpdateProfileImageRequest;
@@ -58,6 +62,7 @@ class UserServiceTest {
 	private final ProfileFileCleanupService profileFileCleanupService = mock(ProfileFileCleanupService.class);
 	private final FriendService friendService = mock(FriendService.class);
 	private final SseConnectionRegistry sseConnectionRegistry = mock(SseConnectionRegistry.class);
+	private final PresenceRegistry presenceRegistry = mock(PresenceRegistry.class);
 	private final UserService service = new UserService(
 		userRepository,
 		userSettingsRepository,
@@ -66,7 +71,8 @@ class UserServiceTest {
 		fileRepository,
 		profileFileCleanupService,
 		friendService,
-		sseConnectionRegistry
+		sseConnectionRegistry,
+		presenceRegistry
 	);
 
 	@Test
@@ -191,6 +197,25 @@ class UserServiceTest {
 	}
 
 	@Test
+	void updateSettingsRefreshesOnlinePresenceOnlyAfterCommit() {
+		User user = user();
+		UserSettings settings = UserSettings.defaultFor(user);
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user));
+		when(userSettingsRepository.findById(42L)).thenReturn(Optional.of(settings));
+
+		TransactionSynchronizationManager.initSynchronization();
+		try {
+			service.updateSettings(principal(), new UpdateUserSettingsRequest(null, null, false, null, false, null, 10));
+			verify(presenceRegistry, never()).refreshSettings(any(), anyBoolean(), anyBoolean(), anyBoolean(), anyInt());
+			TransactionSynchronizationManager.getSynchronizations().forEach(TransactionSynchronization::afterCommit);
+		} finally {
+			TransactionSynchronizationManager.clearSynchronization();
+		}
+
+		verify(presenceRegistry).refreshSettings(42L, true, true, false, 10);
+	}
+
+	@Test
 	void updateLocationStoresLongitudeLatitudeOrder() {
 		User user = user();
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user));
@@ -199,6 +224,24 @@ class UserServiceTest {
 		service.updateLocation(principal(), new UpdateUserLocationRequest(127.0276, 37.4979));
 
 		verify(userRepository).updateLastLocation(42L, 127.0276, 37.4979);
+	}
+
+	@Test
+	void updateLocationRefreshesOnlinePresenceOnlyAfterCommit() {
+		User user = user();
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user));
+		when(userRepository.updateLastLocation(42L, 127.0276, 37.4979)).thenReturn(1);
+
+		TransactionSynchronizationManager.initSynchronization();
+		try {
+			service.updateLocation(principal(), new UpdateUserLocationRequest(127.0276, 37.4979));
+			verify(presenceRegistry, never()).refreshLocation(any(), anyDouble(), anyDouble());
+			TransactionSynchronizationManager.getSynchronizations().forEach(TransactionSynchronization::afterCommit);
+		} finally {
+			TransactionSynchronizationManager.clearSynchronization();
+		}
+
+		verify(presenceRegistry).refreshLocation(42L, 37.4979, 127.0276);
 	}
 
 	@Test

@@ -24,6 +24,24 @@ public class PresenceRegistry {
 		snapshots.remove(userId);
 	}
 
+	public void refreshLocation(Long userId, double latitude, double longitude) {
+		snapshots.computeIfPresent(userId, (ignored, snapshot) -> new PresenceSnapshot(
+			latitude, longitude, snapshot.notifyAllEnabled(), snapshot.notifyQuestion(), snapshot.notifyMeeting(), snapshot.notifyRadiusKm()
+		));
+	}
+
+	public void refreshSettings(
+		Long userId,
+		boolean notifyAllEnabled,
+		boolean notifyQuestion,
+		boolean notifyMeeting,
+		int notifyRadiusKm
+	) {
+		snapshots.computeIfPresent(userId, (ignored, snapshot) -> new PresenceSnapshot(
+			snapshot.latitude(), snapshot.longitude(), notifyAllEnabled, notifyQuestion, notifyMeeting, notifyRadiusKm
+		));
+	}
+
 	public Optional<PresenceSnapshot> findByUserId(Long userId) {
 		return Optional.ofNullable(snapshots.get(userId));
 	}
