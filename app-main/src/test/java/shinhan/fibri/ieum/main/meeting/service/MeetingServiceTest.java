@@ -20,6 +20,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
+import org.springframework.context.ApplicationEventPublisher;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
@@ -66,6 +67,7 @@ import shinhan.fibri.ieum.main.meeting.repository.MeetingRepository;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingScheduleRepository;
 import shinhan.fibri.ieum.main.pin.domain.PinType;
 import shinhan.fibri.ieum.main.pin.repository.PinWriter;
+import shinhan.fibri.ieum.main.notification.presence.MeetingCreatedEvent;
 
 class MeetingServiceTest {
 
@@ -76,6 +78,7 @@ class MeetingServiceTest {
 	private final FileRepository fileRepository = mock(FileRepository.class);
 	private final PinWriter pinWriter = mock(PinWriter.class);
 	private final ChatRoomLifecycle chatRoomLifecycle = mock(ChatRoomLifecycle.class);
+	private final ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
 	private final MeetingService service = new MeetingService(
 		meetingRepository,
 		meetingScheduleRepository,
@@ -83,7 +86,8 @@ class MeetingServiceTest {
 		participantRepository,
 		fileRepository,
 		pinWriter,
-		chatRoomLifecycle
+		chatRoomLifecycle,
+		eventPublisher
 	);
 
 	@Test
@@ -110,6 +114,7 @@ class MeetingServiceTest {
 		assertThat(response.pinId()).isEqualTo(11L);
 		assertThat(response.roomId()).isEqualTo(9L);
 		assertThat(response.firstScheduleId()).isEqualTo(31L);
+		verify(eventPublisher).publishEvent(new MeetingCreatedEvent(3L, 42L, "저녁 모임", 37.5, 127.0));
 		InOrder order = inOrder(pinWriter, meetingRepository, meetingScheduleRepository, participantRepository, chatRoomLifecycle);
 		order.verify(pinWriter).create(42L, PinType.meeting, 37.5, 127.0);
 		order.verify(meetingRepository).save(any(Meeting.class));

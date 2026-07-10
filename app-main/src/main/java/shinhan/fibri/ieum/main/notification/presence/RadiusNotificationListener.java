@@ -31,4 +31,13 @@ public class RadiusNotificationListener {
 			notificationPublisher.publishEphemeral(userId, NotificationType.question, "주변 새 질문", event.title(), event.questionId());
 		}
 	}
+
+	@Async("notificationTaskExecutor")
+	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+	public void onMeetingCreated(MeetingCreatedEvent event) {
+		if (!gate.tryAcquire(NotificationCategory.meeting, event.meetingId(), GeoHashGrid.encode(event.latitude(), event.longitude()))) return;
+		for (Long userId : audienceResolver.resolve(event.latitude(), event.longitude(), NotificationCategory.meeting, event.hostId(), friendService.blockedUserIdsOf(event.hostId()))) {
+			notificationPublisher.publishEphemeral(userId, NotificationType.meeting, "주변 새 모임", event.title(), event.meetingId());
+		}
+	}
 }

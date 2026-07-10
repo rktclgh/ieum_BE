@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
@@ -67,6 +68,7 @@ import shinhan.fibri.ieum.main.meeting.repository.MeetingRepository;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingScheduleRepository;
 import shinhan.fibri.ieum.main.pin.domain.PinType;
 import shinhan.fibri.ieum.main.pin.repository.PinWriter;
+import shinhan.fibri.ieum.main.notification.presence.MeetingCreatedEvent;
 
 @Service
 @RequiredArgsConstructor
@@ -85,6 +87,7 @@ public class MeetingService {
 	private final FileRepository fileRepository;
 	private final PinWriter pinWriter;
 	private final ChatRoomLifecycle chatRoomLifecycle;
+	private final ApplicationEventPublisher eventPublisher;
 
 	@Transactional
 	public CreateMeetingResponse create(AuthenticatedUser principal, CreateMeetingRequest request) {
@@ -118,6 +121,7 @@ public class MeetingService {
 		}
 		participantRepository.save(MeetingParticipant.join(meeting.getId(), principal.userId(), OffsetDateTime.now()));
 		Long roomId = chatRoomLifecycle.createGroupRoom(meeting.getId(), principal.userId());
+		eventPublisher.publishEvent(new MeetingCreatedEvent(meeting.getId(), principal.userId(), meeting.getTitle(), request.lat(), request.lng()));
 		return new CreateMeetingResponse(meeting.getId(), pinId, roomId, firstSchedule.getId());
 	}
 
