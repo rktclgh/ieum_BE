@@ -7,6 +7,7 @@ import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.web.util.HtmlUtils;
 import shinhan.fibri.ieum.main.place.dto.GeocodeResponse;
@@ -33,9 +34,10 @@ public class DefaultPlaceService implements PlaceService {
 			return PlaceSearchResponse.empty();
 		}
 		List<PlaceResponse> places = placeSearchClient.search(query).stream()
-			.map(this::toPlaceResponse)
+			.map(this::toPlaceResponseSafely)
+			.flatMap(Optional::stream)
 			.toList();
-		if (latitude == null) {
+		if (latitude == null || longitude == null) {
 			return new PlaceSearchResponse(places);
 		}
 		return new PlaceSearchResponse(places.stream()
@@ -78,6 +80,14 @@ public class DefaultPlaceService implements PlaceService {
 			longitude,
 			normalizeOptional(candidate.category())
 		);
+	}
+
+	private Optional<PlaceResponse> toPlaceResponseSafely(PlaceSearchCandidate candidate) {
+		try {
+			return Optional.of(toPlaceResponse(candidate));
+		} catch (PlaceProviderException exception) {
+			return Optional.empty();
+		}
 	}
 
 	private double parseCoordinate(String value, double divisor, double maximum) {

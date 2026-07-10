@@ -1,7 +1,6 @@
 package shinhan.fibri.ieum.main.place.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -9,7 +8,6 @@ import static org.mockito.Mockito.when;
 
 import java.util.List;
 import org.junit.jupiter.api.Test;
-import shinhan.fibri.ieum.main.place.exception.PlaceProviderException;
 
 class DefaultPlaceServiceTest {
 
@@ -62,12 +60,22 @@ class DefaultPlaceServiceTest {
 	}
 
 	@Test
-	void rejectsProviderCandidateWithInvalidCoordinate() {
-		when(searchClient.search("시청")).thenReturn(List.of(candidate("시청", "not-a-number", "375666103")));
+	void skipsMalformedProviderCandidatesAndKeepsValidCandidates() {
+		when(searchClient.search("시청")).thenReturn(List.of(
+			candidate("깨진 후보", "not-a-number", "375666103"),
+			candidate("시청", "1269783882", "375666103")
+		));
 
-		assertThatThrownBy(() -> service.search("시청", null, null))
-			.isInstanceOf(PlaceProviderException.class)
-			.hasMessage("Place provider returned invalid coordinates");
+		assertThat(service.search("시청", null, null).places()).extracting(place -> place.name())
+			.containsExactly("시청");
+	}
+
+	@Test
+	void preservesProviderOrderWhenOnlyOneNearCoordinateReachesService() {
+		when(searchClient.search("카페")).thenReturn(List.of(candidate("첫째", "1269783882", "375666103")));
+
+		assertThat(service.search("카페", 37.5666, null).places()).extracting(place -> place.name())
+			.containsExactly("첫째");
 	}
 
 	@Test
