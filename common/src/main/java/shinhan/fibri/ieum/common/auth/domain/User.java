@@ -186,6 +186,14 @@ public class User {
 		this.grade = UserGrade.fromAcceptedCount(acceptedCount);
 	}
 
+	public void suspend() {
+		this.status = UserStatus.suspended;
+	}
+
+	public void activate() {
+		this.status = UserStatus.active;
+	}
+
 	public Long getId() {
 		return id;
 	}

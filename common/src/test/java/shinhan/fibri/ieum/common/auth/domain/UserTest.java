@@ -153,4 +153,24 @@ class UserTest {
 		assertThat(user.getGrade()).isEqualTo(UserGrade.silver);
 	}
 
+	@Test
+	void suspendAndActivateChangeAccountStatus() {
+		User user = User.createEmailUser(
+				"user@example.com",
+				"hash",
+				"nickname",
+				LocalDate.of(1995, 5, 20),
+				GenderType.female,
+				"KR"
+		);
+
+		user.suspend();
+
+		assertThat(user.getStatus()).isEqualTo(UserStatus.suspended);
+
+		user.activate();
+
+		assertThat(user.getStatus()).isEqualTo(UserStatus.active);
+	}
+
 }
