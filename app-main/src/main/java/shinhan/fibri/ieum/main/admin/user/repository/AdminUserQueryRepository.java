@@ -36,10 +36,13 @@ public class AdminUserQueryRepository {
 			ORDER BY u.user_id DESC
 			LIMIT :limit
 			""";
+		// 세 파라미터 모두 "(:x IS NULL OR ...)" 형태로만 쓰이는데, null일 때 SQL 타입을 명시하지
+		// 않으면 postgres가 파라미터 타입을 추론하지 못해 "could not determine data type of parameter"
+		// 로 500이 난다. 값이 null이어도 항상 타입을 명시해야 한다.
 		MapSqlParameterSource params = new MapSqlParameterSource()
 			.addValue("status", status, Types.VARCHAR)
-			.addValue("qLike", qLike)
-			.addValue("cursorId", cursorId)
+			.addValue("qLike", qLike, Types.VARCHAR)
+			.addValue("cursorId", cursorId, Types.BIGINT)
 			.addValue("limit", limit);
 		return jdbcTemplate.query(sql, params, userRowMapper());
 	}
