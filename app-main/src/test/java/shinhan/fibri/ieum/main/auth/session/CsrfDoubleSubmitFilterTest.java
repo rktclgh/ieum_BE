@@ -99,6 +99,20 @@ class CsrfDoubleSubmitFilterTest {
 	}
 
 	@Test
+	void doFilterProtectsNotificationStateChangeEndpoints() throws Exception {
+		CsrfDoubleSubmitFilter filter = new CsrfDoubleSubmitFilter();
+		MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/notifications/read-all");
+		request.setServletPath("/api/v1/notifications/read-all");
+		MockHttpServletResponse response = new MockHttpServletResponse();
+		FilterChain chain = mock(FilterChain.class);
+
+		filter.doFilter(request, response, chain);
+
+		assertThat(response.getStatus()).isEqualTo(HttpStatus.FORBIDDEN.value());
+		verify(chain, never()).doFilter(request, response);
+	}
+
+	@Test
 	void doFilterRejectsBlankCsrfTokenPair() throws Exception {
 		CsrfDoubleSubmitFilter filter = new CsrfDoubleSubmitFilter();
 		MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/users/me");
