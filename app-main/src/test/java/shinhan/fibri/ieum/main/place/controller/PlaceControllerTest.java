@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -108,6 +109,30 @@ class PlaceControllerTest {
 			.andExpect(jsonPath("$.code", is("PLACE_RATE_LIMITED")));
 
 		verify(placeService, never()).search(any(), any(), any());
+	}
+
+	@Test
+	void returnsEmptySearchWithoutConsumingRateLimitForBlankQuery() throws Exception {
+		clearInvocations(placeRateLimiter, placeService);
+
+		mockMvc.perform(get("/api/places/search").param("query", "   "))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.places").isEmpty());
+
+		verify(placeRateLimiter, never()).tryAcquire(any(), any());
+		verify(placeService, never()).search(any(), any(), any());
+	}
+
+	@Test
+	void returnsEmptyGeocodeWithoutConsumingRateLimitForBlankQuery() throws Exception {
+		clearInvocations(placeRateLimiter, placeService);
+
+		mockMvc.perform(get("/api/places/geocode").param("query", "   "))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.addresses").isEmpty());
+
+		verify(placeRateLimiter, never()).tryAcquire(any(), any());
+		verify(placeService, never()).geocode(any());
 	}
 
 	@Test

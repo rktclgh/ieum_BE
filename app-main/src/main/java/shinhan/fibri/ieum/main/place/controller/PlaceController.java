@@ -37,6 +37,9 @@ public class PlaceController {
 	) {
 		String normalizedQuery = PlaceRequestValidator.normalizeQuery(query);
 		PlaceRequestValidator.validateOptionalCoordinates(lat, lng);
+		if (normalizedQuery.isBlank()) {
+			return ResponseEntity.ok(PlaceSearchResponse.empty());
+		}
 		checkRateLimit(PlaceOperation.search, principal, request);
 		return ResponseEntity.ok(placeService.search(normalizedQuery, lat, lng));
 	}
@@ -47,8 +50,12 @@ public class PlaceController {
 		@AuthenticationPrincipal AuthenticatedUser principal,
 		HttpServletRequest request
 	) {
+		String normalizedQuery = PlaceRequestValidator.normalizeQuery(query);
+		if (normalizedQuery.isBlank()) {
+			return ResponseEntity.ok(GeocodeResponse.empty());
+		}
 		checkRateLimit(PlaceOperation.geocode, principal, request);
-		return ResponseEntity.ok(placeService.geocode(PlaceRequestValidator.normalizeQuery(query)));
+		return ResponseEntity.ok(placeService.geocode(normalizedQuery));
 	}
 
 	@GetMapping("/reverse-geocode")
