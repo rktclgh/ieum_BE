@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.main.admin.user.repository;
 
 import java.sql.Timestamp;
+import java.sql.Types;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -28,7 +29,7 @@ public class AdminUserQueryRepository {
 			SELECT u.user_id, u.email, u.nickname, u.role, u.status, u.grade, u.provider, u.last_active_at
 			FROM users u
 			WHERE u.deleted_at IS NULL
-			  AND (:status IS NULL OR u.status = :status)
+			  AND (:status IS NULL OR CAST(u.status AS varchar) = :status)
 			  AND (:qLike IS NULL OR lower(u.nickname) LIKE :qLike ESCAPE '\\'
 			                      OR u.email LIKE :qLike ESCAPE '\\')
 			  AND (:cursorId IS NULL OR u.user_id < :cursorId)
@@ -36,7 +37,7 @@ public class AdminUserQueryRepository {
 			LIMIT :limit
 			""";
 		MapSqlParameterSource params = new MapSqlParameterSource()
-			.addValue("status", status)
+			.addValue("status", status, Types.VARCHAR)
 			.addValue("qLike", qLike)
 			.addValue("cursorId", cursorId)
 			.addValue("limit", limit);
