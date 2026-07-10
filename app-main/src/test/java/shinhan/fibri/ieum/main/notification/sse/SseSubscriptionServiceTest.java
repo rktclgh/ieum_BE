@@ -46,6 +46,7 @@ class SseSubscriptionServiceTest {
 		when(sessionTokenValidator.validateSession("access-token"))
 			.thenReturn(Optional.of(validatedSession()));
 		when(emitterFactory.create(1_800_000L)).thenReturn(emitter);
+		when(registry.register(42L, "sid-1", emitter)).thenReturn(true);
 
 		SseEmitter result = service.subscribe("access-token");
 
@@ -56,6 +57,19 @@ class SseSubscriptionServiceTest {
 		order.verify(presenceRegistry).seedOnConnect(42L);
 		assertThat(result).isSameAs(emitter);
 		assertThat(retryMs.getValue()).isBetween(3_000L, 8_000L);
+	}
+
+	@Test
+	void doesNotSeedPresenceWhenRegistryRejectsConnectionDuringShutdown() {
+		SseEmitter emitter = mock(SseEmitter.class);
+		when(sessionTokenValidator.validateSession("access-token"))
+			.thenReturn(Optional.of(validatedSession()));
+		when(emitterFactory.create(1_800_000L)).thenReturn(emitter);
+		when(registry.register(42L, "sid-1", emitter)).thenReturn(false);
+
+		assertThat(service.subscribe("access-token")).isSameAs(emitter);
+
+		verify(presenceRegistry, never()).seedOnConnect(42L);
 	}
 
 	@Test

@@ -129,6 +129,18 @@ class SseConnectionRegistryTest {
 	}
 
 	@Test
+	void shutdownRejectsNewConnections() {
+		SseConnectionRegistry registry = registry(5);
+		registry.shutdown();
+		FakeConnection connection = new FakeConnection();
+
+		registry.register(42L, "sid-1", connection);
+
+		assertThat(connection.completeCount).isEqualTo(1);
+		assertThat(registry.onlineUserIds()).isEmpty();
+	}
+
+	@Test
 	void enqueuesHeartbeatForEveryActiveConnection() {
 		SseConnectionRegistry registry = registry(5);
 		FakeConnection first = new FakeConnection();

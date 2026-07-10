@@ -29,8 +29,9 @@ public class SseSubscriptionService {
 			emitter.completeWithError(exception);
 			throw new SseInitialFrameWriteException(exception);
 		}
-		registry.register(session.principal().userId(), session.sessionId(), emitter);
-		presenceRegistry.seedOnConnect(session.principal().userId());
+		if (registry.register(session.principal().userId(), session.sessionId(), emitter)) {
+			presenceRegistry.seedOnConnect(session.principal().userId());
+		}
 		return emitter;
 	}
 

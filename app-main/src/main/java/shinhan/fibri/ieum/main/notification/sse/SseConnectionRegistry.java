@@ -10,6 +10,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import jakarta.annotation.PreDestroy;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -21,10 +22,15 @@ import shinhan.fibri.ieum.main.notification.presence.PresenceRegistry;
 @Component
 public class SseConnectionRegistry {
 
+	private static final int SHUTDOWN_BATCH_SIZE = 50;
+	private static final long SHUTDOWN_BATCH_DELAY_MILLIS = 250L;
+
 	private final NotificationProperties properties;
 	private final Executor executor;
 	private final PresenceRegistry presenceRegistry;
 	private final ConcurrentHashMap<Long, UserConnections> connectionsByUser = new ConcurrentHashMap<>();
+	private final AtomicBoolean acceptingConnections = new AtomicBoolean(true);
+	private final Object lifecycleMonitor = new Object();
 
 	public SseConnectionRegistry(
 		NotificationProperties properties,
@@ -36,15 +42,14 @@ public class SseConnectionRegistry {
 		this.presenceRegistry = Objects.requireNonNull(presenceRegistry, "presenceRegistry must not be null");
 	}
 
-	public void register(Long userId, String sessionId, SseEmitter emitter) {
-		register(userId, sessionId, new SpringSseEmitterConnection(emitter));
+	public boolean register(Long userId, String sessionId, SseEmitter emitter) {
+		return register(userId, sessionId, new SpringSseEmitterConnection(emitter));
 	}
 
-	void register(Long userId, String sessionId, SseEmitterConnection emitter) {
+	boolean register(Long userId, String sessionId, SseEmitterConnection emitter) {
 		Objects.requireNonNull(userId, "userId must not be null");
 		Objects.requireNonNull(sessionId, "sessionId must not be null");
 		Objects.requireNonNull(emitter, "emitter must not be null");
-
 		Connection connection = new Connection(userId, sessionId, emitter);
 		SseEmitterState state = new SseEmitterState(
 			properties.durableQueuePerEmitter(),
@@ -58,15 +63,22 @@ public class SseConnectionRegistry {
 		emitter.onError(error -> remove(connection));
 
 		AtomicReference<Connection> evictedReference = new AtomicReference<>();
-		connectionsByUser.compute(userId, (ignored, existing) -> {
-			UserConnections connections = existing == null ? new UserConnections() : existing;
-			evictedReference.set(connections.add(connection, properties.maxConnectionsPerUser()));
-			return connections;
-		});
+		synchronized (lifecycleMonitor) {
+			if (!acceptingConnections.get()) {
+				emitter.complete();
+				return false;
+			}
+			connectionsByUser.compute(userId, (ignored, existing) -> {
+				UserConnections connections = existing == null ? new UserConnections() : existing;
+				evictedReference.set(connections.add(connection, properties.maxConnectionsPerUser()));
+				return connections;
+			});
+		}
 		Connection evicted = evictedReference.get();
 		if (evicted != null) {
 			evicted.close();
 		}
+		return true;
 	}
 
 	public void push(Long userId, OutboundEvent event) {
@@ -140,8 +152,26 @@ public class SseConnectionRegistry {
 
 	@PreDestroy
 	public void shutdown() {
-		for (Long userId : onlineUserIds()) {
-			closeUser(userId);
+		List<Connection> connections;
+		synchronized (lifecycleMonitor) {
+			acceptingConnections.set(false);
+			connections = connectionsByUser.values().stream()
+				.flatMap(userConnections -> userConnections.snapshot().stream())
+				.toList();
+		}
+		for (int index = 0; index < connections.size(); index++) {
+			connections.get(index).close();
+			if ((index + 1) % SHUTDOWN_BATCH_SIZE == 0 && index + 1 < connections.size()) {
+				pauseBeforeNextShutdownBatch();
+			}
+		}
+	}
+
+	private void pauseBeforeNextShutdownBatch() {
+		try {
+			TimeUnit.MILLISECONDS.sleep(SHUTDOWN_BATCH_DELAY_MILLIS);
+		} catch (InterruptedException exception) {
+			Thread.currentThread().interrupt();
 		}
 	}
 
