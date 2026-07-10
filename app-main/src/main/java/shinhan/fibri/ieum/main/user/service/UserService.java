@@ -268,17 +268,7 @@ public class UserService {
 	}
 
 	private void revokeSessionsAndCloseSseAfterCommit(Long userId) {
-		if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-			revokeSessionsAndCloseSse(userId);
-			return;
-		}
-
-		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-			@Override
-			public void afterCommit() {
-				revokeSessionsAndCloseSse(userId);
-			}
-		});
+		runAfterCommit(() -> revokeSessionsAndCloseSse(userId));
 	}
 
 	private void revokeSessionsAndCloseSse(Long userId) {

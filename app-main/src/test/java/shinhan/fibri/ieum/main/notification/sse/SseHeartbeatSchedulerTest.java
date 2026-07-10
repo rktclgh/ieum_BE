@@ -1,9 +1,11 @@
 package shinhan.fibri.ieum.main.notification.sse;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -54,9 +56,9 @@ class SseHeartbeatSchedulerTest {
 		scheduler.runHeartbeat();
 
 		ArgumentCaptor<Integer> shard = ArgumentCaptor.forClass(Integer.class);
-		verify(registry, org.mockito.Mockito.times(4)).activeSessionsInShard(shard.capture(), eq(4));
-		verify(registry, org.mockito.Mockito.times(4)).enqueueHeartbeat();
-		org.assertj.core.api.Assertions.assertThat(shard.getAllValues()).containsExactly(0, 1, 2, 3);
+		verify(registry, times(4)).activeSessionsInShard(shard.capture(), eq(4));
+		verify(registry, times(4)).enqueueHeartbeat();
+		assertThat(shard.getAllValues()).containsExactly(0, 1, 2, 3);
 	}
 
 	private static NotificationProperties properties() {

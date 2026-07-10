@@ -20,7 +20,7 @@ class RedisRadiusNotificationGateTest {
 		ValueOperations<String, String> values = mock(ValueOperations.class);
 		when(redis.opsForValue()).thenReturn(values);
 		when(values.setIfAbsent(eq("notif:radius:sent:question:10"), eq("1"), any())).thenReturn(true, false);
-		when(redis.execute(anyScript(), eq(List.of("notif:radius:rl:wydm")), eq("60"))).thenReturn(30L, 31L);
+		when(redis.execute(anyRedisScript(), eq(List.of("notif:radius:rl:wydm")), eq("60"))).thenReturn(30L, 31L);
 		RedisRadiusNotificationGate gate = new RedisRadiusNotificationGate(redis);
 
 		assertThat(gate.tryAcquire(NotificationCategory.question, 10L, "wydm")).isTrue();
@@ -41,10 +41,10 @@ class RedisRadiusNotificationGateTest {
 		ValueOperations<String, String> values = mock(ValueOperations.class);
 		when(redis.opsForValue()).thenReturn(values);
 		when(values.setIfAbsent(any(), eq("1"), any())).thenReturn(true);
-		when(redis.execute(anyScript(), eq(List.of("notif:radius:rl:wydm")), eq("60"))).thenReturn(31L);
+		when(redis.execute(anyRedisScript(), eq(List.of("notif:radius:rl:wydm")), eq("60"))).thenReturn(31L);
 
 		assertThat(new RedisRadiusNotificationGate(redis).tryAcquire(NotificationCategory.question, 11L, "wydm")).isFalse();
 	}
 
-	private RedisScript<Long> anyScript() { return any(); }
+	private RedisScript<Long> anyRedisScript() { return any(); }
 }
