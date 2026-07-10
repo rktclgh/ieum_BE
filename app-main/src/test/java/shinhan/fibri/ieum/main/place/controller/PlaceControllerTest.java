@@ -8,10 +8,12 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -27,6 +29,8 @@ import shinhan.fibri.ieum.main.place.dto.PlaceResponse;
 import shinhan.fibri.ieum.main.place.dto.PlaceSearchResponse;
 import shinhan.fibri.ieum.main.place.dto.ReverseGeocodeResponse;
 import shinhan.fibri.ieum.main.place.service.PlaceService;
+import shinhan.fibri.ieum.main.place.support.PlaceRateLimiter;
+import shinhan.fibri.ieum.main.place.support.PlaceClientKeyFactory;
 
 @WebMvcTest(PlaceController.class)
 @AutoConfigureMockMvc(addFilters = false)
@@ -37,6 +41,14 @@ class PlaceControllerTest {
 
 	@Autowired
 	private PlaceService placeService;
+
+	@Autowired
+	private PlaceRateLimiter placeRateLimiter;
+
+	@BeforeEach
+	void allowPlaceRequestsByDefault() {
+		when(placeRateLimiter.tryAcquire(any(), any())).thenReturn(true);
+	}
 
 	@Test
 	void returnsStableSearchResponseShape() throws Exception {
@@ -84,6 +96,18 @@ class PlaceControllerTest {
 	}
 
 	@Test
+	void returnsRateLimitedResponseBeforeCallingProviderService() throws Exception {
+		when(placeRateLimiter.tryAcquire(any(), any())).thenReturn(false);
+
+		mockMvc.perform(get("/api/places/search").param("query", "시청"))
+			.andExpect(status().isTooManyRequests())
+			.andExpect(header().string("Retry-After", "60"))
+			.andExpect(jsonPath("$.code", is("PLACE_RATE_LIMITED")));
+
+		verify(placeService, never()).search(any(), any(), any());
+	}
+
+	@Test
 	void returnsStableGeocodeAndReverseGeocodeResponseShapes() throws Exception {
 		when(placeService.geocode("서울특별시청")).thenReturn(new GeocodeResponse(List.of(
 			new GeocodedAddressResponse("서울특별시 중구 세종대로 110", "서울특별시 중구 태평로1가 31", 37.5666103, 126.9783882)
@@ -108,6 +132,18 @@ class PlaceControllerTest {
 		@Primary
 		PlaceService placeService() {
 			return mock(PlaceService.class);
+		}
+
+		@Bean
+		@Primary
+		PlaceRateLimiter placeRateLimiter() {
+			return mock(PlaceRateLimiter.class);
+		}
+
+		@Bean
+		@Primary
+		PlaceClientKeyFactory placeClientKeyFactory() {
+			return mock(PlaceClientKeyFactory.class);
 		}
 
 		@Bean

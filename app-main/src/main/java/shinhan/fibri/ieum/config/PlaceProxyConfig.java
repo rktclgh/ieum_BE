@@ -8,6 +8,7 @@ import shinhan.fibri.ieum.main.place.service.GeocodingClient;
 import shinhan.fibri.ieum.main.place.service.NaverLegacyPlaceSearchClient;
 import shinhan.fibri.ieum.main.place.service.NcpMapsGeocodingClient;
 import shinhan.fibri.ieum.main.place.service.PlaceSearchClient;
+import shinhan.fibri.ieum.main.place.support.PlaceProviderBulkhead;
 
 @Configuration
 public class PlaceProxyConfig {
@@ -32,20 +33,27 @@ public class PlaceProxyConfig {
 	}
 
 	@Bean
-	PlaceSearchClient placeSearchClient(PlaceProxyProperties properties) {
+	PlaceProviderBulkhead placeProviderBulkhead() {
+		return new PlaceProviderBulkhead(20);
+	}
+
+	@Bean
+	PlaceSearchClient placeSearchClient(PlaceProxyProperties properties, PlaceProviderBulkhead placeProviderBulkhead) {
 		return new NaverLegacyPlaceSearchClient(
 			RestClient.builder().baseUrl(properties.naverSearchBaseUrl()).build(),
 			properties.naverSearchClientId(),
-			properties.naverSearchClientSecret()
+			properties.naverSearchClientSecret(),
+			placeProviderBulkhead
 		);
 	}
 
 	@Bean
-	GeocodingClient geocodingClient(PlaceProxyProperties properties) {
+	GeocodingClient geocodingClient(PlaceProxyProperties properties, PlaceProviderBulkhead placeProviderBulkhead) {
 		return new NcpMapsGeocodingClient(
 			RestClient.builder().baseUrl(properties.ncpMapsBaseUrl()).build(),
 			properties.ncpMapsKeyId(),
-			properties.ncpMapsKey()
+			properties.ncpMapsKey(),
+			placeProviderBulkhead
 		);
 	}
 }

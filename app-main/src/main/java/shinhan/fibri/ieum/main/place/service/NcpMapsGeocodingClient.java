@@ -5,6 +5,7 @@ import java.util.List;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import shinhan.fibri.ieum.main.place.exception.PlaceProviderException;
+import shinhan.fibri.ieum.main.place.support.PlaceProviderBulkhead;
 import tools.jackson.databind.JsonNode;
 
 public class NcpMapsGeocodingClient implements GeocodingClient {
@@ -12,17 +13,23 @@ public class NcpMapsGeocodingClient implements GeocodingClient {
 	private final RestClient restClient;
 	private final String keyId;
 	private final String key;
+	private final PlaceProviderBulkhead bulkhead;
 
 	public NcpMapsGeocodingClient(RestClient restClient, String keyId, String key) {
+		this(restClient, keyId, key, new PlaceProviderBulkhead(20));
+	}
+
+	public NcpMapsGeocodingClient(RestClient restClient, String keyId, String key, PlaceProviderBulkhead bulkhead) {
 		this.restClient = restClient;
 		this.keyId = keyId;
 		this.key = key;
+		this.bulkhead = bulkhead;
 	}
 
 	@Override
 	public List<GeocodeCandidate> geocode(String query) {
 		try {
-			JsonNode response = restClient.get()
+			JsonNode response = bulkhead.execute(() -> restClient.get()
 				.uri(uriBuilder -> uriBuilder.path("/map-geocode/v2/geocode")
 					.queryParam("query", query)
 					.queryParam("count", 5)
@@ -31,7 +38,7 @@ public class NcpMapsGeocodingClient implements GeocodingClient {
 				.header("x-ncp-apigw-api-key-id", keyId)
 				.header("x-ncp-apigw-api-key", key)
 				.retrieve()
-				.body(JsonNode.class);
+				.body(JsonNode.class));
 			if (response == null || !response.path("addresses").isArray()) {
 				return List.of();
 			}
@@ -59,7 +66,7 @@ public class NcpMapsGeocodingClient implements GeocodingClient {
 	@Override
 	public ReverseGeocodeResult reverseGeocode(double latitude, double longitude) {
 		try {
-			JsonNode response = restClient.get()
+			JsonNode response = bulkhead.execute(() -> restClient.get()
 				.uri(uriBuilder -> uriBuilder.path("/map-reversegeocode/v2/gc")
 					.queryParam("coords", longitude + "," + latitude)
 					.queryParam("orders", "roadaddr,addr")
@@ -68,7 +75,7 @@ public class NcpMapsGeocodingClient implements GeocodingClient {
 				.header("x-ncp-apigw-api-key-id", keyId)
 				.header("x-ncp-apigw-api-key", key)
 				.retrieve()
-				.body(JsonNode.class);
+				.body(JsonNode.class));
 			if (response == null) {
 				throw new PlaceProviderException("Place provider returned invalid response");
 			}
