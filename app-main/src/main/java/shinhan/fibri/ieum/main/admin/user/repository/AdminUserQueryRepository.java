@@ -1,15 +1,9 @@
 package shinhan.fibri.ieum.main.admin.user.repository;
 
-import java.sql.Timestamp;
 import java.sql.Types;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -31,7 +25,7 @@ public class AdminUserQueryRepository {
 			WHERE u.deleted_at IS NULL
 			  AND (:status IS NULL OR CAST(u.status AS varchar) = :status)
 			  AND (:qLike IS NULL OR lower(u.nickname) LIKE :qLike ESCAPE '\\'
-			                      OR u.email LIKE :qLike ESCAPE '\\')
+			                      OR lower(u.email) LIKE :qLike ESCAPE '\\')
 			  AND (:cursorId IS NULL OR u.user_id < :cursorId)
 			ORDER BY u.user_id DESC
 			LIMIT :limit
@@ -68,7 +62,7 @@ public class AdminUserQueryRepository {
 				rs.getString("reporter_nickname"),
 				longObject(rs.getObject("message_id")),
 				rs.getString("detail"),
-				toOffsetDateTime(rs.getObject("created_at"))
+				rs.getObject("created_at", OffsetDateTime.class)
 			)
 		);
 	}
@@ -99,27 +93,8 @@ public class AdminUserQueryRepository {
 			rs.getString("status"),
 			rs.getString("grade"),
 			rs.getString("provider"),
-			toOffsetDateTime(rs.getObject("last_active_at"))
+			rs.getObject("last_active_at", OffsetDateTime.class)
 		);
-	}
-
-	private static OffsetDateTime toOffsetDateTime(Object value) {
-		if (value == null) {
-			return null;
-		}
-		if (value instanceof OffsetDateTime offsetDateTime) {
-			return offsetDateTime;
-		}
-		if (value instanceof Timestamp timestamp) {
-			return timestamp.toInstant().atOffset(ZoneOffset.UTC);
-		}
-		if (value instanceof Instant instant) {
-			return instant.atOffset(ZoneOffset.UTC);
-		}
-		if (value instanceof LocalDateTime localDateTime) {
-			return localDateTime.atOffset(ZoneOffset.UTC);
-		}
-		throw new IllegalArgumentException("Unsupported timestamp value: " + value.getClass().getName());
 	}
 
 	private static Long longObject(Object value) {

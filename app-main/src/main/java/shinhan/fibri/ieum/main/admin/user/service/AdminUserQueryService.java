@@ -10,7 +10,6 @@ import shinhan.fibri.ieum.common.auth.domain.UserGrade;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
-import shinhan.fibri.ieum.main.admin.user.domain.SanctionType;
 import shinhan.fibri.ieum.main.admin.user.domain.UserSanction;
 import shinhan.fibri.ieum.main.admin.user.dto.AdminReportItem;
 import shinhan.fibri.ieum.main.admin.user.dto.AdminSanctionItem;
@@ -126,7 +125,7 @@ public class AdminUserQueryService {
 	private AdminSanctionItem toSanctionItem(UserSanction sanction) {
 		return new AdminSanctionItem(
 			sanction.getId(),
-			SanctionType.valueOf(sanction.getType().name()),
+			sanction.getType(),
 			sanction.getReason(),
 			sanction.getCreatedAt(),
 			sanction.getCreatedBy(),
