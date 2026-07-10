@@ -37,6 +37,8 @@ import shinhan.fibri.ieum.main.chat.exception.NotFriendsException;
 import shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException;
 import shinhan.fibri.ieum.main.chat.exception.SelfChatRoomException;
 import shinhan.fibri.ieum.main.friend.service.FriendService;
+import shinhan.fibri.ieum.main.meeting.exception.NotHostException;
+import shinhan.fibri.ieum.main.meeting.repository.MeetingRepository;
 import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
 
 @Service
@@ -51,6 +53,7 @@ public class ChatService {
 	private final ChatMemberRepository chatMemberRepository;
 	private final MessageRepository messageRepository;
 	private final FriendService friendService;
+	private final MeetingRepository meetingRepository;
 	private final PlatformTransactionManager transactionManager;
 
 	public ChatRoomResponse createDirectRoom(AuthenticatedUser principal, Long friendId) {
@@ -178,6 +181,22 @@ public class ChatService {
 			throw new GroupLeaveViaMeetingException();
 		}
 		member.leave(java.time.OffsetDateTime.now());
+	}
+
+	@Transactional
+	public void disbandRoom(AuthenticatedUser principal, Long roomId) {
+		ChatRoom room = chatRoomRepository.findById(roomId)
+			.orElseThrow(ChatRoomNotFoundException::new);
+		if (!chatMemberRepository.existsByRoom_IdAndUser_IdAndLeftAtIsNull(roomId, principal.userId())) {
+			throw new NotRoomMemberException();
+		}
+		if (room.getRoomType() != RoomType.group) {
+			throw new IllegalArgumentException("Only group chat rooms can be disbanded");
+		}
+		if (!meetingRepository.existsByIdAndHostIdAndDeletedAtIsNull(room.getMeetingId(), principal.userId())) {
+			throw new NotHostException();
+		}
+		chatRoomRepository.delete(room);
 	}
 
 	private ChatRoom insertDirectRoom(User currentUser, User friend) {

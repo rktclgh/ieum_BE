@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.persistence.autoconfigure.EntityScan;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import shinhan.fibri.ieum.common.auth.domain.AuthProvider;
 import shinhan.fibri.ieum.common.auth.domain.GenderType;
@@ -131,6 +132,34 @@ class UserRepositoryTest {
 		assertThat(userRepository.findByProviderAndProviderUidAndDeletedAtIsNull(AuthProvider.kakao, "google-sub-123"))
 				.isEmpty();
 		assertThat(deleted.getDeletedAt()).isNotNull();
+	}
+
+	@Test
+	void searchActiveUsersByNicknameExcludesCurrentUser() {
+		User currentUser = userRepository.save(User.createEmailUser(
+				"search-self@example.com",
+				"hash",
+				"search-nick",
+				LocalDate.of(1990, 1, 1),
+				GenderType.female,
+				"KR"
+		));
+		User otherUser = userRepository.save(User.createEmailUser(
+				"search-other@example.com",
+				"hash",
+				"search-nick-friend",
+				LocalDate.of(1991, 1, 1),
+				GenderType.male,
+				"US"
+		));
+
+		assertThat(userRepository.searchActiveUsersByNicknameExcludingUserId(
+				"search-nick",
+				currentUser.getId(),
+				PageRequest.of(0, 30)
+		))
+				.extracting(User::getId)
+				.containsExactly(otherUser.getId());
 	}
 
 	@Test

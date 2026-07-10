@@ -8,6 +8,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -15,6 +16,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -49,8 +51,8 @@ import shinhan.fibri.ieum.main.chat.exception.NotFriendsException;
 import shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException;
 import shinhan.fibri.ieum.main.chat.exception.SelfChatRoomException;
 import shinhan.fibri.ieum.main.chat.service.ChatService;
+import shinhan.fibri.ieum.main.meeting.exception.NotHostException;
 import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
-import java.util.List;
 
 @WebMvcTest(ChatController.class)
 @AutoConfigureMockMvc(addFilters = false)
@@ -202,6 +204,14 @@ class ChatControllerTest {
 	}
 
 	@Test
+	void disbandRoomReturnsNoContent() throws Exception {
+		mockMvc.perform(delete("/api/v1/chat/rooms/{roomId}", 100L).with(authenticated()))
+			.andExpect(status().isNoContent());
+
+		verify(chatService).disbandRoom(any(AuthenticatedUser.class), eq(100L));
+	}
+
+	@Test
 	void mapsGroupLeaveViaMeetingToConflict() throws Exception {
 		doThrow(new GroupLeaveViaMeetingException())
 			.when(chatService).leaveRoom(any(AuthenticatedUser.class), eq(100L));
@@ -314,6 +324,16 @@ class ChatControllerTest {
 		mockMvc.perform(get("/api/v1/chat/rooms/{roomId}", 100L).with(authenticated()))
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.code", is("NOT_ROOM_MEMBER")));
+	}
+
+	@Test
+	void mapsNotHostToForbidden() throws Exception {
+		doThrow(new NotHostException())
+			.when(chatService).disbandRoom(any(AuthenticatedUser.class), eq(100L));
+
+		mockMvc.perform(delete("/api/v1/chat/rooms/{roomId}", 100L).with(authenticated()))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code", is("NOT_HOST")));
 	}
 
 	private static RequestPostProcessor authenticated() {

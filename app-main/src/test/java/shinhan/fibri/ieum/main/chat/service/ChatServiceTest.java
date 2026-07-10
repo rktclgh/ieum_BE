@@ -37,6 +37,8 @@ import shinhan.fibri.ieum.main.chat.exception.NotFriendsException;
 import shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException;
 import shinhan.fibri.ieum.main.chat.exception.SelfChatRoomException;
 import shinhan.fibri.ieum.main.friend.service.FriendService;
+import shinhan.fibri.ieum.main.meeting.exception.NotHostException;
+import shinhan.fibri.ieum.main.meeting.repository.MeetingRepository;
 import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
 
 class ChatServiceTest {
@@ -46,6 +48,7 @@ class ChatServiceTest {
 	private final ChatMemberRepository chatMemberRepository = org.mockito.Mockito.mock(ChatMemberRepository.class);
 	private final MessageRepository messageRepository = org.mockito.Mockito.mock(MessageRepository.class);
 	private final FriendService friendService = org.mockito.Mockito.mock(FriendService.class);
+	private final MeetingRepository meetingRepository = org.mockito.Mockito.mock(MeetingRepository.class);
 	private final PlatformTransactionManager transactionManager = new PlatformTransactionManager() {
 		@Override
 		public TransactionStatus getTransaction(TransactionDefinition definition) {
@@ -66,6 +69,7 @@ class ChatServiceTest {
 		chatMemberRepository,
 		messageRepository,
 		friendService,
+		meetingRepository,
 		transactionManager
 	);
 
@@ -347,6 +351,57 @@ class ChatServiceTest {
 		assertThatThrownBy(() -> service.leaveRoom(principal(42L), 100L))
 			.hasMessage("Leave group chat via meeting leave API");
 		assertThat(member.getLeftAt()).isNull();
+	}
+
+	@Test
+	void disbandGroupRoomDeletesRoomWhenPrincipalIsMeetingHost() {
+		ChatRoom room = room(ChatRoom.group(7L), 100L);
+		when(chatRoomRepository.findById(100L)).thenReturn(Optional.of(room));
+		when(chatMemberRepository.existsByRoom_IdAndUser_IdAndLeftAtIsNull(100L, 42L)).thenReturn(true);
+		when(meetingRepository.existsByIdAndHostIdAndDeletedAtIsNull(7L, 42L)).thenReturn(true);
+
+		service.disbandRoom(principal(42L), 100L);
+
+		verify(chatRoomRepository).delete(room);
+		verify(chatMemberRepository, never()).findActiveByRoomIdAndUserId(100L, 42L);
+	}
+
+	@Test
+	void disbandGroupRoomRejectsNonHost() {
+		ChatRoom room = room(ChatRoom.group(7L), 100L);
+		when(chatRoomRepository.findById(100L)).thenReturn(Optional.of(room));
+		when(chatMemberRepository.existsByRoom_IdAndUser_IdAndLeftAtIsNull(100L, 42L)).thenReturn(true);
+		when(meetingRepository.existsByIdAndHostIdAndDeletedAtIsNull(7L, 42L)).thenReturn(false);
+
+		assertThatThrownBy(() -> service.disbandRoom(principal(42L), 100L))
+			.isInstanceOf(NotHostException.class);
+
+		verify(chatRoomRepository, never()).delete(any(ChatRoom.class));
+	}
+
+	@Test
+	void disbandRoomRejectsNonGroupRoom() {
+		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
+		when(chatRoomRepository.findById(100L)).thenReturn(Optional.of(room));
+		when(chatMemberRepository.existsByRoom_IdAndUser_IdAndLeftAtIsNull(100L, 42L)).thenReturn(true);
+
+		assertThatThrownBy(() -> service.disbandRoom(principal(42L), 100L))
+			.isInstanceOf(IllegalArgumentException.class)
+			.hasMessage("Only group chat rooms can be disbanded");
+
+		verify(chatRoomRepository, never()).delete(any(ChatRoom.class));
+	}
+
+	@Test
+	void disbandRoomRequiresActiveMembership() {
+		ChatRoom room = room(ChatRoom.group(7L), 100L);
+		when(chatRoomRepository.findById(100L)).thenReturn(Optional.of(room));
+		when(chatMemberRepository.existsByRoom_IdAndUser_IdAndLeftAtIsNull(100L, 42L)).thenReturn(false);
+
+		assertThatThrownBy(() -> service.disbandRoom(principal(42L), 100L))
+			.isInstanceOf(NotRoomMemberException.class);
+
+		verify(chatRoomRepository, never()).delete(any(ChatRoom.class));
 	}
 
 	private AuthenticatedUser principal(Long userId) {

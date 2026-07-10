@@ -60,6 +60,44 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 		""")
 	List<Message> findLastMessagesByRoomIds(@Param("roomIds") List<Long> roomIds);
 
+	@Query("""
+		SELECT message
+		FROM Message message
+		JOIN FETCH message.sender
+		WHERE message.room.id = :roomId
+		  AND message.deletedAt IS NULL
+		  AND (
+			message.createdAt < :reportedCreatedAt
+			OR (message.createdAt = :reportedCreatedAt AND message.id < :reportedMessageId)
+		  )
+		ORDER BY message.createdAt DESC, message.id DESC
+		""")
+	List<Message> findContextBeforeMessage(
+		@Param("roomId") Long roomId,
+		@Param("reportedCreatedAt") OffsetDateTime reportedCreatedAt,
+		@Param("reportedMessageId") Long reportedMessageId,
+		Pageable pageable
+	);
+
+	@Query("""
+		SELECT message
+		FROM Message message
+		JOIN FETCH message.sender
+		WHERE message.room.id = :roomId
+		  AND message.deletedAt IS NULL
+		  AND (
+			message.createdAt > :reportedCreatedAt
+			OR (message.createdAt = :reportedCreatedAt AND message.id > :reportedMessageId)
+		  )
+		ORDER BY message.createdAt ASC, message.id ASC
+		""")
+	List<Message> findContextAfterMessage(
+		@Param("roomId") Long roomId,
+		@Param("reportedCreatedAt") OffsetDateTime reportedCreatedAt,
+		@Param("reportedMessageId") Long reportedMessageId,
+		Pageable pageable
+	);
+
 	interface RoomUnreadCount {
 		Long getRoomId();
 

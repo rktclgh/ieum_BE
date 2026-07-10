@@ -154,6 +154,76 @@ class ChatRepositoryTest {
 			.containsExactly("second", "first");
 	}
 
+	@Test
+	void findsReportContextAroundMessageWithLimitAndDeletedMessagesExcluded() {
+		User me = persist(user("report-context-me@example.com", "report-context-me"));
+		User friend = persist(user("report-context-friend@example.com", "report-context-friend"));
+		ChatRoom room = chatRoomRepository.save(ChatRoom.direct(me.getId(), friend.getId()));
+		OffsetDateTime base = OffsetDateTime.parse("2026-07-08T10:00:00+09:00");
+		for (int i = 25; i >= 1; i--) {
+			messageRepository.save(Message.text(room, me, "before-" + i, base.minusMinutes(i)));
+		}
+		Message deletedBefore = messageRepository.save(Message.text(room, me, "deleted-before", base.minusSeconds(30)));
+		deletedBefore.markDeleted(base.plusMinutes(1));
+		Message reported = messageRepository.save(Message.text(room, friend, "reported", base));
+		Message deletedAfter = messageRepository.save(Message.text(room, me, "deleted-after", base.plusSeconds(30)));
+		deletedAfter.markDeleted(base.plusMinutes(1));
+		for (int i = 1; i <= 25; i++) {
+			messageRepository.save(Message.text(room, me, "after-" + i, base.plusMinutes(i)));
+		}
+		entityManager.flush();
+		entityManager.clear();
+
+		assertThat(messageRepository.findContextBeforeMessage(room.getId(), base, reported.getId(), PageRequest.of(0, 20)))
+			.extracting(Message::getContent)
+			.containsExactly(
+				"before-1",
+				"before-2",
+				"before-3",
+				"before-4",
+				"before-5",
+				"before-6",
+				"before-7",
+				"before-8",
+				"before-9",
+				"before-10",
+				"before-11",
+				"before-12",
+				"before-13",
+				"before-14",
+				"before-15",
+				"before-16",
+				"before-17",
+				"before-18",
+				"before-19",
+				"before-20"
+			);
+		assertThat(messageRepository.findContextAfterMessage(room.getId(), base, reported.getId(), PageRequest.of(0, 20)))
+			.extracting(Message::getContent)
+			.containsExactly(
+				"after-1",
+				"after-2",
+				"after-3",
+				"after-4",
+				"after-5",
+				"after-6",
+				"after-7",
+				"after-8",
+				"after-9",
+				"after-10",
+				"after-11",
+				"after-12",
+				"after-13",
+				"after-14",
+				"after-15",
+				"after-16",
+				"after-17",
+				"after-18",
+				"after-19",
+				"after-20"
+			);
+	}
+
 	private User user(String email, String nickname) {
 		return User.createEmailUser(
 			email,

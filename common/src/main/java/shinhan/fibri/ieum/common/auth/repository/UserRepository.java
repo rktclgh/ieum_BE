@@ -36,10 +36,15 @@ public interface UserRepository extends JpaRepository<User, Long> {
 		SELECT u
 		FROM User u
 		WHERE LOWER(u.nickname) LIKE LOWER(CONCAT('%', :nickname, '%'))
+		  AND u.id <> :excludedUserId
 		  AND u.deletedAt IS NULL
 		ORDER BY u.nickname ASC, u.id ASC
 		""")
-	List<User> searchActiveUsersByNickname(@Param("nickname") String nickname, Pageable pageable);
+	List<User> searchActiveUsersByNicknameExcludingUserId(
+		@Param("nickname") String nickname,
+		@Param("excludedUserId") Long excludedUserId,
+		Pageable pageable
+	);
 
 	@Modifying
 	@Query(
