@@ -18,14 +18,20 @@ public class PresenceRegistry {
 	}
 
 	public void seedOnConnect(Long userId) {
-		seedRepository.findSeedByUserId(userId).ifPresent(seed -> replace(userId, new PresenceSnapshot(
-			seed.latitude(), seed.longitude(), seed.notifyAllEnabled(), seed.notifyQuestion(), seed.notifyMeeting(), seed.notifyRadiusKm()
-		)));
+		seedRepository.findSeedByUserId(userId).ifPresent(seed -> snapshots.compute(userId, (ignored, existing) -> {
+			PresenceSnapshot snapshot = new PresenceSnapshot(
+				seed.latitude(), seed.longitude(), seed.notifyAllEnabled(), seed.notifyQuestion(), seed.notifyMeeting(), seed.notifyRadiusKm()
+			);
+			replaceGeoHash(userId, snapshot);
+			return snapshot;
+		}));
 	}
 
 	public void removeOnLastDisconnect(Long userId) {
-		snapshots.remove(userId);
-		removeFromGeoHash(userId);
+		snapshots.computeIfPresent(userId, (ignored, snapshot) -> {
+			removeFromGeoHash(userId);
+			return null;
+		});
 	}
 
 	public void refreshLocation(Long userId, double latitude, double longitude) {
@@ -60,11 +66,6 @@ public class PresenceRegistry {
 		return GeoHashGrid.neighbors(latitude, longitude, rings).stream()
 			.flatMap(key -> userIdsByGeoHash.getOrDefault(key, Set.of()).stream())
 			.collect(java.util.stream.Collectors.toUnmodifiableSet());
-	}
-
-	private void replace(Long userId, PresenceSnapshot snapshot) {
-		snapshots.put(userId, snapshot);
-		replaceGeoHash(userId, snapshot);
 	}
 
 	private void replaceGeoHash(Long userId, PresenceSnapshot snapshot) {
