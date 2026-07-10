@@ -1,11 +1,14 @@
 package shinhan.fibri.ieum.main.friend.service;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
 import shinhan.fibri.ieum.main.notification.domain.NotificationType;
 import shinhan.fibri.ieum.main.notification.service.NotificationPublisher;
 
 @Component
+@Slf4j
 public class NotificationFriendRequestNotifier implements FriendRequestNotifier {
 
 	private final UserRepository userRepository;
@@ -30,9 +33,10 @@ public class NotificationFriendRequestNotifier implements FriendRequestNotifier 
 	private String requesterNickname(Long requesterId) {
 		try {
 			return userRepository.findByIdAndDeletedAtIsNull(requesterId)
-				.map(user -> user.getNickname())
+				.map(User::getNickname)
 				.orElse("사용자");
 		} catch (RuntimeException exception) {
+			log.warn("Failed to resolve nickname for requesterId={}", requesterId, exception);
 			return "사용자";
 		}
 	}
