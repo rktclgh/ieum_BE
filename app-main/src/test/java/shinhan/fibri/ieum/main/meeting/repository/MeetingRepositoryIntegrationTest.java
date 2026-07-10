@@ -67,16 +67,17 @@ class MeetingRepositoryIntegrationTest {
 			       ('탈퇴자', NULL, now())
 			""");
 		jdbcTemplate.update("""
-			INSERT INTO pins (author_id, pin_type, location, deleted_at)
-			VALUES (1, 'meeting'::pin_type, ST_SetSRID(ST_MakePoint(127.0, 37.5), 4326)::geography, NULL)
+			INSERT INTO pins (author_id, pin_type, location, address, detail_address, label, deleted_at)
+			VALUES (1, 'meeting'::pin_type, ST_SetSRID(ST_MakePoint(127.0, 37.5), 4326)::geography,
+			        '서울특별시 강남구 테헤란로 123', '2번 출구 앞', '동선역 2번 출구', NULL)
 			""");
 		jdbcTemplate.update("""
 			INSERT INTO meetings (
-				pin_id, host_id, title, content, place_name, meeting_at, max_members,
+				pin_id, host_id, title, content, meeting_at, max_members,
 				image_file_id, thumbnail_file_id, status, created_at, updated_at, deleted_at
 			)
 			VALUES (
-				1, 1, '저녁 모임', '같이 밥 먹어요', '동선역 2번 출구',
+				1, 1, '저녁 모임', '같이 밥 먹어요',
 				'2026-07-10T19:00:00+09:00', 7,
 				?::uuid, ?::uuid, 'open'::meeting_status,
 				'2026-07-09T10:00:00+09:00', '2026-07-09T10:00:00+09:00', NULL
@@ -101,7 +102,9 @@ class MeetingRepositoryIntegrationTest {
 		assertThat(detail.getRoomId()).isEqualTo(1L);
 		assertThat(detail.getTitle()).isEqualTo("저녁 모임");
 		assertThat(detail.getContent()).isEqualTo("같이 밥 먹어요");
-		assertThat(detail.getPlaceName()).isEqualTo("동선역 2번 출구");
+		assertThat(detail.getAddress()).isEqualTo("서울특별시 강남구 테헤란로 123");
+		assertThat(detail.getDetailAddress()).isEqualTo("2번 출구 앞");
+		assertThat(detail.getLabel()).isEqualTo("동선역 2번 출구");
 		assertThat(detail.getMeetingAt()).isEqualTo(OffsetDateTime.parse("2026-07-10T19:00:00+09:00").toInstant());
 		assertThat(detail.getStatus()).isEqualTo("open");
 		assertThat(detail.getMaxMembers()).isEqualTo(7);
@@ -181,6 +184,9 @@ class MeetingRepositoryIntegrationTest {
 				author_id BIGINT NOT NULL,
 				pin_type pin_type NOT NULL,
 				location geography(Point,4326) NOT NULL,
+				address VARCHAR(255) NOT NULL,
+				detail_address VARCHAR(200) NOT NULL DEFAULT '',
+				label VARCHAR(100) NOT NULL DEFAULT '',
 				deleted_at TIMESTAMPTZ
 			)
 			""");
@@ -191,7 +197,6 @@ class MeetingRepositoryIntegrationTest {
 				host_id BIGINT NOT NULL,
 				title VARCHAR(200) NOT NULL,
 				content TEXT,
-				place_name VARCHAR(100) NOT NULL,
 				type meeting_type NOT NULL DEFAULT 'one_time',
 				meeting_at TIMESTAMPTZ NOT NULL,
 				max_members SMALLINT NOT NULL,

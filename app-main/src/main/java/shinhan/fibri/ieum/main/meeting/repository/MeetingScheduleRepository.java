@@ -91,7 +91,11 @@ public interface MeetingScheduleRepository extends JpaRepository<MeetingSchedule
 		SELECT m.meeting_id              AS "meetingId",
 		       s.schedule_id             AS "scheduleId",
 		       m.title                   AS "title",
-		       m.place_name              AS "placeName",
+		       ST_Y(p.location::geometry) AS "latitude",
+		       ST_X(p.location::geometry) AS "longitude",
+		       p.address                 AS "address",
+		       p.detail_address          AS "detailAddress",
+		       p.label                   AS "label",
 		       s.starts_at               AS "startsAt",
 		       s.ends_at                 AS "endsAt",
 		       CAST(s.status AS text)    AS "status",
@@ -101,6 +105,9 @@ public interface MeetingScheduleRepository extends JpaRepository<MeetingSchedule
 		  JOIN meetings m
 		    ON m.meeting_id = s.meeting_id
 		   AND m.deleted_at IS NULL
+		  JOIN pins p
+		    ON p.pin_id = m.pin_id
+		   AND p.deleted_at IS NULL
 		  JOIN meeting_participants mp
 		    ON mp.meeting_id = m.meeting_id
 		   AND mp.user_id = :userId

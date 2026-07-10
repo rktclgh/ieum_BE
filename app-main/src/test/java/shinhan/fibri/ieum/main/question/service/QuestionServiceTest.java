@@ -97,6 +97,7 @@ class QuestionServiceTest {
 		assertThat(response.questionId()).isEqualTo(200L);
 		assertThat(response.title()).isEqualTo("title");
 		assertThat(response.author().profileImageUrl()).isEqualTo("/api/v1/files/%s".formatted(profileId));
+		assertThat(response.location()).isEqualTo(location);
 		assertThat(response.imageUrls()).containsExactly("/api/v1/files/%s?v=display".formatted(imageId));
 		verify(eventPublisher).publishEvent(new QuestionCreatedEvent(200L, 42L, "title", 37.4979, 127.0276));
 		InOrder inOrder = inOrder(fileRepository, pinWriter, questionRepository, questionImageRepository);
@@ -147,6 +148,7 @@ class QuestionServiceTest {
 			"/api/v1/files/%s?v=display".formatted(second)
 		);
 		assertThat(response.author().profileImageUrl()).isEqualTo("/api/v1/files/%s".formatted(profileId));
+		assertThat(response.location().address()).isEqualTo("서울특별시 강남구");
 		assertThat(response.answers()).isEmpty();
 		verify(answerImageRepository, never()).findByAnswerIdInOrderBySortOrderAsc(any());
 	}
@@ -450,6 +452,31 @@ class QuestionServiceTest {
 		@Override
 		public UUID getAuthorProfileFileId() {
 			return authorProfileFileId;
+		}
+
+		@Override
+		public double getLatitude() {
+			return 37.4979;
+		}
+
+		@Override
+		public double getLongitude() {
+			return 127.0276;
+		}
+
+		@Override
+		public String getAddress() {
+			return "서울특별시 강남구";
+		}
+
+		@Override
+		public String getDetailAddress() {
+			return "";
+		}
+
+		@Override
+		public String getLabel() {
+			return "강남역";
 		}
 	}
 

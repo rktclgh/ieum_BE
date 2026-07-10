@@ -21,7 +21,6 @@ public interface MeetingRepository extends JpaRepository<Meeting, Long> {
 		       cr.room_id                           AS "roomId",
 		       m.title                              AS "title",
 		       m.content                            AS "content",
-		       m.place_name                         AS "placeName",
 		       m.meeting_at                         AS "meetingAt",
 		       CAST(m.type AS text)                 AS "type",
 		       CAST(m.status AS text)               AS "status",
@@ -33,6 +32,9 @@ public interface MeetingRepository extends JpaRepository<Meeting, Long> {
 		       m.thumbnail_file_id                  AS "thumbnailFileId",
 		       ST_Y(p.location::geometry)           AS "latitude",
 		       ST_X(p.location::geometry)           AS "longitude",
+		       p.address                            AS "address",
+		       p.detail_address                     AS "detailAddress",
+		       p.label                              AS "label",
 		       m.created_at                         AS "createdAt"
 		  FROM meetings m
 		  JOIN users u ON u.user_id = m.host_id AND u.deleted_at IS NULL

@@ -93,6 +93,7 @@ public class QuestionService {
 			question.getContent(),
 			question.isResolved(),
 			new AuthorSummary(author.getId(), author.getNickname(), profileUrl(author.getProfileFileId())),
+			request.location(),
 			imageFileIds.stream()
 				.map(fileId -> DISPLAY_URL_TEMPLATE.formatted(fileId))
 				.toList(),
@@ -181,6 +182,7 @@ public class QuestionService {
 			question.getContent(),
 			question.isResolved(),
 			new AuthorSummary(author.getId(), author.getNickname(), profileUrl(author.getProfileFileId())),
+			null,
 			imageUrls,
 			List.<AnswerItem>of()
 		);
@@ -200,6 +202,9 @@ public class QuestionService {
 				detail.getAuthorId(),
 				detail.getAuthorNickname(),
 				profileUrl(detail.getAuthorProfileFileId())
+			),
+			new shinhan.fibri.ieum.main.pin.dto.LocationSnapshot(
+				detail.getLatitude(), detail.getLongitude(), detail.getAddress(), detail.getDetailAddress(), detail.getLabel()
 			),
 			imageUrls,
 			answers

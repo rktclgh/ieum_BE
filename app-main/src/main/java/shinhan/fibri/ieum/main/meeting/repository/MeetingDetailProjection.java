@@ -15,8 +15,6 @@ public interface MeetingDetailProjection {
 
 	String getContent();
 
-	String getPlaceName();
-
 	Instant getMeetingAt();
 
 	String getType();
@@ -38,6 +36,12 @@ public interface MeetingDetailProjection {
 	double getLatitude();
 
 	double getLongitude();
+
+	String getAddress();
+
+	String getDetailAddress();
+
+	String getLabel();
 
 	Instant getCreatedAt();
 }

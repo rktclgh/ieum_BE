@@ -20,9 +20,15 @@ public interface QuestionRepository extends JpaRepository<Question, Long> {
 			       q.is_resolved AS resolved,
 			       u.user_id AS authorId,
 			       u.nickname AS authorNickname,
-			       u.profile_file_id AS authorProfileFileId
+			       u.profile_file_id AS authorProfileFileId,
+			       ST_Y(p.location::geometry) AS latitude,
+			       ST_X(p.location::geometry) AS longitude,
+			       p.address AS address,
+			       p.detail_address AS detailAddress,
+			       p.label AS label
 			FROM questions q
 			JOIN users u ON u.user_id = q.author_id
+			JOIN pins p ON p.pin_id = q.pin_id AND p.deleted_at IS NULL
 			WHERE q.question_id = :questionId
 			""",
 		nativeQuery = true

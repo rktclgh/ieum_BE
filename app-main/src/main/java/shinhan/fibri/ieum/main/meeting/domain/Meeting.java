@@ -40,9 +40,6 @@ public class Meeting {
 	@Column(name = "content")
 	private String content;
 
-	@Column(name = "place_name", nullable = false, length = 100)
-	private String placeName;
-
 	@Column(name = "meeting_at", nullable = false)
 	private OffsetDateTime meetingAt;
 
@@ -78,7 +75,6 @@ public class Meeting {
 		MeetingType type,
 		String title,
 		String content,
-		String placeName,
 		OffsetDateTime meetingAt,
 		int maxMembers,
 		UUID imageFileId,
@@ -92,7 +88,6 @@ public class Meeting {
 		this.type = Objects.requireNonNull(type, "type must not be null");
 		this.title = Objects.requireNonNull(title, "title must not be null");
 		this.content = content;
-		this.placeName = Objects.requireNonNull(placeName, "placeName must not be null");
 		this.meetingAt = Objects.requireNonNull(meetingAt, "meetingAt must not be null");
 		this.maxMembers = maxMembers;
 		this.imageFileId = imageFileId;
@@ -108,7 +103,6 @@ public class Meeting {
 		MeetingType type,
 		String title,
 		String content,
-		String placeName,
 		OffsetDateTime meetingAt,
 		int maxMembers,
 		UUID imageFileId,
@@ -120,32 +114,6 @@ public class Meeting {
 			type,
 			title,
 			content,
-			placeName,
-			meetingAt,
-			maxMembers,
-			imageFileId,
-			thumbnailFileId
-		);
-	}
-
-	public static Meeting create(
-		Long pinId,
-		Long hostId,
-		String title,
-		String content,
-		String placeName,
-		OffsetDateTime meetingAt,
-		int maxMembers,
-		UUID imageFileId,
-		UUID thumbnailFileId
-	) {
-		return new Meeting(
-			pinId,
-			hostId,
-			MeetingType.one_time,
-			title,
-			content,
-			placeName,
 			meetingAt,
 			maxMembers,
 			imageFileId,
@@ -197,10 +165,6 @@ public class Meeting {
 
 	public String getContent() {
 		return content;
-	}
-
-	public String getPlaceName() {
-		return placeName;
 	}
 
 	public OffsetDateTime getMeetingAt() {

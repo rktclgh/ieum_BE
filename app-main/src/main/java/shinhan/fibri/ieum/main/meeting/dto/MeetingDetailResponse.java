@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.main.meeting.dto;
 
 import java.time.OffsetDateTime;
+import shinhan.fibri.ieum.main.pin.dto.LocationSnapshot;
 
 public record MeetingDetailResponse(
 	Long meetingId,
@@ -8,7 +9,6 @@ public record MeetingDetailResponse(
 	Long roomId,
 	String title,
 	String content,
-	String placeName,
 	OffsetDateTime meetingAt,
 	String type,
 	boolean active,
@@ -20,7 +20,7 @@ public record MeetingDetailResponse(
 	MeetingHostSummary host,
 	String imageUrl,
 	String thumbnailUrl,
-	MeetingLocation location,
+	LocationSnapshot location,
 	String myStatus,
 	OffsetDateTime createdAt
 ) {
@@ -30,7 +30,6 @@ public record MeetingDetailResponse(
 		Long roomId,
 		String title,
 		String content,
-		String placeName,
 		OffsetDateTime meetingAt,
 		String status,
 		int maxMembers,
@@ -38,7 +37,7 @@ public record MeetingDetailResponse(
 		MeetingHostSummary host,
 		String imageUrl,
 		String thumbnailUrl,
-		MeetingLocation location,
+		LocationSnapshot location,
 		String myStatus,
 		OffsetDateTime createdAt
 	) {
@@ -48,7 +47,6 @@ public record MeetingDetailResponse(
 			roomId,
 			title,
 			content,
-			placeName,
 			meetingAt,
 			"one_time",
 			false,

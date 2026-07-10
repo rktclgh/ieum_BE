@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test;
 class MeetingTest {
 
 	@Test
-	void createInitializesOpenMeetingWithPlaceNameAndFiles() {
+	void createInitializesOpenMeetingWithLocationPinAndFiles() {
 		OffsetDateTime meetingAt = OffsetDateTime.parse("2026-07-10T19:00:00+09:00");
 		UUID imageFileId = UUID.fromString("00000000-0000-0000-0000-000000000001");
 		UUID thumbnailFileId = UUID.fromString("00000000-0000-0000-0000-000000000002");
@@ -18,9 +18,9 @@ class MeetingTest {
 		Meeting meeting = Meeting.create(
 			11L,
 			42L,
+			MeetingType.one_time,
 			"저녁 모임",
 			"같이 밥 먹어요",
-			"동선역 2번 출구",
 			meetingAt,
 			7,
 			imageFileId,
@@ -29,7 +29,6 @@ class MeetingTest {
 
 		assertThat(meeting.getPinId()).isEqualTo(11L);
 		assertThat(meeting.getHostId()).isEqualTo(42L);
-		assertThat(meeting.getPlaceName()).isEqualTo("동선역 2번 출구");
 		assertThat(meeting.getMeetingAt()).isEqualTo(meetingAt);
 		assertThat(meeting.getMaxMembers()).isEqualTo(7);
 		assertThat(meeting.getImageFileId()).isEqualTo(imageFileId);
@@ -75,9 +74,9 @@ class MeetingTest {
 		return Meeting.create(
 			11L,
 			42L,
+			MeetingType.one_time,
 			"저녁 모임",
 			null,
-			"동선역 2번 출구",
 			OffsetDateTime.parse("2026-07-10T19:00:00+09:00"),
 			7,
 			null,

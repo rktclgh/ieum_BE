@@ -1,12 +1,13 @@
 package shinhan.fibri.ieum.main.meeting.dto;
 
 import java.time.OffsetDateTime;
+import shinhan.fibri.ieum.main.pin.dto.LocationSnapshot;
 
 public record MeetingCalendarItem(
 	Long meetingId,
 	Long scheduleId,
 	String title,
-	String placeName,
+	LocationSnapshot location,
 	OffsetDateTime startsAt,
 	OffsetDateTime endsAt,
 	String status,

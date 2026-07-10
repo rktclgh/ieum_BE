@@ -17,4 +17,14 @@ public interface QuestionDetailProjection {
 	String getAuthorNickname();
 
 	UUID getAuthorProfileFileId();
+
+	double getLatitude();
+
+	double getLongitude();
+
+	String getAddress();
+
+	String getDetailAddress();
+
+	String getLabel();
 }

@@ -43,7 +43,6 @@ import shinhan.fibri.ieum.main.meeting.dto.MeetingCalendarResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingDetailRecurrenceRuleResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingDetailResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingHostSummary;
-import shinhan.fibri.ieum.main.meeting.dto.MeetingLocation;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingParticipantItem;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingParticipantsResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingScheduleItem;
@@ -67,6 +66,7 @@ import shinhan.fibri.ieum.main.meeting.repository.MeetingRecurrenceRuleRepositor
 import shinhan.fibri.ieum.main.meeting.repository.MeetingRepository;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingScheduleRepository;
 import shinhan.fibri.ieum.main.pin.domain.PinType;
+import shinhan.fibri.ieum.main.pin.dto.LocationSnapshot;
 import shinhan.fibri.ieum.main.pin.repository.PinWriter;
 import shinhan.fibri.ieum.main.notification.presence.MeetingCreatedEvent;
 
@@ -95,14 +95,13 @@ public class MeetingService {
 		validateRecurrenceRule(request);
 		OffsetDateTime meetingAtCache = initialMeetingAtCache(request);
 		UUID imageFileId = validateImage(request.imageFileId(), principal.userId());
-		Long pinId = pinWriter.create(principal.userId(), PinType.meeting, request.lat(), request.lng());
+		Long pinId = pinWriter.create(principal.userId(), PinType.meeting, request.location());
 		Meeting meeting = meetingRepository.save(Meeting.create(
 			pinId,
 			principal.userId(),
 			request.type(),
 			request.title(),
 			request.content(),
-			request.placeName(),
 			meetingAtCache,
 			request.maxMembers(),
 			imageFileId,
@@ -121,7 +120,9 @@ public class MeetingService {
 		}
 		participantRepository.save(MeetingParticipant.join(meeting.getId(), principal.userId(), OffsetDateTime.now()));
 		Long roomId = chatRoomLifecycle.createGroupRoom(meeting.getId(), principal.userId());
-		eventPublisher.publishEvent(new MeetingCreatedEvent(meeting.getId(), principal.userId(), meeting.getTitle(), request.lat(), request.lng()));
+		eventPublisher.publishEvent(new MeetingCreatedEvent(
+			meeting.getId(), principal.userId(), meeting.getTitle(), request.location().lat(), request.location().lng()
+		));
 		return new CreateMeetingResponse(meeting.getId(), pinId, roomId, firstSchedule.getId());
 	}
 
@@ -149,7 +150,6 @@ public class MeetingService {
 			detail.getRoomId(),
 			detail.getTitle(),
 			detail.getContent(),
-			detail.getPlaceName(),
 			detail.getMeetingAt().atZone(RESPONSE_ZONE).toOffsetDateTime(),
 			detail.getType(),
 			"open".equals(detail.getStatus()) && nextSchedule.isPresent(),
@@ -165,7 +165,9 @@ public class MeetingService {
 			),
 			fileUrl(detail.getImageFileId(), "display"),
 			fileUrl(detail.getThumbnailFileId(), "thumb"),
-			new MeetingLocation(detail.getLatitude(), detail.getLongitude()),
+			new LocationSnapshot(
+				detail.getLatitude(), detail.getLongitude(), detail.getAddress(), detail.getDetailAddress(), detail.getLabel()
+			),
 			myStatus(principal.userId(), detail, participant),
 			detail.getCreatedAt().atZone(RESPONSE_ZONE).toOffsetDateTime()
 		);
@@ -692,7 +694,9 @@ public class MeetingService {
 			row.getMeetingId(),
 			row.getScheduleId(),
 			row.getTitle(),
-			row.getPlaceName(),
+			new LocationSnapshot(
+				row.getLatitude(), row.getLongitude(), row.getAddress(), row.getDetailAddress(), row.getLabel()
+			),
 			toResponseTime(row.getStartsAt()),
 			toResponseTime(row.getEndsAt()),
 			row.getStatus(),

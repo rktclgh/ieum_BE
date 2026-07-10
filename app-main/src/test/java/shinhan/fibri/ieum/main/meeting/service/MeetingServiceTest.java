@@ -66,6 +66,7 @@ import shinhan.fibri.ieum.main.meeting.repository.MeetingRecurrenceRuleRepositor
 import shinhan.fibri.ieum.main.meeting.repository.MeetingRepository;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingScheduleRepository;
 import shinhan.fibri.ieum.main.pin.domain.PinType;
+import shinhan.fibri.ieum.main.pin.dto.LocationSnapshot;
 import shinhan.fibri.ieum.main.pin.repository.PinWriter;
 import shinhan.fibri.ieum.main.notification.presence.MeetingCreatedEvent;
 
@@ -95,7 +96,7 @@ class MeetingServiceTest {
 		UUID imageFileId = UUID.fromString("00000000-0000-0000-0000-000000000001");
 		when(fileRepository.findByFileIdAndUploaderId(imageFileId, 42L))
 			.thenReturn(Optional.of(uploadedFile(imageFileId, 42L, "image/jpeg")));
-		when(pinWriter.create(42L, PinType.meeting, 37.5, 127.0)).thenReturn(11L);
+		when(pinWriter.create(eq(42L), eq(PinType.meeting), any(LocationSnapshot.class))).thenReturn(11L);
 		when(meetingRepository.save(any(Meeting.class))).thenAnswer(invocation -> {
 			Meeting meeting = invocation.getArgument(0);
 			setField(meeting, "id", 3L);
@@ -116,7 +117,11 @@ class MeetingServiceTest {
 		assertThat(response.firstScheduleId()).isEqualTo(31L);
 		verify(eventPublisher).publishEvent(new MeetingCreatedEvent(3L, 42L, "저녁 모임", 37.5, 127.0));
 		InOrder order = inOrder(pinWriter, meetingRepository, meetingScheduleRepository, participantRepository, chatRoomLifecycle);
-		order.verify(pinWriter).create(42L, PinType.meeting, 37.5, 127.0);
+		order.verify(pinWriter).create(
+			42L,
+			PinType.meeting,
+			new LocationSnapshot(37.5, 127.0, "서울특별시 강남구 테헤란로 123", "2번 출구 앞", "동선역 2번 출구")
+		);
 		order.verify(meetingRepository).save(any(Meeting.class));
 		order.verify(meetingScheduleRepository).save(any(MeetingSchedule.class));
 		order.verify(participantRepository).save(any(MeetingParticipant.class));
@@ -176,7 +181,7 @@ class MeetingServiceTest {
 
 	@Test
 	void createRecurringMeetingStoresRuleAndInitialSchedules() {
-		when(pinWriter.create(42L, PinType.meeting, 37.5, 127.0)).thenReturn(11L);
+		when(pinWriter.create(eq(42L), eq(PinType.meeting), any(LocationSnapshot.class))).thenReturn(11L);
 		when(meetingRepository.save(any(Meeting.class))).thenAnswer(invocation -> {
 			Meeting meeting = invocation.getArgument(0);
 			setField(meeting, "id", 3L);
@@ -217,7 +222,7 @@ class MeetingServiceTest {
 
 	@Test
 	void createRecurringMonthlyMeetingAnchorsIntervalAtFirstActualOccurrence() {
-		when(pinWriter.create(42L, PinType.meeting, 37.5, 127.0)).thenReturn(11L);
+		when(pinWriter.create(eq(42L), eq(PinType.meeting), any(LocationSnapshot.class))).thenReturn(11L);
 		when(meetingRepository.save(any(Meeting.class))).thenAnswer(invocation -> {
 			Meeting meeting = invocation.getArgument(0);
 			setField(meeting, "id", 3L);
@@ -256,7 +261,7 @@ class MeetingServiceTest {
 
 	@Test
 	void createRecurringWeeklyMeetingUsesCalendarWeekBoundariesForInterval() {
-		when(pinWriter.create(42L, PinType.meeting, 37.5, 127.0)).thenReturn(11L);
+		when(pinWriter.create(eq(42L), eq(PinType.meeting), any(LocationSnapshot.class))).thenReturn(11L);
 		when(meetingRepository.save(any(Meeting.class))).thenAnswer(invocation -> {
 			Meeting meeting = invocation.getArgument(0);
 			setField(meeting, "id", 3L);
@@ -295,7 +300,7 @@ class MeetingServiceTest {
 
 	@Test
 	void createRecurringMeetingCachesFirstGeneratedScheduleStart() {
-		when(pinWriter.create(42L, PinType.meeting, 37.5, 127.0)).thenReturn(11L);
+		when(pinWriter.create(eq(42L), eq(PinType.meeting), any(LocationSnapshot.class))).thenReturn(11L);
 		when(meetingRepository.save(any(Meeting.class))).thenAnswer(invocation -> {
 			Meeting meeting = invocation.getArgument(0);
 			setField(meeting, "id", 3L);
@@ -411,7 +416,8 @@ class MeetingServiceTest {
 		assertThat(response.roomId()).isEqualTo(9L);
 		assertThat(response.title()).isEqualTo("저녁 모임");
 		assertThat(response.content()).isEqualTo("같이 밥 먹어요");
-		assertThat(response.placeName()).isEqualTo("동선역 2번 출구");
+		assertThat(response.location().address()).isEqualTo("서울특별시 강남구 테헤란로 123");
+		assertThat(response.location().label()).isEqualTo("동선역 2번 출구");
 		assertThat(response.meetingAt()).isEqualTo(meetingAt);
 		assertThat(response.type()).isEqualTo("recurring");
 		assertThat(response.active()).isTrue();
@@ -489,9 +495,9 @@ class MeetingServiceTest {
 		Meeting meeting = Meeting.create(
 			11L,
 			1L,
+			MeetingType.one_time,
 			"저녁 모임",
 			"같이 밥 먹어요",
-			"동선역 2번 출구",
 			OffsetDateTime.parse("2026-07-10T19:00:00+09:00"),
 			7,
 			null,
@@ -1120,15 +1126,13 @@ class MeetingServiceTest {
 			"저녁 모임",
 			"같이 밥 먹어요",
 			type,
-			"동선역 2번 출구",
+			new LocationSnapshot(37.5, 127.0, "서울특별시 강남구 테헤란로 123", "2번 출구 앞", "동선역 2번 출구"),
 			new CreateMeetingScheduleRequest(
 				startsAt,
 				null
 			),
 			recurrenceRule,
 			7,
-			37.5,
-			127.0,
 			imageFileId
 		);
 	}
@@ -1162,7 +1166,6 @@ class MeetingServiceTest {
 			type,
 			"저녁 모임",
 			"같이 밥 먹어요",
-			"동선역 2번 출구",
 			meetingAt,
 			maxMembers,
 			null,
@@ -1210,11 +1213,6 @@ class MeetingServiceTest {
 			@Override
 			public String getContent() {
 				return "같이 밥 먹어요";
-			}
-
-			@Override
-			public String getPlaceName() {
-				return "동선역 2번 출구";
 			}
 
 			@Override
@@ -1273,6 +1271,21 @@ class MeetingServiceTest {
 			}
 
 			@Override
+			public String getAddress() {
+				return "서울특별시 강남구 테헤란로 123";
+			}
+
+			@Override
+			public String getDetailAddress() {
+				return "2번 출구 앞";
+			}
+
+			@Override
+			public String getLabel() {
+				return "동선역 2번 출구";
+			}
+
+			@Override
 			public Instant getCreatedAt() {
 				return createdAt.toInstant();
 			}
@@ -1326,10 +1339,29 @@ class MeetingServiceTest {
 			}
 
 			@Override
-			public String getPlaceName() {
-				return "동선역 2번 출구";
+			public double getLatitude() {
+				return 37.5;
 			}
 
+			@Override
+			public double getLongitude() {
+				return 127.0;
+			}
+
+			@Override
+			public String getAddress() {
+				return "서울특별시 강남구 테헤란로 123";
+			}
+
+			@Override
+			public String getDetailAddress() {
+				return "2번 출구 앞";
+			}
+
+			@Override
+			public String getLabel() {
+				return "동선역 2번 출구";
+			}
 			@Override
 			public Instant getStartsAt() {
 				return OffsetDateTime.parse("2099-07-10T19:00:00+09:00").toInstant();

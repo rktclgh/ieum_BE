@@ -10,7 +10,16 @@ public interface MeetingCalendarProjection {
 
 	String getTitle();
 
-	String getPlaceName();
+
+	double getLatitude();
+
+	double getLongitude();
+
+	String getAddress();
+
+	String getDetailAddress();
+
+	String getLabel();
 
 	Instant getStartsAt();
 

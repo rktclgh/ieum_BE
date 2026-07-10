@@ -38,6 +38,7 @@ import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
 import shinhan.fibri.ieum.main.pin.exception.InvalidPinRequestException;
+import shinhan.fibri.ieum.main.pin.dto.LocationSnapshot;
 import shinhan.fibri.ieum.main.question.dto.AnswerItem;
 import shinhan.fibri.ieum.main.question.dto.AuthorSummary;
 import shinhan.fibri.ieum.main.question.dto.CursorPage;
@@ -93,7 +94,8 @@ class QuestionControllerTest {
 		mockMvc.perform(get("/api/v1/questions/200").with(authenticated()))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.title", is("title")))
-			.andExpect(jsonPath("$.author.nickname", is("nickname")));
+			.andExpect(jsonPath("$.author.nickname", is("nickname")))
+			.andExpect(jsonPath("$.location.address", is("서울특별시 강남구")));
 	}
 
 	@Test
@@ -188,6 +190,7 @@ class QuestionControllerTest {
 			"content",
 			false,
 			new AuthorSummary(42L, "nickname", null),
+			new LocationSnapshot(37.4979, 127.0276, "서울특별시 강남구", "", "강남역"),
 			List.of("/api/v1/files/00000000-0000-0000-0000-000000000001?v=display"),
 			List.<AnswerItem>of()
 		);

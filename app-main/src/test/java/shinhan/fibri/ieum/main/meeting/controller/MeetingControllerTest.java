@@ -44,7 +44,6 @@ import shinhan.fibri.ieum.main.meeting.dto.MeetingCalendarResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingDetailRecurrenceRuleResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingDetailResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingHostSummary;
-import shinhan.fibri.ieum.main.meeting.dto.MeetingLocation;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingParticipantItem;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingParticipantsResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingScheduleItem;
@@ -62,6 +61,7 @@ import shinhan.fibri.ieum.main.meeting.exception.ScheduleAlreadyExistsException;
 import shinhan.fibri.ieum.main.meeting.exception.ScheduleNotCancellableException;
 import shinhan.fibri.ieum.main.meeting.exception.ScheduleNotFoundException;
 import shinhan.fibri.ieum.main.meeting.service.MeetingService;
+import shinhan.fibri.ieum.main.pin.dto.LocationSnapshot;
 
 @WebMvcTest(MeetingController.class)
 @AutoConfigureMockMvc(addFilters = false)
@@ -91,11 +91,15 @@ class MeetingControllerTest {
 					  "title": "저녁 모임",
 					  "content": "같이 밥 먹어요",
 					  "type": "one_time",
-					  "placeName": "동선역 2번 출구",
-					  "schedule": { "startsAt": "2026-07-10T19:00:00+09:00" },
+					  "location": {
+					    "lat": 37.5,
+					    "lng": 127.0,
+					    "address": "서울특별시 강남구 테헤란로 123",
+					    "detailAddress": "2번 출구 앞",
+					    "label": "동선역 2번 출구"
+					  },
+					  "schedule": { "startsAt": "2099-07-10T19:00:00+09:00" },
 					  "maxMembers": 7,
-					  "lat": 37.5,
-					  "lng": 127.0,
 					  "imageFileId": "00000000-0000-0000-0000-000000000001"
 					}
 					""")
@@ -118,7 +122,7 @@ class MeetingControllerTest {
 				.with(authenticated()))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
-			.andExpect(jsonPath("$.fieldErrors[0].field", is("lat")));
+			.andExpect(jsonPath("$.fieldErrors[0].field", is("location")));
 	}
 
 	@Test
@@ -132,11 +136,15 @@ class MeetingControllerTest {
 					{
 					  "title": "저녁 모임",
 					  "type": "one_time",
-					  "placeName": "동선역 2번 출구",
-					  "schedule": { "startsAt": "2026-07-10T19:00:00+09:00" },
+					  "location": {
+					    "lat": 37.5,
+					    "lng": 127.0,
+					    "address": "서울특별시 강남구 테헤란로 123",
+					    "detailAddress": "2번 출구 앞",
+					    "label": "동선역 2번 출구"
+					  },
+					  "schedule": { "startsAt": "2099-07-10T19:00:00+09:00" },
 					  "maxMembers": 7,
-					  "lat": 37.5,
-					  "lng": 127.0,
 					  "imageFileId": "00000000-0000-0000-0000-000000000001"
 					}
 					""")
@@ -155,7 +163,6 @@ class MeetingControllerTest {
 				9L,
 				"저녁 모임",
 				"같이 밥 먹어요",
-				"동선역 2번 출구",
 				OffsetDateTime.parse("2026-07-10T19:00:00+09:00"),
 				"recurring",
 				true,
@@ -181,7 +188,7 @@ class MeetingControllerTest {
 				new MeetingHostSummary(1L, "오이정", "/api/v1/files/11111111-1111-1111-1111-111111111111"),
 				"/api/v1/files/22222222-2222-2222-2222-222222222222?v=display",
 				"/api/v1/files/22222222-2222-2222-2222-222222222222?v=thumb",
-				new MeetingLocation(37.5, 127.0),
+				new LocationSnapshot(37.5, 127.0, "서울특별시 강남구 테헤란로 123", "2번 출구 앞", "동선역 2번 출구"),
 				"joined",
 				OffsetDateTime.parse("2026-07-09T10:00:00+09:00")
 			));
@@ -193,7 +200,6 @@ class MeetingControllerTest {
 			.andExpect(jsonPath("$.pinId", is(11)))
 			.andExpect(jsonPath("$.roomId", is(9)))
 			.andExpect(jsonPath("$.title", is("저녁 모임")))
-			.andExpect(jsonPath("$.placeName", is("동선역 2번 출구")))
 			.andExpect(jsonPath("$.type", is("recurring")))
 			.andExpect(jsonPath("$.active", is(true)))
 			.andExpect(jsonPath("$.nextSchedule.scheduleId", is(32)))
@@ -208,6 +214,7 @@ class MeetingControllerTest {
 			.andExpect(jsonPath("$.thumbnailUrl", is("/api/v1/files/22222222-2222-2222-2222-222222222222?v=thumb")))
 			.andExpect(jsonPath("$.location.lat", is(37.5)))
 			.andExpect(jsonPath("$.location.lng", is(127.0)))
+			.andExpect(jsonPath("$.location.address", is("서울특별시 강남구 테헤란로 123")))
 			.andExpect(jsonPath("$.myStatus", is("joined")));
 	}
 
@@ -312,7 +319,7 @@ class MeetingControllerTest {
 					3L,
 					31L,
 					"저녁 모임",
-					"동선역 2번 출구",
+					new LocationSnapshot(37.5, 127.0, "서울특별시 강남구 테헤란로 123", "2번 출구 앞", "동선역 2번 출구"),
 					OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
 					OffsetDateTime.parse("2099-07-10T20:00:00+09:00"),
 					"scheduled",
