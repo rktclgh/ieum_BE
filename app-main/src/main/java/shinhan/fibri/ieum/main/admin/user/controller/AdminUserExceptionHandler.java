@@ -4,7 +4,6 @@ import java.util.Comparator;
 import java.util.List;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.BindException;
@@ -53,8 +52,8 @@ public class AdminUserExceptionHandler {
 			.body(new AuthErrorResponse("CANNOT_SANCTION_ADMIN", exception.getMessage()));
 	}
 
-	@ExceptionHandler({SanctionAlreadyActiveException.class, DataIntegrityViolationException.class})
-	public ResponseEntity<AuthErrorResponse> handleSanctionAlreadyActive(RuntimeException exception) {
+	@ExceptionHandler(SanctionAlreadyActiveException.class)
+	public ResponseEntity<AuthErrorResponse> handleSanctionAlreadyActive(SanctionAlreadyActiveException exception) {
 		return ResponseEntity.status(HttpStatus.CONFLICT)
 			.body(new AuthErrorResponse("SANCTION_ALREADY_ACTIVE", "User already has an active sanction"));
 	}
