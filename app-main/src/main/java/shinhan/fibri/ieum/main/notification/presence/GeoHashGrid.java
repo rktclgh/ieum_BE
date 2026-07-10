@@ -15,14 +15,18 @@ final class GeoHashGrid {
 
 	static String encode(double latitude, double longitude) {
 		Cell cell = cell(latitude, longitude);
+		return encodeCell(cell.longitudeCell(), cell.latitudeCell());
+	}
+
+	private static String encodeCell(int longitudeCell, int latitudeCell) {
 		StringBuilder key = new StringBuilder(PRECISION);
 		int bits = 0;
 		int value = 0;
 		for (int bit = 12; bit >= 0; bit--) {
-			value = (value << 1) | ((cell.longitudeCell() >> bit) & 1);
+			value = (value << 1) | ((longitudeCell >> bit) & 1);
 			if (++bits == 5) { key.append(BASE32[value]); bits = 0; value = 0; }
 			if (bit > 0) {
-				value = (value << 1) | ((cell.latitudeCell() >> (bit - 1)) & 1);
+				value = (value << 1) | ((latitudeCell >> (bit - 1)) & 1);
 				if (++bits == 5) { key.append(BASE32[value]); bits = 0; value = 0; }
 			}
 		}
@@ -55,7 +59,7 @@ final class GeoHashGrid {
 	}
 
 	private static String encode(int longitudeCell, int latitudeCell) {
-		return encode(-90 + (latitudeCell + .5) * 180 / LATITUDE_CELLS, -180 + (longitudeCell + .5) * 360 / LONGITUDE_CELLS);
+		return encodeCell(longitudeCell, latitudeCell);
 	}
 
 	private record Cell(int longitudeCell, int latitudeCell) {

@@ -36,4 +36,16 @@ class PresenceRegistryTest {
 
 		assertThat(registry.nearbyUserIds(37.5665, 126.9780, 3)).isEqualTo(Set.of(1L, 2L));
 	}
+
+	@Test
+	void exposesOnlineUserIdsForFullScanFallback() {
+		PresenceSeedRepository repository = mock(PresenceSeedRepository.class);
+		PresenceRegistry registry = new PresenceRegistry(repository);
+		when(repository.findSeedByUserId(1L)).thenReturn(Optional.of(new PresenceSeed(null, null, true, true, true, 5)));
+		when(repository.findSeedByUserId(2L)).thenReturn(Optional.of(new PresenceSeed(null, null, true, true, true, 5)));
+		registry.seedOnConnect(1L);
+		registry.seedOnConnect(2L);
+
+		assertThat(registry.allUserIds()).containsExactlyInAnyOrder(1L, 2L);
+	}
 }

@@ -18,7 +18,7 @@ public class HybridOnlineAudienceResolver implements OnlineAudienceResolver {
 	public List<Long> resolve(double latitude, double longitude, NotificationCategory category, Long authorId, Set<Long> blockedUserIds) {
 		Set<Long> candidateIds = inKoreaFastPath(latitude, longitude)
 			? presenceRegistry.nearbyUserIds(latitude, longitude, NEIGHBOR_RINGS)
-			: presenceRegistry.snapshots().keySet();
+			: presenceRegistry.allUserIds();
 		return candidateIds.stream()
 			.flatMap(userId -> presenceRegistry.findByUserId(userId)
 				.map(snapshot -> java.util.Map.entry(userId, snapshot))
@@ -34,7 +34,13 @@ public class HybridOnlineAudienceResolver implements OnlineAudienceResolver {
 	}
 
 	private boolean enabled(PresenceSnapshot snapshot, NotificationCategory category) {
-		return snapshot.notifyAllEnabled() && (category == NotificationCategory.question ? snapshot.notifyQuestion() : snapshot.notifyMeeting());
+		if (!snapshot.notifyAllEnabled()) {
+			return false;
+		}
+		return switch (category) {
+			case question -> snapshot.notifyQuestion();
+			case meeting -> snapshot.notifyMeeting();
+		};
 	}
 
 	private double distance(double latitude, double longitude, PresenceSnapshot snapshot) {

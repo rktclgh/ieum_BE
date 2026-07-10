@@ -1,7 +1,6 @@
 package shinhan.fibri.ieum.main.notification.presence;
 
 import java.util.Optional;
-import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.stereotype.Component;
@@ -53,8 +52,8 @@ public class PresenceRegistry {
 		return Optional.ofNullable(snapshots.get(userId));
 	}
 
-	public Map<Long, PresenceSnapshot> snapshots() {
-		return Map.copyOf(snapshots);
+	public Set<Long> allUserIds() {
+		return snapshots.keySet();
 	}
 
 	public Set<Long> nearbyUserIds(double latitude, double longitude, int rings) {
