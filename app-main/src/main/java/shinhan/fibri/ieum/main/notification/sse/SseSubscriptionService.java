@@ -30,7 +30,12 @@ public class SseSubscriptionService {
 			throw new SseInitialFrameWriteException(exception);
 		}
 		if (registry.register(session.principal().userId(), session.sessionId(), emitter)) {
-			presenceRegistry.seedOnConnect(session.principal().userId());
+			try {
+				presenceRegistry.seedOnConnect(session.principal().userId());
+			} catch (RuntimeException exception) {
+				registry.closeEmitter(session.principal().userId(), session.sessionId(), emitter);
+				throw exception;
+			}
 		}
 		return emitter;
 	}

@@ -128,6 +128,18 @@ public class SseConnectionRegistry {
 		}
 	}
 
+	public void closeEmitter(Long userId, String sessionId, SseEmitter emitter) {
+		UserConnections connections = connectionsByUser.get(userId);
+		if (connections == null) {
+			return;
+		}
+		for (Connection connection : connections.snapshot()) {
+			if (connection.matches(sessionId, emitter)) {
+				connection.close();
+			}
+		}
+	}
+
 	public void closeUser(Long userId) {
 		UserConnections connections = connectionsByUser.get(userId);
 		if (connections == null) {
@@ -231,6 +243,12 @@ public class SseConnectionRegistry {
 
 		private void close() {
 			state.close();
+		}
+
+		private boolean matches(String sessionId, SseEmitter target) {
+			return this.sessionId.equals(sessionId)
+				&& emitter instanceof SpringSseEmitterConnection springEmitter
+				&& springEmitter.wraps(target);
 		}
 	}
 

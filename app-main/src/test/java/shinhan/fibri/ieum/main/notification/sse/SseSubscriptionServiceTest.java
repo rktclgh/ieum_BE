@@ -73,6 +73,23 @@ class SseSubscriptionServiceTest {
 	}
 
 	@Test
+	void removesOnlyRegisteredEmitterWhenPresenceSeedFails() {
+		SseEmitter emitter = mock(SseEmitter.class);
+		when(sessionTokenValidator.validateSession("access-token"))
+			.thenReturn(Optional.of(validatedSession()));
+		when(emitterFactory.create(1_800_000L)).thenReturn(emitter);
+		when(registry.register(42L, "sid-1", emitter)).thenReturn(true);
+		doThrow(new IllegalStateException("presence unavailable"))
+			.when(presenceRegistry).seedOnConnect(42L);
+
+		assertThatThrownBy(() -> service.subscribe("access-token"))
+			.isInstanceOf(IllegalStateException.class)
+			.hasMessage("presence unavailable");
+
+		verify(registry).closeEmitter(42L, "sid-1", emitter);
+	}
+
+	@Test
 	void rejectsMissingOrInvalidAccessTokenBeforeCreatingEmitter() {
 		when(sessionTokenValidator.validateSession("invalid-token")).thenReturn(Optional.empty());
 

@@ -46,4 +46,8 @@ final class SpringSseEmitterConnection implements SseEmitterConnection {
 	public void onError(Consumer<Throwable> callback) {
 		emitter.onError(callback);
 	}
+
+	boolean wraps(SseEmitter target) {
+		return emitter == target;
+	}
 }
