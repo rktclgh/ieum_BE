@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.main.admin.user.service;
 
 import java.time.OffsetDateTime;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -82,18 +83,20 @@ public class AdminSanctionService {
 	}
 
 	@Transactional
-	public void releaseExpiredSanction(Long sanctionId) {
+	public void releaseExpiredSanction(Long sanctionId, Long userId) {
+		// user 락을 sanction 락보다 먼저 잡는다 — sanction()/activate()와 락 순서를 통일해
+		// 만료 시점에 관리자의 activate 호출과 겹쳐도 AB-BA 데드락이 나지 않게 한다.
+		Optional<User> target = userRepository.findByIdForUpdate(userId);
 		UserSanction sanction = userSanctionRepository.findByIdForUpdate(sanctionId).orElse(null);
 		if (sanction == null || !sanction.isActive()) {
 			return;
 		}
 		sanction.release(OffsetDateTime.now(), null);
-		userRepository.findByIdForUpdate(sanction.getUserId())
-			.ifPresentOrElse(User::activate, () -> log.warn(
-				"Expired sanction released but user was not found: userId={}, sanctionId={}",
-				sanction.getUserId(),
-				sanctionId
-			));
+		target.ifPresentOrElse(User::activate, () -> log.warn(
+			"Expired sanction released but user was not found: userId={}, sanctionId={}",
+			userId,
+			sanctionId
+		));
 	}
 
 	private void validateRequest(CreateSanctionRequest request) {

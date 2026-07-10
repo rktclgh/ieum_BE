@@ -23,12 +23,12 @@ public interface UserSanctionRepository extends JpaRepository<UserSanction, Long
 	Optional<UserSanction> findByIdForUpdate(@Param("sanctionId") Long sanctionId);
 
 	@Query("""
-		select sanction.id
+		select new shinhan.fibri.ieum.main.admin.user.repository.ExpiredSanctionRef(sanction.id, sanction.userId)
 		from UserSanction sanction
 		where sanction.releasedAt is null
 		  and sanction.type = shinhan.fibri.ieum.main.admin.user.domain.SanctionType.temporary
 		  and sanction.endsAt <= :now
 		order by sanction.endsAt asc, sanction.id asc
 		""")
-	List<Long> findExpiredTemporaryActiveIds(@Param("now") OffsetDateTime now);
+	List<ExpiredSanctionRef> findExpiredTemporarySanctions(@Param("now") OffsetDateTime now);
 }
