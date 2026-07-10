@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -18,6 +19,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Pageable;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -33,6 +35,7 @@ import shinhan.fibri.ieum.common.file.domain.File;
 import shinhan.fibri.ieum.common.file.repository.FileRepository;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
 import shinhan.fibri.ieum.main.friend.service.FriendService;
+import shinhan.fibri.ieum.main.notification.sse.SseConnectionRegistry;
 import shinhan.fibri.ieum.main.user.dto.ProfileImageResponse;
 import shinhan.fibri.ieum.main.user.dto.PublicUserProfileResponse;
 import shinhan.fibri.ieum.main.user.dto.UpdateProfileImageRequest;
@@ -54,6 +57,7 @@ class UserServiceTest {
 	private final FileRepository fileRepository = mock(FileRepository.class);
 	private final ProfileFileCleanupService profileFileCleanupService = mock(ProfileFileCleanupService.class);
 	private final FriendService friendService = mock(FriendService.class);
+	private final SseConnectionRegistry sseConnectionRegistry = mock(SseConnectionRegistry.class);
 	private final UserService service = new UserService(
 		userRepository,
 		userSettingsRepository,
@@ -61,7 +65,8 @@ class UserServiceTest {
 		sessionStore,
 		fileRepository,
 		profileFileCleanupService,
-		friendService
+		friendService,
+		sseConnectionRegistry
 	);
 
 	@Test
@@ -293,15 +298,27 @@ class UserServiceTest {
 	}
 
 	@Test
-	void withdrawSoftDeletesUserAndRevokesSessions() {
+	void withdrawSoftDeletesUserAndRevokesSessionsBeforeClosingAllSseConnections() {
 		User user = user();
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user));
 
-		service.withdraw(principal());
+		TransactionSynchronizationManager.initSynchronization();
+		try {
+			service.withdraw(principal());
 
-		assertThat(user.getDeletedAt()).isNotNull();
-		verify(userRepository, never()).delete(user);
-		verify(sessionStore).revokeAllSessionsOfUser(42L);
+			assertThat(user.getDeletedAt()).isNotNull();
+			verify(userRepository, never()).delete(user);
+			verify(sessionStore, never()).revokeAllSessionsOfUser(42L);
+
+			TransactionSynchronizationManager.getSynchronizations()
+				.forEach(TransactionSynchronization::afterCommit);
+		} finally {
+			TransactionSynchronizationManager.clearSynchronization();
+		}
+
+		InOrder order = inOrder(sessionStore, sseConnectionRegistry);
+		order.verify(sessionStore).revokeAllSessionsOfUser(42L);
+		order.verify(sseConnectionRegistry).closeUser(42L);
 	}
 
 	@Test
@@ -316,6 +333,7 @@ class UserServiceTest {
 
 		assertThat(user.getDeletedAt()).isNotNull();
 		verify(sessionStore).revokeAllSessionsOfUser(42L);
+		verify(sseConnectionRegistry, never()).closeUser(42L);
 	}
 
 	@Test

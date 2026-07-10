@@ -25,6 +25,7 @@ import shinhan.fibri.ieum.common.file.repository.FileRepository;
 import shinhan.fibri.ieum.common.auth.validation.AuthValidationRules;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
 import shinhan.fibri.ieum.main.friend.service.FriendService;
+import shinhan.fibri.ieum.main.notification.sse.SseConnectionRegistry;
 import shinhan.fibri.ieum.main.user.dto.ProfileImageResponse;
 import shinhan.fibri.ieum.main.user.dto.PublicUserProfileResponse;
 import shinhan.fibri.ieum.main.user.dto.UpdateProfileImageRequest;
@@ -52,6 +53,7 @@ public class UserService {
 	private final FileRepository fileRepository;
 	private final ProfileFileCleanupService profileFileCleanupService;
 	private final FriendService friendService;
+	private final SseConnectionRegistry sseConnectionRegistry;
 
 	@Transactional
 	public UserMeResponse getMe(AuthenticatedUser principal) {
@@ -150,7 +152,7 @@ public class UserService {
 	public void withdraw(AuthenticatedUser principal) {
 		User user = findActiveUser(principal.userId());
 		user.markDeleted(OffsetDateTime.now());
-		revokeSessionsAfterCommit(user.getId());
+		revokeSessionsAndCloseSseAfterCommit(user.getId());
 	}
 
 	@Transactional(readOnly = true)
@@ -256,25 +258,26 @@ public class UserService {
 		}
 	}
 
-	private void revokeSessionsAfterCommit(Long userId) {
+	private void revokeSessionsAndCloseSseAfterCommit(Long userId) {
 		if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-			revokeSessionsLogOnly(userId);
+			revokeSessionsAndCloseSse(userId);
 			return;
 		}
 
 		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
 			@Override
 			public void afterCommit() {
-				revokeSessionsLogOnly(userId);
+				revokeSessionsAndCloseSse(userId);
 			}
 		});
 	}
 
-	private void revokeSessionsLogOnly(Long userId) {
+	private void revokeSessionsAndCloseSse(Long userId) {
 		try {
 			sessionStore.revokeAllSessionsOfUser(userId);
+			sseConnectionRegistry.closeUser(userId);
 		} catch (RuntimeException exception) {
-			log.warn("Failed to revoke sessions after user withdrawal. userId={}", userId, exception);
+			log.warn("Failed to revoke sessions or close SSE after user withdrawal. userId={}", userId, exception);
 		}
 	}
 }

@@ -3,6 +3,7 @@ package shinhan.fibri.ieum.main.auth.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -10,6 +11,7 @@ import static org.mockito.Mockito.when;
 import java.time.OffsetDateTime;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.main.auth.exception.InvalidRefreshTokenException;
@@ -19,6 +21,7 @@ import shinhan.fibri.ieum.main.auth.session.AuthSession;
 import shinhan.fibri.ieum.main.auth.session.OpaqueTokenGenerator;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
 import shinhan.fibri.ieum.main.auth.session.Sha256TokenHasher;
+import shinhan.fibri.ieum.main.notification.sse.SseConnectionRegistry;
 
 class RefreshServiceTest {
 
@@ -28,11 +31,13 @@ class RefreshServiceTest {
 		Sha256TokenHasher tokenHasher = mock(Sha256TokenHasher.class);
 		OpaqueTokenGenerator tokenGenerator = mock(OpaqueTokenGenerator.class);
 		AccessTokenIssuer accessTokenIssuer = mock(AccessTokenIssuer.class);
+		SseConnectionRegistry registry = mock(SseConnectionRegistry.class);
 		RefreshService service = new RefreshService(
 			sessionStore,
 			tokenHasher,
 			tokenGenerator,
-			accessTokenIssuer
+			accessTokenIssuer,
+			registry
 		);
 		AuthSession session = new AuthSession(
 			"sid-1",
@@ -66,11 +71,13 @@ class RefreshServiceTest {
 		Sha256TokenHasher tokenHasher = mock(Sha256TokenHasher.class);
 		OpaqueTokenGenerator tokenGenerator = mock(OpaqueTokenGenerator.class);
 		AccessTokenIssuer accessTokenIssuer = mock(AccessTokenIssuer.class);
+		SseConnectionRegistry registry = mock(SseConnectionRegistry.class);
 		RefreshService service = new RefreshService(
 			sessionStore,
 			tokenHasher,
 			tokenGenerator,
-			accessTokenIssuer
+			accessTokenIssuer,
+			registry
 		);
 		AuthSession session = new AuthSession(
 			"sid-1",
@@ -96,11 +103,13 @@ class RefreshServiceTest {
 		Sha256TokenHasher tokenHasher = mock(Sha256TokenHasher.class);
 		OpaqueTokenGenerator tokenGenerator = mock(OpaqueTokenGenerator.class);
 		AccessTokenIssuer accessTokenIssuer = mock(AccessTokenIssuer.class);
+		SseConnectionRegistry registry = mock(SseConnectionRegistry.class);
 		RefreshService service = new RefreshService(
 			sessionStore,
 			tokenHasher,
 			tokenGenerator,
-			accessTokenIssuer
+			accessTokenIssuer,
+			registry
 		);
 		AuthSession session = new AuthSession(
 			"sid-1",
@@ -117,7 +126,9 @@ class RefreshServiceTest {
 
 		assertThatThrownBy(() -> service.refresh("previous-refresh-token"))
 			.isInstanceOf(RefreshTokenReusedException.class);
-		verify(sessionStore).revokeAllSessionsOfUser(42L);
+		InOrder order = inOrder(sessionStore, registry);
+		order.verify(sessionStore).revokeAllSessionsOfUser(42L);
+		order.verify(registry).closeUser(42L);
 		verify(sessionStore, never()).rotateRefreshToken(session, "new-refresh-hash");
 	}
 }

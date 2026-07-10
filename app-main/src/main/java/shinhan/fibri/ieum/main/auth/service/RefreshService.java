@@ -13,6 +13,7 @@ import shinhan.fibri.ieum.main.auth.session.AuthSession;
 import shinhan.fibri.ieum.main.auth.session.OpaqueTokenGenerator;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
 import shinhan.fibri.ieum.main.auth.session.Sha256TokenHasher;
+import shinhan.fibri.ieum.main.notification.sse.SseConnectionRegistry;
 
 @Service
 @RequiredArgsConstructor
@@ -24,6 +25,7 @@ public class RefreshService {
 	private final Sha256TokenHasher tokenHasher;
 	private final OpaqueTokenGenerator tokenGenerator;
 	private final AccessTokenIssuer accessTokenIssuer;
+	private final SseConnectionRegistry sseConnectionRegistry;
 
 	public RefreshResult refresh(String refreshToken) {
 		String refreshTokenHash = tokenHasher.hash(refreshToken);
@@ -35,6 +37,7 @@ public class RefreshService {
 		if (refreshTokenHash.equals(session.prevRefreshTokenHash())) {
 			log.warn("Refresh token reuse detected — revoking all sessions: userId={}", session.userId());
 			sessionStore.revokeAllSessionsOfUser(session.userId());
+			sseConnectionRegistry.closeUser(session.userId());
 			throw new RefreshTokenReusedException();
 		}
 		if (!refreshTokenHash.equals(session.refreshTokenHash())) {
