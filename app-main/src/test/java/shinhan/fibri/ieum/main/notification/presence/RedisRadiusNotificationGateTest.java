@@ -35,5 +35,16 @@ class RedisRadiusNotificationGateTest {
 		assertThat(new RedisRadiusNotificationGate(redis).tryAcquire(NotificationCategory.meeting, 10L, "wydm")).isTrue();
 	}
 
+	@Test
+	void rejectsEventWhenGeoCellRateLimitIsExceeded() {
+		StringRedisTemplate redis = mock(StringRedisTemplate.class);
+		ValueOperations<String, String> values = mock(ValueOperations.class);
+		when(redis.opsForValue()).thenReturn(values);
+		when(values.setIfAbsent(any(), eq("1"), any())).thenReturn(true);
+		when(redis.execute(anyScript(), eq(List.of("notif:radius:rl:wydm")), eq("60"))).thenReturn(31L);
+
+		assertThat(new RedisRadiusNotificationGate(redis).tryAcquire(NotificationCategory.question, 11L, "wydm")).isFalse();
+	}
+
 	private RedisScript<Long> anyScript() { return any(); }
 }

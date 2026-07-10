@@ -26,6 +26,17 @@ class HybridOnlineAudienceResolverTest {
 			.containsExactly(2L);
 	}
 
+	@Test
+	void usesFullScanFallbackForEventOutsideKoreaFastPath() {
+		PresenceSeedRepository repository = mock(PresenceSeedRepository.class);
+		PresenceRegistry registry = new PresenceRegistry(repository);
+		seed(repository, registry, 2L, 40.7128, -74.0060, true, true, true, 5);
+
+		assertThat(new HybridOnlineAudienceResolver(registry)
+			.resolve(40.7128, -74.0060, NotificationCategory.question, 1L, Set.of()))
+			.containsExactly(2L);
+	}
+
 	private static void seed(PresenceSeedRepository repository, PresenceRegistry registry, Long userId, double latitude, double longitude, boolean all, boolean question, boolean meeting, int radius) {
 		when(repository.findSeedByUserId(userId)).thenReturn(Optional.of(new PresenceSeed(latitude, longitude, all, question, meeting, radius)));
 		registry.seedOnConnect(userId);
