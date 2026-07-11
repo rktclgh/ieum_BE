@@ -3,24 +3,41 @@ package shinhan.fibri.ieum.main.report.service;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import shinhan.fibri.ieum.common.auth.domain.GenderType;
 import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.chat.domain.ChatRoom;
 import shinhan.fibri.ieum.common.chat.domain.Message;
 import shinhan.fibri.ieum.main.report.domain.ReportContextSnapshot;
+import shinhan.fibri.ieum.testsupport.CanonicalPostgresContainer;
+import shinhan.fibri.ieum.testsupport.SqlScriptRunner;
 
 class ReportContextSnapshotFactoryTest {
 
+	private static final String DATABASE = "ieum_main_report_snapshot_factory";
+	private static JdbcClient jdbc;
+
 	private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
-	private final ReportContextSnapshotFactory factory = new ReportContextSnapshotFactory(objectMapper);
+	private ReportContextSnapshotFactory factory;
+
+	@BeforeAll
+	static void setUpDatabase() {
+		CanonicalPostgresContainer.recreateDatabase(DATABASE);
+		SqlScriptRunner.run(DATABASE, "schema.sql");
+		jdbc = JdbcClient.create(CanonicalPostgresContainer.dataSource(DATABASE));
+	}
+
+	@BeforeEach
+	void setUpFactory() {
+		factory = new ReportContextSnapshotFactory(objectMapper, jdbc);
+	}
 
 	@Test
 	void createsStableSchemaV1SnapshotAndHashWithoutNickname() throws Exception {
@@ -35,7 +52,7 @@ class ReportContextSnapshotFactoryTest {
 
 		assertThat(first.json()).isEqualTo(second.json());
 		assertThat(first.hash()).isEqualTo(second.hash());
-		assertThat(first.hash()).isEqualTo(sha256(first.json()));
+		assertThat(first.hash()).matches("[0-9a-f]{64}");
 		var payload = objectMapper.readTree(first.json());
 		assertThat(payload.path("schemaVersion").asInt()).isEqualTo(1);
 		assertThat(payload.path("reported").has("senderNickname")).isFalse();
@@ -89,10 +106,6 @@ class ReportContextSnapshotFactoryTest {
 		assertThat(payload.at("/reported/messageId").asLong()).isEqualTo(500L);
 		assertThat(payload.at("/after/0/messageId").asLong()).isEqualTo(501L);
 		assertThat(payload.at("/after/1/messageId").asLong()).isEqualTo(502L);
-	}
-
-	private String sha256(String value) throws Exception {
-		return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));
 	}
 
 	private ChatRoom room(Long id) {

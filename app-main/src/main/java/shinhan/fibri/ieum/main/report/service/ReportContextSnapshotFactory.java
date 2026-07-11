@@ -3,14 +3,11 @@ package shinhan.fibri.ieum.main.report.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.OffsetDateTime;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 import org.springframework.stereotype.Component;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import shinhan.fibri.ieum.common.chat.domain.Message;
 import shinhan.fibri.ieum.main.report.domain.ReportContextSnapshot;
 
@@ -20,9 +17,11 @@ public class ReportContextSnapshotFactory {
 	private static final int SCHEMA_VERSION = 1;
 
 	private final ObjectMapper objectMapper;
+	private final JdbcClient jdbc;
 
-	public ReportContextSnapshotFactory(ObjectMapper objectMapper) {
+	public ReportContextSnapshotFactory(ObjectMapper objectMapper, JdbcClient jdbc) {
 		this.objectMapper = objectMapper;
+		this.jdbc = jdbc;
 	}
 
 	public ReportContextSnapshot create(
@@ -39,19 +38,21 @@ public class ReportContextSnapshotFactory {
 			Objects.requireNonNull(after, "after must not be null").stream().map(ContextMessage::from).toList()
 		);
 		try {
-			byte[] json = objectMapper.writeValueAsBytes(payload);
-			return new ReportContextSnapshot(new String(json, StandardCharsets.UTF_8), sha256(json));
+			return canonicalizeAndHash(objectMapper.writeValueAsString(payload));
 		} catch (JsonProcessingException exception) {
 			throw new IllegalStateException("Failed to serialize report context snapshot", exception);
 		}
 	}
 
-	private String sha256(byte[] source) {
-		try {
-			return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(source));
-		} catch (NoSuchAlgorithmException exception) {
-			throw new IllegalStateException("SHA-256 must be available", exception);
-		}
+	private ReportContextSnapshot canonicalizeAndHash(String serializedSnapshot) {
+		return jdbc.sql("""
+			SELECT canonical.json,
+			       encode(digest(convert_to(canonical.json, 'UTF8'), 'sha256'), 'hex') AS hash
+			FROM (SELECT (CAST(:snapshot AS jsonb))::text AS json) canonical
+			""")
+			.param("snapshot", serializedSnapshot)
+			.query((rs, rowNumber) -> new ReportContextSnapshot(rs.getString("json"), rs.getString("hash")))
+			.single();
 	}
 
 	private record ContextSnapshotPayload(
