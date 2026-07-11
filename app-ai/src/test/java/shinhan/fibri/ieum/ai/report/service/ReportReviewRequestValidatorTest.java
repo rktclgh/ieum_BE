@@ -35,6 +35,13 @@ class ReportReviewRequestValidatorTest {
 	}
 
 	@Test
+	void rejectsANullRequestAsAnInvalidReviewRequest() {
+		assertThatThrownBy(() -> validator.validate(900L, null))
+			.isInstanceOf(InvalidReportReviewRequestException.class)
+			.hasMessageContaining("request");
+	}
+
+	@Test
 	void rejectsWhenTheReportedMessageIsNotAttributedToTheReportedUser() {
 		ReportReviewRequest request = request(900L, 2L, List.of(message(2L, "other_actor_1", "reported content")));
 

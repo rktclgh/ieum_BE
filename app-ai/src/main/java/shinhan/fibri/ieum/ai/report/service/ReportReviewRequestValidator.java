@@ -2,7 +2,6 @@ package shinhan.fibri.ieum.ai.report.service;
 
 import java.util.HashSet;
 import java.util.List;
-import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
 import org.springframework.stereotype.Service;
@@ -20,7 +19,9 @@ public class ReportReviewRequestValidator {
 		if (pathReportId < 1) {
 			throw invalid("reportId must be positive");
 		}
-		Objects.requireNonNull(request, "request must not be null");
+		if (request == null) {
+			throw invalid("request must not be null");
+		}
 		if (request.reportId() != pathReportId) {
 			throw invalid("reportId must match the request path");
 		}

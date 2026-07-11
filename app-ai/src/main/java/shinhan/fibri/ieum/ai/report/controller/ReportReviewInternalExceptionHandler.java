@@ -2,6 +2,7 @@ package shinhan.fibri.ieum.ai.report.controller;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import shinhan.fibri.ieum.ai.report.dto.ReportReviewErrorResponse;
@@ -14,6 +15,11 @@ public class ReportReviewInternalExceptionHandler {
 
 	@ExceptionHandler(InvalidReportReviewRequestException.class)
 	ResponseEntity<ReportReviewErrorResponse> invalidRequest() {
+		return error(HttpStatus.BAD_REQUEST, "invalid_report_review_request", false);
+	}
+
+	@ExceptionHandler(HttpMessageNotReadableException.class)
+	ResponseEntity<ReportReviewErrorResponse> unreadableRequest() {
 		return error(HttpStatus.BAD_REQUEST, "invalid_report_review_request", false);
 	}
 

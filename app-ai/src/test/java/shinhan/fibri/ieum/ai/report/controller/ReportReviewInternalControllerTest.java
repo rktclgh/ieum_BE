@@ -79,6 +79,35 @@ class ReportReviewInternalControllerTest {
 	}
 
 	@Test
+	void returnsTheBadRequestEnvelopeForANullJsonRequest() throws Exception {
+		doThrow(new InvalidReportReviewRequestException("null request must not leak"))
+			.when(preparationService).prepare(900L, null);
+
+		mockMvc.perform(post("/ai/v1/internal/reports/900/review")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("null"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("invalid_report_review_request"))
+			.andExpect(jsonPath("$.retryable").value(false));
+	}
+
+	@Test
+	void returnsTheBadRequestEnvelopeForMissingOrMalformedJson() throws Exception {
+		mockMvc.perform(post("/ai/v1/internal/reports/900/review")
+				.contentType(MediaType.APPLICATION_JSON))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("invalid_report_review_request"))
+			.andExpect(jsonPath("$.retryable").value(false));
+
+		mockMvc.perform(post("/ai/v1/internal/reports/900/review")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{invalid"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("invalid_report_review_request"))
+			.andExpect(jsonPath("$.retryable").value(false));
+	}
+
+	@Test
 	void returnsARetryableEnvelopeForImageDownloadFailure() throws Exception {
 		doThrow(new ReportEvidenceImageDownloadException("presigned query must not leak"))
 			.when(preparationService).prepare(900L, request());
