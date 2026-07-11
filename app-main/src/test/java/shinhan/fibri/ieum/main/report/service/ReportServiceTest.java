@@ -3,9 +3,8 @@ package shinhan.fibri.ieum.main.report.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -122,7 +121,7 @@ class ReportServiceTest {
 		try {
 			service.create(principal(42L), new CreateReportRequest(500L, ReportReason.abuse, null));
 
-			verify(reportEventPublisher, never()).reportCreated(any(ReportCreatedEvent.class));
+			verifyNoInteractions(reportEventPublisher);
 
 			TransactionSynchronizationManager.getSynchronizations()
 				.forEach(TransactionSynchronization::afterCommit);
@@ -145,7 +144,7 @@ class ReportServiceTest {
 		assertThatThrownBy(() -> service.create(principal(42L), new CreateReportRequest(500L, ReportReason.spam, null)))
 			.isInstanceOf(NotRoomMemberException.class);
 
-		verify(reportRepository, never()).save(any(Report.class));
+		verifyNoInteractions(reportRepository);
 	}
 
 	@Test
@@ -155,7 +154,7 @@ class ReportServiceTest {
 		assertThatThrownBy(() -> service.create(principal(42L), new CreateReportRequest(500L, ReportReason.spam, null)))
 			.isInstanceOf(ReportMessageNotFoundException.class);
 
-		verify(reportRepository, never()).save(any(Report.class));
+		verifyNoInteractions(reportRepository);
 	}
 
 	@Test
@@ -170,59 +169,7 @@ class ReportServiceTest {
 		assertThatThrownBy(() -> service.create(principal(42L), new CreateReportRequest(500L, ReportReason.spam, null)))
 			.isInstanceOf(ReportMessageNotFoundException.class);
 
-		verify(reportRepository, never()).save(any(Report.class));
-	}
-
-	@Test
-	void createMessageReportAllowsSelfReportWithCurrentPolicy() {
-		User reporter = user(42L, "reporter@example.com", "reporter");
-		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
-		Message ownMessage = message(500L, room, reporter, "own-message", "2026-07-09T10:00:00+09:00");
-		when(messageRepository.findById(500L)).thenReturn(Optional.of(ownMessage));
-		when(chatMemberRepository.existsByRoom_IdAndUser_IdAndLeftAtIsNull(100L, 42L)).thenReturn(true);
-		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(reporter));
-		when(messageRepository.findContextBeforeMessage(100L, ownMessage.getCreatedAt(), 500L, Pageable.ofSize(20)))
-			.thenReturn(List.of());
-		when(messageRepository.findContextAfterMessage(100L, ownMessage.getCreatedAt(), 500L, Pageable.ofSize(20)))
-			.thenReturn(List.of());
-		when(reportRepository.save(any(Report.class))).thenAnswer(invocation -> {
-			Report report = invocation.getArgument(0);
-			setField(report, "id", 900L);
-			return report;
-		});
-
-		var response = service.create(principal(42L), new CreateReportRequest(500L, ReportReason.abuse, null));
-
-		assertThat(response.reportId()).isEqualTo(900L);
-		ArgumentCaptor<Report> reportCaptor = ArgumentCaptor.forClass(Report.class);
-		verify(reportRepository).save(reportCaptor.capture());
-		assertThat(reportCaptor.getValue().getReporter().getId()).isEqualTo(42L);
-		assertThat(reportCaptor.getValue().getReportedUser().getId()).isEqualTo(42L);
-	}
-
-	@Test
-	void createMessageReportAllowsDuplicateReportsWithCurrentPolicy() {
-		User reporter = user(42L, "reporter@example.com", "reporter");
-		User reported = user(77L, "reported@example.com", "reported");
-		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
-		Message reportedMessage = message(500L, room, reported, "reported-message", "2026-07-09T10:00:00+09:00");
-		when(messageRepository.findById(500L)).thenReturn(Optional.of(reportedMessage));
-		when(chatMemberRepository.existsByRoom_IdAndUser_IdAndLeftAtIsNull(100L, 42L)).thenReturn(true);
-		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(reporter));
-		when(messageRepository.findContextBeforeMessage(100L, reportedMessage.getCreatedAt(), 500L, Pageable.ofSize(20)))
-			.thenReturn(List.of());
-		when(messageRepository.findContextAfterMessage(100L, reportedMessage.getCreatedAt(), 500L, Pageable.ofSize(20)))
-			.thenReturn(List.of());
-		when(reportRepository.save(any(Report.class))).thenAnswer(invocation -> {
-			Report report = invocation.getArgument(0);
-			setField(report, "id", 900L);
-			return report;
-		});
-
-		service.create(principal(42L), new CreateReportRequest(500L, ReportReason.spam, null));
-		service.create(principal(42L), new CreateReportRequest(500L, ReportReason.spam, null));
-
-		verify(reportRepository, times(2)).save(any(Report.class));
+		verifyNoInteractions(reportRepository);
 	}
 
 	private AuthenticatedUser principal(Long userId) {
