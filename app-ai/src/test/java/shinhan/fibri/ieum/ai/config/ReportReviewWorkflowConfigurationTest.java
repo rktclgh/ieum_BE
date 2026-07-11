@@ -2,7 +2,6 @@ package shinhan.fibri.ieum.ai.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
@@ -38,11 +37,6 @@ class ReportReviewWorkflowConfigurationTest {
 
 	@Configuration
 	static class Dependencies {
-
-		@Bean
-		ObjectMapper objectMapper() {
-			return new ObjectMapper();
-		}
 
 		@Bean
 		PolicySnapshotProvider policySnapshotProvider() {

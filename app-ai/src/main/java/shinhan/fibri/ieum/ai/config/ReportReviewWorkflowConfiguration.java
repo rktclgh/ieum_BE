@@ -22,14 +22,13 @@ public class ReportReviewWorkflowConfiguration {
 	ReportReviewInferenceOrchestrator reportReviewInferenceOrchestrator(
 		PolicySnapshotProvider policySnapshotProvider,
 		ReportReviewModelGateway reportReviewModelGateway,
-		ReportPolicyEvaluator reportPolicyEvaluator,
-		ObjectMapper objectMapper
+		ReportPolicyEvaluator reportPolicyEvaluator
 	) {
 		return new ReportReviewInferenceOrchestrator(
 			policySnapshotProvider,
 			reportReviewModelGateway,
 			reportPolicyEvaluator,
-			objectMapper
+			new ObjectMapper()
 		);
 	}
 }
