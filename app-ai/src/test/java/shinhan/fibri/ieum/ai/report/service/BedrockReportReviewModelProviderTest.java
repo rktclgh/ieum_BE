@@ -18,6 +18,7 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
+import software.amazon.awssdk.core.exception.SdkServiceException;
 import shinhan.fibri.ieum.ai.config.ReportModelProperties;
 import shinhan.fibri.ieum.ai.report.domain.ReportEvidenceType;
 import shinhan.fibri.ieum.ai.report.domain.ReportModelReviewOutput;
@@ -97,6 +98,21 @@ class BedrockReportReviewModelProviderTest {
 				assertThat(exception).hasMessage("Report review model provider failed");
 				assertThat(exception).hasMessageNotContaining("raw provider secret");
 			});
+	}
+
+	@Test
+	void doesNotMisclassifyAGenericForbiddenBedrockFailureAsSafetyRefusal() {
+		BedrockReportReviewModelProvider failingProvider = new BedrockReportReviewModelProvider(
+			new FailingChatModel(SdkServiceException.builder().statusCode(403).build()),
+			new ReportReviewModelPromptFactory(),
+			new ReportReviewModelOutputParser(),
+			properties()
+		);
+
+		assertThatThrownBy(() -> failingProvider.review(preparedReview(), policySnapshot()))
+			.isInstanceOfSatisfying(ReportReviewModelProviderException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ReportReviewProviderErrorCode.transport_error)
+			);
 	}
 
 	private ReportModelProperties properties() {

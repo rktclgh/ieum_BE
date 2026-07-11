@@ -119,9 +119,6 @@ public class BedrockReportReviewModelProvider implements ReportReviewModelProvid
 		if (exception.statusCode() >= 500) {
 			return ReportReviewProviderErrorCode.server_error;
 		}
-		if (exception.statusCode() == 400 || exception.statusCode() == 403) {
-			return ReportReviewProviderErrorCode.safety_refusal;
-		}
 		return ReportReviewProviderErrorCode.transport_error;
 	}
 }
