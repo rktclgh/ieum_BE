@@ -8,8 +8,11 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -42,13 +45,14 @@ class ReportServiceTest {
 	private final UserRepository userRepository = org.mockito.Mockito.mock(UserRepository.class);
 	private final ReportEventPublisher reportEventPublisher = org.mockito.Mockito.mock(ReportEventPublisher.class);
 	private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+	private final ReportContextSnapshotFactory snapshotFactory = new ReportContextSnapshotFactory(objectMapper);
 	private final ReportService service = new ReportService(
 		messageRepository,
 		chatMemberRepository,
 		reportRepository,
 		userRepository,
 		reportEventPublisher,
-		objectMapper
+		snapshotFactory
 	);
 
 	@Test
@@ -87,6 +91,7 @@ class ReportServiceTest {
 		assertThat(saved.getReportedUser().getId()).isEqualTo(77L);
 		assertThat(saved.getReason()).isEqualTo(ReportReason.abuse);
 		assertThat(saved.getDetail()).isEqualTo("욕설과 공격적인 표현");
+		assertThat(saved.getContextHash()).isEqualTo(sha256(saved.getContextSnapshot()));
 
 		var snapshot = objectMapper.readTree(saved.getContextSnapshot());
 		assertThat(snapshot.get("roomId").asLong()).isEqualTo(100L);
@@ -206,6 +211,14 @@ class ReportServiceTest {
 			field.setAccessible(true);
 			field.set(target, value);
 		} catch (ReflectiveOperationException exception) {
+			throw new IllegalStateException(exception);
+		}
+	}
+
+	private String sha256(String value) {
+		try {
+			return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));
+		} catch (java.security.NoSuchAlgorithmException exception) {
 			throw new IllegalStateException(exception);
 		}
 	}
