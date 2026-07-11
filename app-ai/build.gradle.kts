@@ -14,6 +14,8 @@ java {
 tasks.jar { enabled = false }
 
 dependencies {
+	implementation(project(":common"))
+
 	implementation("org.springframework.boot:spring-boot-starter-webmvc")
 	implementation("org.springframework.boot:spring-boot-starter-actuator")
 	implementation("org.springframework.boot:spring-boot-starter-jdbc")
