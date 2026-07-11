@@ -28,7 +28,20 @@ class ReportCanonicalSchemaIntegrationTest {
 			"reported_user_id",
 			"reason",
 			"context_snapshot",
+			"context_hash",
 			"ai_recommendation",
+			"ai_policy_version",
+			"ai_review_state",
+			"ai_review_attempt_id",
+			"ai_attempts",
+			"ai_next_attempt_at",
+			"ai_lease_until",
+			"ai_locked_by",
+			"ai_last_error_code",
+			"ai_last_error_message",
+			"ai_decision",
+			"ai_policy_set_hash",
+			"ai_review_result",
 			"status");
 		assertThat(tableExists(jdbc, "user_sanctions")).isTrue();
 	}
