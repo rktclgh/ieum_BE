@@ -18,6 +18,8 @@ class AiSchemaV13MigrationIntegrationTest {
 		SqlScriptRunner.run(database, "test-baselines/schema-v12.sql");
 		JdbcClient jdbc = JdbcClient.create(AiPostgresContainer.dataSource(database));
 		Fixture fixture = insertV12Rows(jdbc);
+		List<String> reportColumnsBefore = columns(jdbc, "reports");
+		List<String> sanctionColumnsBefore = columns(jdbc, "user_sanctions");
 
 		SqlScriptRunner.run(database, "migrations/v13_app_ai_v2_expand.sql");
 
@@ -86,8 +88,20 @@ class AiSchemaV13MigrationIntegrationTest {
 			.query(String.class)
 			.single()).isEqualTo("inactive");
 		assertThat(jdbc.sql("SELECT count(*) FROM ai_question_tasks").query(Integer.class).single()).isEqualTo(1);
-		assertThat(jdbc.sql("SELECT count(*) FROM knowledge_sources").query(Integer.class).single()).isEqualTo(2);
-		assertThat(jdbc.sql("SELECT count(*) FROM knowledge_chunks").query(Integer.class).single()).isEqualTo(2);
+		assertThat(jdbc.sql("SELECT count(*) FROM knowledge_sources").query(Integer.class).single()).isEqualTo(3);
+		assertThat(jdbc.sql("SELECT count(*) FROM knowledge_chunks").query(Integer.class).single()).isEqualTo(3);
+		assertThat(jdbc.sql("""
+			SELECT status, active, deactivated_at IS NOT NULL
+			FROM knowledge_sources
+			WHERE source_id = :sourceId
+			""")
+			.param("sourceId", fixture.activeLegacySourceId())
+			.query((rs, rowNumber) -> new LegacySourceState(
+				rs.getString("status"), rs.getBoolean("active"), rs.getBoolean(3)))
+			.single())
+			.isEqualTo(new LegacySourceState("inactive", false, true));
+		assertThat(columns(jdbc, "reports")).isEqualTo(reportColumnsBefore);
+		assertThat(columns(jdbc, "user_sanctions")).isEqualTo(sanctionColumnsBefore);
 	}
 
 	@Test
@@ -147,7 +161,12 @@ class AiSchemaV13MigrationIntegrationTest {
 			INSERT INTO knowledge_chunks (source_id, content, embedding, embedding_model)
 			VALUES (:sourceId, 'legacy chunk', array_fill(0.0::real, ARRAY[768])::vector, 'gemini-embedding-001')
 			""").param("sourceId", inactiveSourceId).update();
-		return new Fixture(questionId, readySourceId, inactiveSourceId);
+		Long activeLegacySourceId = insertV12Source(jdbc, "active-legacy-source", "c", true);
+		jdbc.sql("""
+			INSERT INTO knowledge_chunks (source_id, content, embedding, embedding_model)
+			VALUES (:sourceId, 'active legacy chunk', array_fill(0.0::real, ARRAY[768])::vector, 'gemini-embedding-001')
+			""").param("sourceId", activeLegacySourceId).update();
+		return new Fixture(questionId, readySourceId, inactiveSourceId, activeLegacySourceId);
 	}
 
 	private static Long insertV12Source(JdbcClient jdbc, String externalRef, String hashDigit, boolean active) {
@@ -168,6 +187,7 @@ class AiSchemaV13MigrationIntegrationTest {
 			SELECT column_name
 			FROM information_schema.columns
 			WHERE table_schema = 'public' AND table_name = :tableName
+			ORDER BY ordinal_position
 			""").param("tableName", tableName).query(String.class).list();
 	}
 
@@ -195,7 +215,7 @@ class AiSchemaV13MigrationIntegrationTest {
 			""").param("triggerName", triggerName).query(Boolean.class).single();
 	}
 
-	private record Fixture(Long questionId, Long readySourceId, Long inactiveSourceId) {
+	private record Fixture(Long questionId, Long readySourceId, Long inactiveSourceId, Long activeLegacySourceId) {
 	}
 
 	private record CompletedTaskBackfill(
@@ -204,5 +224,8 @@ class AiSchemaV13MigrationIntegrationTest {
 		String generationModel,
 		int evidenceCount
 	) {
+	}
+
+	private record LegacySourceState(String status, boolean active, boolean deactivated) {
 	}
 }
