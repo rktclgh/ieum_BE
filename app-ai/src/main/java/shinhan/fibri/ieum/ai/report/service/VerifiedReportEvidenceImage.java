@@ -16,4 +16,8 @@ public record VerifiedReportEvidenceImage(String contentType, byte[] bytes) {
 	public byte[] bytes() {
 		return bytes.clone();
 	}
+
+	public int byteSize() {
+		return bytes.length;
+	}
 }
