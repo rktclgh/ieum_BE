@@ -47,6 +47,7 @@ public class AiDatabaseCapabilityVerifier implements ApplicationRunner {
 			.list()
 			.stream()
 			.collect(Collectors.toUnmodifiableSet());
+		validateDatabaseAndExtensions(productName, serverVersionNumber, extensions);
 		int embeddingDimensions = loadEmbeddingDimensions();
 
 		return new DatabaseCapabilities(productName, serverVersionNumber, extensions, embeddingDimensions);
@@ -57,7 +58,7 @@ public class AiDatabaseCapabilityVerifier implements ApplicationRunner {
 			throw new IllegalStateException("Transaction manager is required to verify vector dimensions");
 		}
 		return transactionTemplate.execute(status -> {
-			jdbc.sql("CREATE TEMP TABLE ai_vector_dimension_probe (embedding vector(768)) ON COMMIT DROP")
+			jdbc.sql("CREATE TEMP TABLE ai_vector_dimension_probe (embedding vector(" + properties.embeddingDimensions() + ")) ON COMMIT DROP")
 				.update();
 			Integer dimensions = jdbc.sql("""
 					SELECT atttypmod
@@ -73,22 +74,9 @@ public class AiDatabaseCapabilityVerifier implements ApplicationRunner {
 	}
 
 	void validate(DatabaseCapabilities capabilities) {
-		if (!"PostgreSQL".equalsIgnoreCase(capabilities.productName())
-			|| capabilities.serverVersionNumber() < MINIMUM_POSTGRESQL_VERSION) {
-			throw new IllegalStateException(
-				"app-ai requires PostgreSQL 16 or newer; found %s %d".formatted(
-					capabilities.productName(), capabilities.serverVersionNumber()
-				)
-			);
-		}
-
-		Set<String> missingExtensions = properties.requiredExtensions()
-			.stream()
-			.filter(requiredExtension -> !capabilities.extensions().contains(requiredExtension))
-			.collect(Collectors.toUnmodifiableSet());
-		if (!missingExtensions.isEmpty()) {
-			throw new IllegalStateException("Missing required PostgreSQL extensions: " + missingExtensions);
-		}
+		validateDatabaseAndExtensions(
+			capabilities.productName(), capabilities.serverVersionNumber(), capabilities.extensions()
+		);
 
 		if (capabilities.embeddingDimensions() != properties.embeddingDimensions()) {
 			throw new IllegalStateException(
@@ -96,6 +84,29 @@ public class AiDatabaseCapabilityVerifier implements ApplicationRunner {
 					properties.embeddingDimensions(), capabilities.embeddingDimensions()
 				)
 			);
+		}
+	}
+
+	private void validateDatabaseAndExtensions(
+		String productName,
+		int serverVersionNumber,
+		Set<String> extensions
+	) {
+		if (!"PostgreSQL".equalsIgnoreCase(productName)
+			|| serverVersionNumber < MINIMUM_POSTGRESQL_VERSION) {
+			throw new IllegalStateException(
+				"app-ai requires PostgreSQL 16 or newer; found %s %d".formatted(
+					productName, serverVersionNumber
+				)
+			);
+		}
+
+		Set<String> missingExtensions = properties.requiredExtensions()
+			.stream()
+			.filter(requiredExtension -> !extensions.contains(requiredExtension))
+			.collect(Collectors.toUnmodifiableSet());
+		if (!missingExtensions.isEmpty()) {
+			throw new IllegalStateException("Missing required PostgreSQL extensions: " + missingExtensions);
 		}
 	}
 
