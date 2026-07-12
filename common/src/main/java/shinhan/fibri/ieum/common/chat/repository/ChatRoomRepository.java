@@ -20,9 +20,18 @@ public interface ChatRoomRepository extends JpaRepository<ChatRoom, Long> {
 		JOIN member.room room
 		WHERE member.user.id = :userId
 		  AND member.leftAt IS NULL
-		  AND (:roomType IS NULL OR room.roomType = :roomType)
 		""")
-	List<ChatRoom> findActiveRoomsByUserId(
+	List<ChatRoom> findActiveRoomsByUserId(@Param("userId") Long userId);
+
+	@Query("""
+		SELECT room
+		FROM ChatMember member
+		JOIN member.room room
+		WHERE member.user.id = :userId
+		  AND member.leftAt IS NULL
+		  AND room.roomType = :roomType
+		""")
+	List<ChatRoom> findActiveRoomsByUserIdAndRoomType(
 		@Param("userId") Long userId,
 		@Param("roomType") RoomType roomType
 	);

@@ -94,7 +94,9 @@ public class ChatService {
 
 	@Transactional(readOnly = true)
 	public List<ChatRoomSummaryResponse> listRooms(AuthenticatedUser principal, RoomType roomType) {
-		List<ChatRoom> rooms = chatRoomRepository.findActiveRoomsByUserId(principal.userId(), roomType);
+		List<ChatRoom> rooms = roomType == null
+			? chatRoomRepository.findActiveRoomsByUserId(principal.userId())
+			: chatRoomRepository.findActiveRoomsByUserIdAndRoomType(principal.userId(), roomType);
 		if (rooms.isEmpty()) {
 			return List.of();
 		}
@@ -147,12 +149,12 @@ public class ChatService {
 		findActiveMember(roomId, principal.userId());
 		int pageSize = normalizeMessagePageSize(size);
 		ChatMessageCursor decodedCursor = ChatMessageCursor.decode(cursor);
-		List<Message> messages = messageRepository.findMessagesBeforeCursor(
-			roomId,
-			decodedCursor == null ? null : decodedCursor.createdAt(),
-			decodedCursor == null ? null : decodedCursor.messageId(),
-			PageRequest.of(0, pageSize + 1)
-		);
+		PageRequest pageRequest = PageRequest.of(0, pageSize + 1);
+		List<Message> messages = decodedCursor == null
+			? messageRepository.findLatestMessagesByRoomId(roomId, pageRequest)
+			: messageRepository.findMessagesBeforeCursor(
+				roomId, decodedCursor.createdAt(), decodedCursor.messageId(), pageRequest
+			);
 		boolean hasNext = messages.size() > pageSize;
 		List<Message> pageItems = messages.stream().limit(pageSize).toList();
 		String nextCursor = hasNext ? ChatMessageCursor.encode(pageItems.getLast()) : null;
