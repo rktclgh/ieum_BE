@@ -32,6 +32,8 @@ import org.springframework.messaging.simp.stomp.StompHeaders;
 import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.messaging.simp.stomp.StompSessionHandlerAdapter;
 import org.springframework.messaging.simp.user.SimpUserRegistry;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.web.socket.WebSocketHttpHeaders;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import org.springframework.web.socket.messaging.WebSocketStompClient;
@@ -49,9 +51,15 @@ import shinhan.fibri.ieum.main.chat.service.ChatMessageRateLimiter;
 import shinhan.fibri.ieum.main.chat.service.ChatMessageService;
 import shinhan.fibri.ieum.main.chat.service.RoomEventPublisher;
 import shinhan.fibri.ieum.main.chat.service.WsMessageEvent;
+import shinhan.fibri.ieum.testsupport.CanonicalPostgresDataSource;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class ChatWebSocketIntegrationTest {
+
+	@DynamicPropertySource
+	static void configureDataSource(DynamicPropertyRegistry registry) {
+		CanonicalPostgresDataSource.recreateAndRegister(registry, "chat_websocket");
+	}
 
 	@LocalServerPort
 	private int port;
