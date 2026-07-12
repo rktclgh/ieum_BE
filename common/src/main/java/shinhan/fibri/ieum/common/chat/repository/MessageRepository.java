@@ -18,7 +18,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 		  AND message.deletedAt IS NULL
 		ORDER BY message.createdAt DESC, message.id DESC
 		""")
-	List<Message> findRecentMessages(
+	List<Message> findLatestMessagesByRoomId(
 		@Param("roomId") Long roomId,
 		Pageable pageable
 	);

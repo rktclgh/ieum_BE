@@ -20,8 +20,11 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.security.web.FilterChainProxy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.csrf.CsrfFilter;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import shinhan.fibri.ieum.main.auth.session.CsrfDoubleSubmitFilter;
 import shinhan.fibri.ieum.main.auth.session.JwtAuthenticationFilter;
+import shinhan.fibri.ieum.testsupport.CanonicalPostgresDataSource;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -30,6 +33,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 class MainApplicationTests {
+
+	@DynamicPropertySource
+	static void configureDataSource(DynamicPropertyRegistry registry) {
+		CanonicalPostgresDataSource.recreateAndRegister(registry, "app_main_context");
+	}
 
 	@Autowired
 	private ApplicationContext applicationContext;

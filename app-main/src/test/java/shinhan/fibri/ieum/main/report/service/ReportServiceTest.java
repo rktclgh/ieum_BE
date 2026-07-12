@@ -3,19 +3,20 @@ package shinhan.fibri.ieum.main.report.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.data.domain.Pageable;
-import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import shinhan.fibri.ieum.common.auth.domain.GenderType;
 import shinhan.fibri.ieum.common.auth.domain.User;
@@ -29,6 +30,7 @@ import shinhan.fibri.ieum.common.chat.repository.ChatMemberRepository;
 import shinhan.fibri.ieum.common.chat.repository.MessageRepository;
 import shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException;
 import shinhan.fibri.ieum.main.report.domain.Report;
+import shinhan.fibri.ieum.main.report.domain.ReportContextSnapshot;
 import shinhan.fibri.ieum.main.report.domain.ReportReason;
 import shinhan.fibri.ieum.main.report.dto.CreateReportRequest;
 import shinhan.fibri.ieum.main.report.exception.ReportMessageNotFoundException;
@@ -40,16 +42,23 @@ class ReportServiceTest {
 	private final ChatMemberRepository chatMemberRepository = org.mockito.Mockito.mock(ChatMemberRepository.class);
 	private final ReportRepository reportRepository = org.mockito.Mockito.mock(ReportRepository.class);
 	private final UserRepository userRepository = org.mockito.Mockito.mock(UserRepository.class);
-	private final ReportEventPublisher reportEventPublisher = org.mockito.Mockito.mock(ReportEventPublisher.class);
-	private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+	private final ReportContextSnapshotFactory snapshotFactory = org.mockito.Mockito.mock(ReportContextSnapshotFactory.class);
 	private final ReportService service = new ReportService(
 		messageRepository,
 		chatMemberRepository,
 		reportRepository,
 		userRepository,
-		reportEventPublisher,
-		objectMapper
+		snapshotFactory
 	);
+	private final ReportContextSnapshot contextSnapshot = new ReportContextSnapshot(
+		"{\"schemaVersion\":1,\"reported\":{\"messageId\":500}}",
+		"a".repeat(64)
+	);
+
+	@BeforeEach
+	void setUpSnapshotFactory() {
+		when(snapshotFactory.create(anyLong(), anyList(), any(Message.class), anyList())).thenReturn(contextSnapshot);
+	}
 
 	@Test
 	void createMessageReportStoresReportedMessageAndTwentyBeforeAfterContext() throws Exception {
@@ -87,19 +96,13 @@ class ReportServiceTest {
 		assertThat(saved.getReportedUser().getId()).isEqualTo(77L);
 		assertThat(saved.getReason()).isEqualTo(ReportReason.abuse);
 		assertThat(saved.getDetail()).isEqualTo("욕설과 공격적인 표현");
-
-		var snapshot = objectMapper.readTree(saved.getContextSnapshot());
-		assertThat(snapshot.get("roomId").asLong()).isEqualTo(100L);
-		assertThat(snapshot.get("reported").get("messageId").asLong()).isEqualTo(500L);
-		assertThat(snapshot.get("before").get(0).get("messageId").asLong()).isEqualTo(499L);
-		assertThat(snapshot.get("after").get(0).get("messageId").asLong()).isEqualTo(501L);
-		ArgumentCaptor<ReportCreatedEvent> eventCaptor = ArgumentCaptor.forClass(ReportCreatedEvent.class);
-		verify(reportEventPublisher).reportCreated(eventCaptor.capture());
-		assertThat(eventCaptor.getValue().reportId()).isEqualTo(900L);
+		assertThat(saved.getContextSnapshot()).isEqualTo(contextSnapshot.json());
+		assertThat(saved.getContextHash()).isEqualTo(contextSnapshot.hash());
+		verify(snapshotFactory).create(100L, List.of(before), reportedMessage, List.of(after));
 	}
 
 	@Test
-	void createMessageReportPublishesEventAfterCommitWhenTransactionSynchronizationIsActive() {
+	void createMessageReportDoesNotScheduleExternalAfterCommitWork() {
 		User reporter = user(42L, "reporter@example.com", "reporter");
 		User reported = user(77L, "reported@example.com", "reported");
 		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
@@ -121,15 +124,10 @@ class ReportServiceTest {
 		try {
 			service.create(principal(42L), new CreateReportRequest(500L, ReportReason.abuse, null));
 
-			verify(reportEventPublisher, never()).reportCreated(any(ReportCreatedEvent.class));
-
-			TransactionSynchronizationManager.getSynchronizations()
-				.forEach(TransactionSynchronization::afterCommit);
+			assertThat(TransactionSynchronizationManager.getSynchronizations()).isEmpty();
 		} finally {
 			TransactionSynchronizationManager.clearSynchronization();
 		}
-
-		verify(reportEventPublisher).reportCreated(any(ReportCreatedEvent.class));
 	}
 
 	@Test
@@ -144,7 +142,7 @@ class ReportServiceTest {
 		assertThatThrownBy(() -> service.create(principal(42L), new CreateReportRequest(500L, ReportReason.spam, null)))
 			.isInstanceOf(NotRoomMemberException.class);
 
-		verify(reportRepository, never()).save(any(Report.class));
+		verifyNoInteractions(reportRepository);
 	}
 
 	@Test
@@ -153,6 +151,23 @@ class ReportServiceTest {
 
 		assertThatThrownBy(() -> service.create(principal(42L), new CreateReportRequest(500L, ReportReason.spam, null)))
 			.isInstanceOf(ReportMessageNotFoundException.class);
+
+		verifyNoInteractions(reportRepository);
+	}
+
+	@Test
+	void createMessageReportRejectsDeletedMessageWithoutSavingReport() {
+		User reporter = user(42L, "reporter@example.com", "reporter");
+		User reported = user(77L, "reported@example.com", "reported");
+		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
+		Message deletedMessage = message(500L, room, reported, "deleted-message", "2026-07-09T10:00:00+09:00");
+		deletedMessage.markDeleted(OffsetDateTime.parse("2026-07-09T10:02:00+09:00"));
+		when(messageRepository.findById(500L)).thenReturn(Optional.of(deletedMessage));
+
+		assertThatThrownBy(() -> service.create(principal(42L), new CreateReportRequest(500L, ReportReason.spam, null)))
+			.isInstanceOf(ReportMessageNotFoundException.class);
+
+		verifyNoInteractions(reportRepository);
 	}
 
 	private AuthenticatedUser principal(Long userId) {
@@ -192,4 +207,5 @@ class ReportServiceTest {
 			throw new IllegalStateException(exception);
 		}
 	}
+
 }

@@ -9,9 +9,13 @@ import java.util.Properties;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
+import shinhan.fibri.ieum.ai.support.AiDatabaseIntegrationTestBase;
+import shinhan.fibri.ieum.ai.support.NoNetworkProviderTestConfiguration;
 
 @SpringBootTest
-class AiApplicationTests {
+@Import(NoNetworkProviderTestConfiguration.class)
+class AiApplicationTests extends AiDatabaseIntegrationTestBase {
 
 	@Test
 	void contextLoads() {
@@ -26,6 +30,8 @@ class AiApplicationTests {
 
 		assertThat(properties.getProperty("spring.config.import"))
 			.contains("optional:file:./app-ai/.env[.properties]");
+		assertThat(properties)
+			.doesNotContainKey("spring.jpa.properties.hibernate.dialect");
 	}
 
 	private Path applicationPropertiesPath() {

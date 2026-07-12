@@ -279,7 +279,7 @@ class ChatServiceTest {
 		Message next = message(502L, room, me, "next", "2026-07-08T11:00:00+09:00");
 		Message lookahead = message(501L, room, friend, "lookahead", "2026-07-08T10:00:00+09:00");
 		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(meMember));
-		when(messageRepository.findRecentMessages(org.mockito.Mockito.eq(100L), any()))
+		when(messageRepository.findLatestMessagesByRoomId(org.mockito.Mockito.eq(100L), any()))
 			.thenReturn(List.of(newest, next, lookahead));
 
 		var response = service.listMessages(principal(42L), 100L, null, 2);
@@ -318,7 +318,7 @@ class ChatServiceTest {
 			org.mockito.Mockito.eq(502L),
 			any()
 		);
-		verify(messageRepository, never()).findRecentMessages(org.mockito.Mockito.eq(100L), any());
+		verify(messageRepository, never()).findLatestMessagesByRoomId(org.mockito.Mockito.eq(100L), any());
 	}
 
 	@Test

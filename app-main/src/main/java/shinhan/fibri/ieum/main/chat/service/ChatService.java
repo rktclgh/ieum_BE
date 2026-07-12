@@ -151,12 +151,9 @@ public class ChatService {
 		ChatMessageCursor decodedCursor = ChatMessageCursor.decode(cursor);
 		PageRequest pageRequest = PageRequest.of(0, pageSize + 1);
 		List<Message> messages = decodedCursor == null
-			? messageRepository.findRecentMessages(roomId, pageRequest)
+			? messageRepository.findLatestMessagesByRoomId(roomId, pageRequest)
 			: messageRepository.findMessagesBeforeCursor(
-				roomId,
-				decodedCursor.createdAt(),
-				decodedCursor.messageId(),
-				pageRequest
+				roomId, decodedCursor.createdAt(), decodedCursor.messageId(), pageRequest
 			);
 		boolean hasNext = messages.size() > pageSize;
 		List<Message> pageItems = messages.stream().limit(pageSize).toList();
