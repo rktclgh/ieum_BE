@@ -18,15 +18,23 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.mock.web.MockCookie;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
+import shinhan.fibri.ieum.testsupport.CanonicalPostgresDataSource;
 
 @SpringBootTest
 @AutoConfigureMockMvc
 class ProtectedEndpointSecurityTest {
+
+	@DynamicPropertySource
+	static void configureDataSource(DynamicPropertyRegistry registry) {
+		CanonicalPostgresDataSource.recreateAndRegister(registry, "protected_security");
+	}
 
 	@Autowired
 	private MockMvc mockMvc;

@@ -10,17 +10,34 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
+import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.boot.persistence.autoconfigure.EntityScan;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import shinhan.fibri.ieum.common.auth.domain.GenderType;
 import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.chat.domain.ChatMember;
 import shinhan.fibri.ieum.common.chat.domain.ChatRoom;
 import shinhan.fibri.ieum.common.chat.domain.Message;
 import shinhan.fibri.ieum.common.chat.domain.RoomType;
+import shinhan.fibri.ieum.testsupport.CanonicalPostgresDatabase;
+import shinhan.fibri.ieum.testsupport.CanonicalPostgresContainer;
 
 @DataJpaTest
+@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 class ChatRepositoryTest {
+
+	@DynamicPropertySource
+	static void configureDataSource(DynamicPropertyRegistry registry) {
+		String databaseName = "common_chat_repository";
+		CanonicalPostgresDatabase.recreateWithSchema(databaseName);
+		registry.add("spring.datasource.url", () -> CanonicalPostgresContainer.jdbcUrl(databaseName));
+		registry.add("spring.datasource.username", CanonicalPostgresContainer::username);
+		registry.add("spring.datasource.password", CanonicalPostgresContainer::password);
+		registry.add("spring.datasource.driver-class-name", CanonicalPostgresContainer::driverClassName);
+		registry.add("spring.sql.init.mode", () -> "never");
+	}
 
 	@Autowired
 	private ChatRoomRepository chatRoomRepository;
@@ -39,6 +56,7 @@ class ChatRepositoryTest {
 		User me = persist(user("rooms-me@example.com", "rooms-me"));
 		User friend = persist(user("rooms-friend@example.com", "rooms-friend"));
 		User other = persist(user("rooms-other@example.com", "rooms-other"));
+		persistQuestion(10L, other);
 		ChatRoom direct = chatRoomRepository.save(ChatRoom.direct(me.getId(), friend.getId()));
 		ChatRoom question = chatRoomRepository.save(ChatRoom.question(10L, me.getId(), other.getId()));
 		ChatRoom left = chatRoomRepository.save(ChatRoom.direct(me.getId(), other.getId()));
@@ -48,10 +66,10 @@ class ChatRepositoryTest {
 		ChatMember leftMember = chatMemberRepository.save(ChatMember.join(left, me));
 		leftMember.leave(OffsetDateTime.parse("2026-07-08T09:00:00+09:00"));
 
-		assertThat(chatRoomRepository.findActiveRoomsByUserId(me.getId(), null))
+		assertThat(chatRoomRepository.findActiveRoomsByUserId(me.getId()))
 			.extracting(ChatRoom::getId)
 			.containsExactlyInAnyOrder(direct.getId(), question.getId());
-		assertThat(chatRoomRepository.findActiveRoomsByUserId(me.getId(), RoomType.direct))
+		assertThat(chatRoomRepository.findActiveRoomsByUserIdAndRoomType(me.getId(), RoomType.direct))
 			.extracting(ChatRoom::getId)
 			.containsExactly(direct.getId());
 	}
@@ -146,7 +164,7 @@ class ChatRepositoryTest {
 		entityManager.flush();
 		entityManager.clear();
 
-		assertThat(messageRepository.findMessagesBeforeCursor(room.getId(), null, null, PageRequest.of(0, 3)))
+		assertThat(messageRepository.findLatestMessagesByRoomId(room.getId(), PageRequest.of(0, 3)))
 			.extracting(Message::getContent)
 			.containsExactly("third", "second", "first");
 		assertThat(messageRepository.findMessagesBeforeCursor(room.getId(), base.plusMinutes(2), third.getId(), PageRequest.of(0, 2)))
@@ -238,6 +256,24 @@ class ChatRepositoryTest {
 	private User persist(User user) {
 		entityManager.persist(user);
 		return user;
+	}
+
+	private void persistQuestion(Long questionId, User author) {
+		entityManager.createNativeQuery("""
+			INSERT INTO pins (pin_id, pin_type, author_id, location, address)
+			VALUES (:pinId, 'question', :authorId, ST_GeogFromText('SRID=4326;POINT(127.0 37.5)'), 'address')
+			""")
+			.setParameter("pinId", questionId)
+			.setParameter("authorId", author.getId())
+			.executeUpdate();
+		entityManager.createNativeQuery("""
+			INSERT INTO questions (question_id, pin_id, author_id, title, content)
+			VALUES (:questionId, :pinId, :authorId, 'question', 'content')
+			""")
+			.setParameter("questionId", questionId)
+			.setParameter("pinId", questionId)
+			.setParameter("authorId", author.getId())
+			.executeUpdate();
 	}
 
 	@SpringBootApplication(scanBasePackages = "shinhan.fibri.ieum.common")

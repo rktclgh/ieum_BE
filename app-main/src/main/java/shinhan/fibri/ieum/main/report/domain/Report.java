@@ -53,6 +53,9 @@ public class Report {
 	@Column(name = "context_snapshot", columnDefinition = "jsonb")
 	private String contextSnapshot;
 
+	@Column(name = "context_hash", nullable = false, length = 64)
+	private String contextHash;
+
 	@Enumerated(EnumType.STRING)
 	@JdbcType(PostgreSQLEnumJdbcType.class)
 	@Column(name = "status", nullable = false, columnDefinition = "report_status")
@@ -70,14 +73,15 @@ public class Report {
 		User reportedUser,
 		ReportReason reason,
 		String detail,
-		String contextSnapshot
+		ReportContextSnapshot contextSnapshot
 	) {
 		this.reporter = Objects.requireNonNull(reporter, "reporter must not be null");
 		this.message = Objects.requireNonNull(message, "message must not be null");
 		this.reportedUser = Objects.requireNonNull(reportedUser, "reportedUser must not be null");
 		this.reason = Objects.requireNonNull(reason, "reason must not be null");
 		this.detail = detail;
-		this.contextSnapshot = contextSnapshot;
+		this.contextSnapshot = Objects.requireNonNull(contextSnapshot, "contextSnapshot must not be null").json();
+		this.contextHash = contextSnapshot.hash();
 		this.status = ReportStatus.pending;
 		this.createdAt = OffsetDateTime.now();
 	}
@@ -87,7 +91,7 @@ public class Report {
 		Message message,
 		ReportReason reason,
 		String detail,
-		String contextSnapshot
+		ReportContextSnapshot contextSnapshot
 	) {
 		return new Report(reporter, message, message.getSender(), reason, detail, contextSnapshot);
 	}
@@ -118,6 +122,10 @@ public class Report {
 
 	public String getContextSnapshot() {
 		return contextSnapshot;
+	}
+
+	public String getContextHash() {
+		return contextHash;
 	}
 
 	public ReportStatus getStatus() {

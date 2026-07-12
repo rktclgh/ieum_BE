@@ -16,9 +16,21 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 		JOIN FETCH message.sender
 		WHERE message.room.id = :roomId
 		  AND message.deletedAt IS NULL
+		ORDER BY message.createdAt DESC, message.id DESC
+		""")
+	List<Message> findLatestMessagesByRoomId(
+		@Param("roomId") Long roomId,
+		Pageable pageable
+	);
+
+	@Query("""
+		SELECT message
+		FROM Message message
+		JOIN FETCH message.sender
+		WHERE message.room.id = :roomId
+		  AND message.deletedAt IS NULL
 		  AND (
-			:cursorCreatedAt IS NULL
-			OR message.createdAt < :cursorCreatedAt
+			message.createdAt < :cursorCreatedAt
 			OR (message.createdAt = :cursorCreatedAt AND message.id < :cursorMessageId)
 		  )
 		ORDER BY message.createdAt DESC, message.id DESC

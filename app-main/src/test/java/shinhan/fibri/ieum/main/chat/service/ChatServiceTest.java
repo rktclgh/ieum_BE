@@ -203,7 +203,7 @@ class ChatServiceTest {
 		pinnedMember.setPinned(true, OffsetDateTime.parse("2026-07-08T12:00:00+09:00"));
 		Message normalLast = message(501L, normalRoom, friend, "normal", "2026-07-08T11:00:00+09:00");
 		Message pinnedLast = message(502L, pinnedRoom, me, "pinned", "2026-07-08T10:00:00+09:00");
-		when(chatRoomRepository.findActiveRoomsByUserId(42L, null)).thenReturn(List.of(normalRoom, pinnedRoom));
+		when(chatRoomRepository.findActiveRoomsByUserId(42L)).thenReturn(List.of(normalRoom, pinnedRoom));
 		when(chatMemberRepository.findActiveByUserIdAndRoomIds(42L, List.of(100L, 200L)))
 			.thenReturn(List.of(normalMember, pinnedMember));
 		when(messageRepository.countUnreadByRoomIds(42L, List.of(100L, 200L)))
@@ -268,12 +268,8 @@ class ChatServiceTest {
 		Message next = message(502L, room, me, "next", "2026-07-08T11:00:00+09:00");
 		Message lookahead = message(501L, room, friend, "lookahead", "2026-07-08T10:00:00+09:00");
 		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(meMember));
-		when(messageRepository.findMessagesBeforeCursor(
-			org.mockito.Mockito.eq(100L),
-			org.mockito.Mockito.isNull(),
-			org.mockito.Mockito.isNull(),
-			any()
-		)).thenReturn(List.of(newest, next, lookahead));
+		when(messageRepository.findLatestMessagesByRoomId(org.mockito.Mockito.eq(100L), any()))
+			.thenReturn(List.of(newest, next, lookahead));
 
 		var response = service.listMessages(principal(42L), 100L, null, 2);
 

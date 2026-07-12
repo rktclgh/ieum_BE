@@ -6,6 +6,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -84,6 +85,8 @@ class ReportControllerTest {
 				.with(authenticated()))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")));
+
+		verifyNoInteractions(reportService);
 	}
 
 	@Test
