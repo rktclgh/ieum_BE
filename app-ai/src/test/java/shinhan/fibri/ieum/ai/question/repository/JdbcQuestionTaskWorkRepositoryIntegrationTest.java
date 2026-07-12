@@ -14,6 +14,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.UUID;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -159,6 +160,88 @@ class JdbcQuestionTaskWorkRepositoryIntegrationTest {
 			assertThat(claimed.questionId()).isEqualTo(nextQuestionId);
 			lockConnection.rollback();
 		}
+	}
+
+	@Test
+	void marksOnlyTheCurrentLeaseForRetryAndRespectsTheNextAttemptTime() {
+		long questionId = insertQuestion(false, false);
+		OffsetDateTime dueAt = OffsetDateTime.parse("2026-07-01T00:00:00Z");
+		insertTask(questionId, dueAt, 0, dueAt);
+		ClaimedQuestionTask claimed = repository.claimNext("worker-a", Duration.ofMinutes(2), MAX_ATTEMPTS)
+			.orElseThrow();
+		OffsetDateTime nextAttemptAt = OffsetDateTime.now().plusMinutes(5);
+
+		assertThat(repository.markRetry(
+			questionId, "worker-a", claimed.leaseToken(), nextAttemptAt, "MODEL_TIMEOUT", "model timed out"
+		)).isTrue();
+		var row = jdbc.sql("""
+			SELECT status::text, lease_until, locked_by, lease_token, next_attempt_at, last_error_code
+			FROM ai_question_tasks
+			WHERE question_id = :questionId
+			""").param("questionId", questionId).query().singleRow();
+		assertThat(row.get("status")).isEqualTo("retry");
+		assertThat(row.get("lease_until")).isNull();
+		assertThat(row.get("locked_by")).isNull();
+		assertThat(row.get("lease_token")).isNull();
+		assertThat(row.get("last_error_code")).isEqualTo("MODEL_TIMEOUT");
+		OffsetDateTime storedNextAttemptAt = jdbc.sql("""
+			SELECT next_attempt_at
+			FROM ai_question_tasks
+			WHERE question_id = :questionId
+			""")
+			.param("questionId", questionId)
+			.query((resultSet, rowNumber) -> resultSet.getObject("next_attempt_at", OffsetDateTime.class))
+			.single();
+		assertThat(storedNextAttemptAt).isEqualTo(nextAttemptAt);
+		assertThat(repository.claimNext("worker-b", Duration.ofMinutes(2), MAX_ATTEMPTS)).isEmpty();
+	}
+
+	@Test
+	void reclaimsARetryTaskWhenItsNextAttemptIsDue() {
+		long questionId = insertQuestion(false, false);
+		OffsetDateTime dueAt = OffsetDateTime.parse("2026-07-01T00:00:00Z");
+		insertTask(questionId, dueAt, 0, dueAt);
+		ClaimedQuestionTask first = repository.claimNext("worker-a", Duration.ofMinutes(2), MAX_ATTEMPTS)
+			.orElseThrow();
+
+		assertThat(repository.markRetry(
+			questionId, "worker-a", first.leaseToken(), OffsetDateTime.now().minusSeconds(1), "MODEL_TIMEOUT", "model timed out"
+		)).isTrue();
+		ClaimedQuestionTask second = repository.claimNext("worker-b", Duration.ofMinutes(2), MAX_ATTEMPTS)
+			.orElseThrow();
+
+		assertThat(second.questionId()).isEqualTo(questionId);
+		assertThat(second.attempts()).isEqualTo(2);
+		assertThat(second.leaseToken()).isNotEqualTo(first.leaseToken());
+	}
+
+	@Test
+	void rejectsRetryForAnotherLeaseTokenOrAnExpiredLease() {
+		long questionId = insertQuestion(false, false);
+		OffsetDateTime dueAt = OffsetDateTime.parse("2026-07-01T00:00:00Z");
+		insertTask(questionId, dueAt, 0, dueAt);
+		ClaimedQuestionTask claimed = repository.claimNext("worker-a", Duration.ofMinutes(2), MAX_ATTEMPTS)
+			.orElseThrow();
+
+		assertThat(repository.markRetry(
+			questionId, "worker-a", UUID.randomUUID(), OffsetDateTime.now(), "MODEL_TIMEOUT", "model timed out"
+		)).isFalse();
+		assertThat(repository.markRetry(
+			questionId, "worker-b", claimed.leaseToken(), OffsetDateTime.now(), "MODEL_TIMEOUT", "model timed out"
+		)).isFalse();
+		jdbc.sql("""
+			UPDATE ai_question_tasks
+			SET lease_until = CURRENT_TIMESTAMP - INTERVAL '1 second'
+			WHERE question_id = :questionId
+			""").param("questionId", questionId).update();
+		assertThat(repository.markRetry(
+			questionId, "worker-a", claimed.leaseToken(), OffsetDateTime.now(), "MODEL_TIMEOUT", "model timed out"
+		)).isFalse();
+		long pendingQuestionId = insertQuestion(false, false);
+		insertTask(pendingQuestionId, dueAt, 0, dueAt);
+		assertThat(repository.markRetry(
+			pendingQuestionId, "worker-a", claimed.leaseToken(), OffsetDateTime.now(), "MODEL_TIMEOUT", "model timed out"
+		)).isFalse();
 	}
 
 	private Callable<Optional<ClaimedQuestionTask>> claimAfterStart(

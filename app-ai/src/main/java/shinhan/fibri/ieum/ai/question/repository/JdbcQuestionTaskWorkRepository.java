@@ -64,6 +64,40 @@ public class JdbcQuestionTaskWorkRepository implements QuestionTaskWorkRepositor
 			.optional();
 	}
 
+	@Override
+	public boolean markRetry(
+		long questionId,
+		String workerId,
+		UUID leaseToken,
+		OffsetDateTime nextAttemptAt,
+		String errorCode,
+		String errorMessage
+	) {
+		validateRetryTransition(questionId, workerId, leaseToken, nextAttemptAt, errorCode, errorMessage);
+		return jdbc.sql("""
+			UPDATE ai_question_tasks
+			SET status = 'retry',
+			    lease_until = NULL,
+			    locked_by = NULL,
+			    lease_token = NULL,
+			    next_attempt_at = :nextAttemptAt,
+			    last_error_code = :errorCode,
+			    last_error_message = :errorMessage
+			WHERE question_id = :questionId
+			  AND status = 'processing'
+			  AND locked_by = :workerId
+			  AND lease_token = :leaseToken
+			  AND lease_until > CURRENT_TIMESTAMP
+			""")
+			.param("questionId", questionId)
+			.param("workerId", workerId)
+			.param("leaseToken", leaseToken)
+			.param("nextAttemptAt", nextAttemptAt)
+			.param("errorCode", errorCode)
+			.param("errorMessage", errorMessage)
+			.update() == 1;
+	}
+
 	private void validate(String workerId, Duration lease, int maxAttempts) {
 		if (workerId == null || workerId.isBlank() || workerId.length() > 100) {
 			throw new IllegalArgumentException("workerId must contain 1 to 100 characters");
@@ -73,6 +107,34 @@ public class JdbcQuestionTaskWorkRepository implements QuestionTaskWorkRepositor
 		}
 		if (maxAttempts < 1 || maxAttempts > MAX_SUPPORTED_ATTEMPTS) {
 			throw new IllegalArgumentException("maxAttempts must be between 1 and " + MAX_SUPPORTED_ATTEMPTS);
+		}
+	}
+
+	private void validateRetryTransition(
+		long questionId,
+		String workerId,
+		UUID leaseToken,
+		OffsetDateTime nextAttemptAt,
+		String errorCode,
+		String errorMessage
+	) {
+		if (questionId < 1) {
+			throw new IllegalArgumentException("questionId must be positive");
+		}
+		if (workerId == null || workerId.isBlank() || workerId.length() > 100) {
+			throw new IllegalArgumentException("workerId must contain 1 to 100 characters");
+		}
+		if (leaseToken == null) {
+			throw new IllegalArgumentException("leaseToken must not be null");
+		}
+		if (nextAttemptAt == null) {
+			throw new IllegalArgumentException("nextAttemptAt must not be null");
+		}
+		if (errorCode == null || errorCode.isBlank() || errorCode.length() > 100) {
+			throw new IllegalArgumentException("errorCode must contain 1 to 100 characters");
+		}
+		if (errorMessage != null && errorMessage.length() > 500) {
+			throw new IllegalArgumentException("errorMessage must not exceed 500 characters");
 		}
 	}
 }
