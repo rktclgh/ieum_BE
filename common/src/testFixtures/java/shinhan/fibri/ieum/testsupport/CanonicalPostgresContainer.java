@@ -93,7 +93,10 @@ public final class CanonicalPostgresContainer {
 
 	private static ImageFromDockerfile imageFromDockerfile() {
 		return new ImageFromDockerfile(IMAGE_NAME, false)
-			.withFileFromClasspath("Dockerfile", "test-support/postgres-ai/Dockerfile");
+			.withFileFromClasspath(
+				"Dockerfile",
+				"canonical-db/test-support/postgres-ai/Dockerfile"
+			);
 	}
 
 	private static void ensureStarted() {

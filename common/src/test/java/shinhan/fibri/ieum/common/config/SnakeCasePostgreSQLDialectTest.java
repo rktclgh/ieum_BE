@@ -17,7 +17,7 @@ class SnakeCasePostgreSQLDialectTest {
 
 	@Test
 	void rendersEachMappedEnumAsItsSnakeCaseSchemaTypeName() {
-		// 좌: 자바 enum 클래스, 우: code/db/schema.sql 의 CREATE TYPE 이름과 반드시 일치해야 한다.
+		// 좌: 자바 enum 클래스, 우: db/schema.sql 의 CREATE TYPE 이름과 반드시 일치해야 한다.
 		assertThat(dialect.getEnumTypeDeclaration(FriendshipStatus.class)).isEqualTo("friendship_status");
 		assertThat(dialect.getEnumTypeDeclaration(GenderType.class)).isEqualTo("gender_type");
 		assertThat(dialect.getEnumTypeDeclaration(AuthProvider.class)).isEqualTo("auth_provider");

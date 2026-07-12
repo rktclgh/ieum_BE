@@ -13,7 +13,7 @@ class AiPostgresExtensionsIntegrationTest {
 
 	@Test
 	void exposesCanonicalSchemaOnTheTestClasspath() {
-		URL schema = getClass().getClassLoader().getResource("schema.sql");
+		URL schema = getClass().getClassLoader().getResource("canonical-db/schema.sql");
 
 		assertThat(schema).isNotNull();
 	}

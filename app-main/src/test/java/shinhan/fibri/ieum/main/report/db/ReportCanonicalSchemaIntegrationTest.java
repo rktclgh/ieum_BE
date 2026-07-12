@@ -14,7 +14,7 @@ class ReportCanonicalSchemaIntegrationTest {
 
 	@Test
 	void canonicalSchemaExposesReportTablesForMigrationSmokeTests() {
-		URL schema = getClass().getClassLoader().getResource("schema.sql");
+		URL schema = getClass().getClassLoader().getResource("canonical-db/schema.sql");
 		assertThat(schema).isNotNull();
 
 		CanonicalPostgresContainer.recreateDatabase(DATABASE);

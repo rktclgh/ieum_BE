@@ -35,9 +35,10 @@ dependencies {
 	testAnnotationProcessor("org.projectlombok:lombok")
 }
 
-sourceSets {
-	testFixtures {
-		resources.srcDir(rootProject.file("../db"))
+tasks.named<org.gradle.language.jvm.tasks.ProcessResources>("processTestFixturesResources") {
+	from(rootProject.layout.projectDirectory.dir("db")) {
+		into("canonical-db")
+		include("**/*.sql", "test-support/postgres-ai/Dockerfile")
 	}
 }
 

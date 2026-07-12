@@ -7,6 +7,7 @@ import org.testcontainers.containers.Container;
 import org.testcontainers.images.builder.Transferable;
 
 public final class SqlScriptRunner {
+	private static final String RESOURCE_ROOT = "canonical-db/";
 	private static final AtomicLong SEQUENCE = new AtomicLong();
 
 	private SqlScriptRunner() {
@@ -38,14 +39,20 @@ public final class SqlScriptRunner {
 	}
 
 	private static byte[] readClasspathBytes(String resourceName) {
-		try (var input = SqlScriptRunner.class.getClassLoader().getResourceAsStream(resourceName)) {
+		String namespacedResource = RESOURCE_ROOT + resourceName;
+		try (var input = SqlScriptRunner.class.getClassLoader().getResourceAsStream(namespacedResource)) {
 			if (input == null) {
-				throw new IllegalArgumentException("Classpath SQL resource not found: " + resourceName);
+				throw new IllegalArgumentException(
+					"Classpath SQL resource not found: " + namespacedResource
+				);
 			}
 			return input.readAllBytes();
 		}
 		catch (IOException exception) {
-			throw new UncheckedIOException("Failed to read classpath SQL resource: " + resourceName, exception);
+			throw new UncheckedIOException(
+				"Failed to read classpath SQL resource: " + namespacedResource,
+				exception
+			);
 		}
 	}
 }
