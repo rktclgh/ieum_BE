@@ -36,7 +36,7 @@ public class InquiryController {
 	}
 
 	@GetMapping("/me")
-	public InquiryListResponse listMine(@AuthenticationPrincipal AuthenticatedUser principal) {
-		return inquiryService.listMine(principal.userId());
+	public ResponseEntity<InquiryListResponse> listMine(@AuthenticationPrincipal AuthenticatedUser principal) {
+		return ResponseEntity.ok(inquiryService.listMine(principal.userId()));
 	}
 }
