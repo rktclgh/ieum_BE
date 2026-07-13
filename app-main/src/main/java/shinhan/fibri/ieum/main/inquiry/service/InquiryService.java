@@ -49,6 +49,8 @@ public class InquiryService {
 			return title.trim();
 		}
 		String normalizedContent = content.trim().replaceAll("\\s+", " ");
-		return normalizedContent.substring(0, Math.min(normalizedContent.length(), 50));
+		int codePointCount = normalizedContent.codePointCount(0, normalizedContent.length());
+		int end = normalizedContent.offsetByCodePoints(0, Math.min(codePointCount, 50));
+		return normalizedContent.substring(0, end);
 	}
 }

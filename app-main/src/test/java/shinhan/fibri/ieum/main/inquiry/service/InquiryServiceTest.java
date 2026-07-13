@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
@@ -62,6 +63,20 @@ class InquiryServiceTest {
 	}
 
 	@Test
+	void truncatesDerivedTitleAtFiftyCodePointsWithoutSplittingEmoji() {
+		prepareExistingUser();
+		prepareSave(94L);
+		String emoji = "\uD83D\uDE00";
+		String content = "가".repeat(49) + emoji + "끝";
+
+		service.create(principal(UserStatus.active), new CreateInquiryRequest(null, content));
+
+		Inquiry savedInquiry = savedInquiry();
+		assertThat(savedInquiry.getTitle()).isEqualTo("가".repeat(49) + emoji);
+		assertThat(savedInquiry.getTitle().codePointCount(0, savedInquiry.getTitle().length())).isEqualTo(50);
+	}
+
+	@Test
 	void rejectsInquiryCreationForMissingUser() {
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.empty());
 
@@ -111,11 +126,9 @@ class InquiryServiceTest {
 	}
 
 	private Inquiry savedInquiry() {
-		return org.mockito.Mockito.mockingDetails(inquiryRepository).getInvocations().stream()
-			.filter(invocation -> invocation.getMethod().getName().equals("save"))
-			.map(invocation -> (Inquiry) invocation.getArgument(0))
-			.findFirst()
-			.orElseThrow();
+		ArgumentCaptor<Inquiry> inquiryCaptor = ArgumentCaptor.forClass(Inquiry.class);
+		verify(inquiryRepository).save(inquiryCaptor.capture());
+		return inquiryCaptor.getValue();
 	}
 
 	private AuthenticatedUser principal(UserStatus status) {
