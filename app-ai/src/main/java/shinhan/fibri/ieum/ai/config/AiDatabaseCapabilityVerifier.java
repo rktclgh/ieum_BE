@@ -5,6 +5,7 @@ import java.util.stream.Collectors;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.core.Ordered;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -12,7 +13,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 @Component
 @EnableConfigurationProperties(AiDatabaseProperties.class)
-public class AiDatabaseCapabilityVerifier implements ApplicationRunner {
+public class AiDatabaseCapabilityVerifier implements ApplicationRunner, Ordered {
 
 	private static final int MINIMUM_POSTGRESQL_VERSION = 160000;
 
@@ -33,6 +34,11 @@ public class AiDatabaseCapabilityVerifier implements ApplicationRunner {
 	@Override
 	public void run(ApplicationArguments args) {
 		validate(loadCapabilities());
+	}
+
+	@Override
+	public int getOrder() {
+		return 0;
 	}
 
 	DatabaseCapabilities loadCapabilities() {
