@@ -18,6 +18,7 @@ public final class KnowledgeSeedPackageParser {
 	public KnowledgeSeedPackageParser(ObjectMapper objectMapper) {
 		this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null").copy()
 			.enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
+			.disable(JsonParser.Feature.AUTO_CLOSE_SOURCE)
 			.enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
 			.enable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES)
 			.enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
