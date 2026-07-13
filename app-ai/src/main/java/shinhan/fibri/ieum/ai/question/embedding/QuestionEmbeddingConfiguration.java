@@ -10,6 +10,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import shinhan.fibri.ieum.ai.embedding.GeminiEmbeddingGateway;
+import shinhan.fibri.ieum.ai.embedding.GoogleGenAiGeminiEmbeddingGateway;
 
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty(prefix = "app.ai.features", name = "question-answer-enabled", havingValue = "true")
@@ -25,10 +27,15 @@ class QuestionEmbeddingConfiguration {
 	}
 
 	@Bean
-	QuestionEmbeddingGateway questionEmbeddingGateway(
+	GeminiEmbeddingGateway geminiEmbeddingGateway(
 		@Qualifier("questionEmbeddingGeminiClient") Client questionEmbeddingGeminiClient
 	) {
-		return new GeminiQuestionEmbeddingGateway(new GoogleGenAiGeminiEmbeddingClient(questionEmbeddingGeminiClient));
+		return new GoogleGenAiGeminiEmbeddingGateway(questionEmbeddingGeminiClient);
+	}
+
+	@Bean
+	QuestionEmbeddingGateway questionEmbeddingGateway(GeminiEmbeddingGateway geminiEmbeddingGateway) {
+		return new GeminiQuestionEmbeddingGateway(geminiEmbeddingGateway);
 	}
 
 	static HttpOptions geminiHttpOptions(QuestionEmbeddingProperties properties) {

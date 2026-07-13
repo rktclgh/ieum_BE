@@ -6,69 +6,48 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import shinhan.fibri.ieum.ai.embedding.GeminiEmbedding;
+import shinhan.fibri.ieum.ai.embedding.GeminiEmbeddingGateway;
+import shinhan.fibri.ieum.ai.embedding.GeminiEmbeddingUnavailableException;
 import shinhan.fibri.ieum.ai.question.service.EmbeddingUnavailableException;
 
 class GeminiQuestionEmbeddingGatewayTest {
 
 	@Test
-	void embedsQuestionAnsweringQueryWithGeminiEmbedding2And768DimensionsWithoutTaskType() {
-		FakeGeminiEmbeddingClient client = new FakeGeminiEmbeddingClient(validEmbedding());
-		QuestionEmbeddingGateway gateway = new GeminiQuestionEmbeddingGateway(client);
+	void addsTheQuestionAnsweringPrefixOnceAndDelegatesToTheSharedCore() {
+		FakeGeminiEmbeddingGateway sharedGateway = new FakeGeminiEmbeddingGateway();
+		QuestionEmbeddingGateway gateway = new GeminiQuestionEmbeddingGateway(sharedGateway);
 
-		QuestionEmbedding embedding = gateway.embed("퇴직연금 수령 조건은?");
+		QuestionEmbedding embedding = gateway.embed("  퇴직연금 수령 조건은?  ");
 
-		assertThat(client.requestedModel).isEqualTo("gemini-embedding-2");
-		assertThat(client.requestedText)
+		assertThat(sharedGateway.formattedText)
 			.isEqualTo("task: question answering | query: 퇴직연금 수령 조건은?");
-		assertThat(client.requestedOutputDimensionality).isEqualTo(768);
-		assertThat(client.taskTypeSet).isFalse();
 		assertThat(embedding.model()).isEqualTo("gemini-embedding-2");
 		assertThat(embedding.values()).hasSize(768);
 	}
 
 	@Test
-	void rejectsAbsentEmbeddingWithoutSurfacingProviderContent() {
-		FakeGeminiEmbeddingClient client = new FakeGeminiEmbeddingClient(null);
-		QuestionEmbeddingGateway gateway = new GeminiQuestionEmbeddingGateway(client);
+	void mapsTheSharedUnavailableFailureToTheExistingQuestionFailure() {
+		FakeGeminiEmbeddingGateway sharedGateway = new FakeGeminiEmbeddingGateway();
+		sharedGateway.failure = new GeminiEmbeddingUnavailableException();
+		QuestionEmbeddingGateway gateway = new GeminiQuestionEmbeddingGateway(sharedGateway);
 
 		assertThatThrownBy(() -> gateway.embed("provider raw content"))
 			.isInstanceOf(EmbeddingUnavailableException.class)
 			.hasMessage("Question embedding is unavailable")
-			.hasMessageNotContaining("provider raw content");
+			.hasMessageNotContaining("provider raw content")
+			.hasMessageNotContaining("Gemini embedding");
 	}
 
 	@Test
-	void rejectsProviderExceptionWithoutSurfacingProviderMessage() {
-		FakeGeminiEmbeddingClient client = new FakeGeminiEmbeddingClient(validEmbedding());
-		client.failure = new RuntimeException("raw provider message");
-		QuestionEmbeddingGateway gateway = new GeminiQuestionEmbeddingGateway(client);
+	void rejectsBlankQuestionInputBeforeCallingTheSharedCore() {
+		FakeGeminiEmbeddingGateway sharedGateway = new FakeGeminiEmbeddingGateway();
+		QuestionEmbeddingGateway gateway = new GeminiQuestionEmbeddingGateway(sharedGateway);
 
-		assertThatThrownBy(() -> gateway.embed("퇴직연금"))
-			.isInstanceOf(EmbeddingUnavailableException.class)
-			.hasMessage("Question embedding is unavailable")
-			.hasMessageNotContaining("raw provider message");
-	}
-
-	@Test
-	void rejectsWrongLengthEmbedding() {
-		FakeGeminiEmbeddingClient client = new FakeGeminiEmbeddingClient(List.of(0.1f));
-		QuestionEmbeddingGateway gateway = new GeminiQuestionEmbeddingGateway(client);
-
-		assertThatThrownBy(() -> gateway.embed("퇴직연금"))
-			.isInstanceOf(EmbeddingUnavailableException.class)
-			.hasMessage("Question embedding is unavailable");
-	}
-
-	@Test
-	void rejectsNonFiniteEmbeddingValue() {
-		List<Float> values = validEmbedding();
-		values.set(10, Float.NaN);
-		FakeGeminiEmbeddingClient client = new FakeGeminiEmbeddingClient(values);
-		QuestionEmbeddingGateway gateway = new GeminiQuestionEmbeddingGateway(client);
-
-		assertThatThrownBy(() -> gateway.embed("퇴직연금"))
-			.isInstanceOf(EmbeddingUnavailableException.class)
-			.hasMessage("Question embedding is unavailable");
+		assertThatThrownBy(() -> gateway.embed(" \n "))
+			.isInstanceOf(IllegalArgumentException.class)
+			.hasMessage("text must not be blank");
+		assertThat(sharedGateway.calls).isZero();
 	}
 
 	private static List<Float> validEmbedding() {
@@ -79,29 +58,20 @@ class GeminiQuestionEmbeddingGatewayTest {
 		return values;
 	}
 
-	private static final class FakeGeminiEmbeddingClient implements GeminiEmbeddingClient {
+	private static final class FakeGeminiEmbeddingGateway implements GeminiEmbeddingGateway {
 
-		private final List<Float> values;
 		private RuntimeException failure;
-		private String requestedModel;
-		private String requestedText;
-		private Integer requestedOutputDimensionality;
-		private boolean taskTypeSet;
-
-		private FakeGeminiEmbeddingClient(List<Float> values) {
-			this.values = values;
-		}
+		private String formattedText;
+		private int calls;
 
 		@Override
-		public List<Float> embed(GeminiEmbeddingRequest request) {
+		public GeminiEmbedding embed(String formattedText) {
+			calls++;
+			this.formattedText = formattedText;
 			if (failure != null) {
 				throw failure;
 			}
-			requestedModel = request.model();
-			requestedText = request.text();
-			requestedOutputDimensionality = request.outputDimensionality();
-			taskTypeSet = request.taskType().isPresent();
-			return values;
+			return new GeminiEmbedding(GeminiEmbedding.MODEL, validEmbedding());
 		}
 	}
 }

@@ -8,6 +8,8 @@ import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import shinhan.fibri.ieum.ai.embedding.GeminiEmbeddingGateway;
+import shinhan.fibri.ieum.ai.embedding.GoogleGenAiGeminiEmbeddingGateway;
 
 class QuestionEmbeddingConfigurationTest {
 
@@ -19,6 +21,7 @@ class QuestionEmbeddingConfigurationTest {
 		contextRunner.run(context -> {
 			assertThat(context).hasNotFailed();
 			assertThat(context).doesNotHaveBean(QuestionEmbeddingGateway.class);
+			assertThat(context).doesNotHaveBean(GeminiEmbeddingGateway.class);
 			assertThat(context).doesNotHaveBean(QuestionEmbeddingProperties.class);
 			assertThat(context).doesNotHaveBean(Client.class);
 		});
@@ -41,6 +44,9 @@ class QuestionEmbeddingConfigurationTest {
 			.run(context -> {
 				assertThat(context).hasNotFailed();
 				assertThat(context).hasSingleBean(QuestionEmbeddingGateway.class);
+				assertThat(context).hasSingleBean(GeminiEmbeddingGateway.class);
+				assertThat(context.getBean(GeminiEmbeddingGateway.class))
+					.isInstanceOf(GoogleGenAiGeminiEmbeddingGateway.class);
 				assertThat(context).hasBean("questionEmbeddingGeminiClient");
 				assertThat(context).hasSingleBean(Client.class);
 
