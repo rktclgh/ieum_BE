@@ -27,12 +27,6 @@ import shinhan.fibri.ieum.ai.question.service.QuestionCompletionCallbackWake;
 	name = "question-answer-enabled",
 	havingValue = "true"
 )
-@ConditionalOnProperty(
-	prefix = "app.ai.features",
-	name = "web-grounding-enabled",
-	havingValue = "false",
-	matchIfMissing = true
-)
 public class QuestionAnswerProcessingConfiguration {
 
 	@Bean

@@ -51,27 +51,12 @@ class QuestionAnswerProcessingConfigurationTest {
 	}
 
 	@Test
-	void webGroundingOnOmitsTheLocalOnlyOrchestratorWithoutRequiringDependencies() {
-		contextRunner
-			.withPropertyValues(
-				"app.ai.features.question-answer-enabled=true",
-				"app.ai.features.web-grounding-enabled=true"
-			)
-			.run(context -> {
-				assertThat(context).hasNotFailed();
-				assertThat(context).doesNotHaveBean(QuestionAnswerOrchestrator.class);
-				assertThat(context).doesNotHaveBean(StoredAddressRegionParser.class);
-				assertThat(context).doesNotHaveBean(QuestionEmbeddingTextFormatter.class);
-				assertThat(context).doesNotHaveBean(GroundingSufficiencyPolicy.class);
-				assertThat(context).doesNotHaveBean(QuestionAnswerCitationAssembler.class);
-			});
-	}
-
-	@Test
-	void localModeWiresExactlyOneOrchestratorWhenWebGroundingIsFalseOrMissing() {
+	void answerOnWiresExactlyOneOrchestratorForEveryWebGroundingFlag() {
 		assertLocalMode(enabledContext());
 		assertLocalMode(enabledContext()
 			.withPropertyValues("app.ai.features.web-grounding-enabled=false"));
+		assertLocalMode(enabledContext()
+			.withPropertyValues("app.ai.features.web-grounding-enabled=true"));
 	}
 
 	private void assertLocalMode(ApplicationContextRunner runner) {
