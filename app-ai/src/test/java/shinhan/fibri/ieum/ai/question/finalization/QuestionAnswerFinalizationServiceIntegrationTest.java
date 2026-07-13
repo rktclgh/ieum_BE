@@ -356,6 +356,37 @@ class QuestionAnswerFinalizationServiceIntegrationTest {
 			.single()).isTrue();
 	}
 
+	@Test
+	void leaseThatExpiresWhileWaitingForTheTicketLockCannotFinalizeAnAnswer() throws Exception {
+		QuestionTaskFence fence = insertProcessingTask(
+			"worker-a",
+			OffsetDateTime.now().plusSeconds(2)
+		);
+
+		try (Connection blocker = DATA_SOURCE.getConnection();
+			 ExecutorService executor = Executors.newSingleThreadExecutor()) {
+			blocker.setAutoCommit(false);
+			executeUpdate(
+				blocker,
+				"UPDATE ai_question_tasks SET updated_at = updated_at WHERE question_id = ?",
+				fence.questionId()
+			);
+
+			Future<QuestionAnswerFinalizationResult> finalization = executor.submit(
+				() -> service.completeGrounded(grounded(fence))
+			);
+			awaitTransactionWaiter();
+			Thread.sleep(2_200L);
+			blocker.commit();
+
+			assertThatThrownBy(() -> finalization.get(10, TimeUnit.SECONDS))
+				.hasCauseInstanceOf(StaleQuestionTaskFinalizationException.class);
+		}
+
+		assertThat(answerCount(fence.questionId())).isZero();
+		assertThat(taskRow(fence.questionId()).get("status")).isEqualTo("processing");
+	}
+
 	private GroundedQuestionAnswerFinalization grounded(QuestionTaskFence fence) {
 		return new GroundedQuestionAnswerFinalization(
 			fence,
@@ -426,6 +457,23 @@ class QuestionAnswerFinalizationServiceIntegrationTest {
 			Thread.sleep(25);
 		}
 		throw new AssertionError("finalization did not reach the answer insert lock");
+	}
+
+	private void awaitTransactionWaiter() throws InterruptedException {
+		long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+		while (System.nanoTime() < deadline) {
+			int waiting = jdbc.sql("""
+				SELECT count(*)
+				FROM pg_locks
+				WHERE locktype = 'transactionid'
+				  AND granted = false
+				""").query(Integer.class).single();
+			if (waiting > 0) {
+				return;
+			}
+			Thread.sleep(25L);
+		}
+		throw new AssertionError("finalization did not wait for the ticket lock");
 	}
 
 	private int softDeleteTicketQuestionAndPin(TaskFixture fixture) throws SQLException {

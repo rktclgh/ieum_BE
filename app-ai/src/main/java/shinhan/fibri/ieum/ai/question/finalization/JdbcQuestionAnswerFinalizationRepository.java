@@ -27,7 +27,7 @@ public class JdbcQuestionAnswerFinalizationRepository {
 			  AND status = 'processing'
 			  AND locked_by = :workerId
 			  AND lease_token = :leaseToken
-			  AND lease_until > CURRENT_TIMESTAMP
+			  AND lease_until > clock_timestamp()
 			FOR UPDATE
 			""")
 			.param("questionId", fence.questionId())
@@ -58,7 +58,7 @@ public class JdbcQuestionAnswerFinalizationRepository {
 			  AND status = 'processing'
 			  AND locked_by = :workerId
 			  AND lease_token = :leaseToken
-			  AND lease_until > CURRENT_TIMESTAMP
+			  AND lease_until > clock_timestamp()
 			""")
 			.param("questionId", fence.questionId())
 			.param("workerId", fence.workerId())
@@ -110,7 +110,7 @@ public class JdbcQuestionAnswerFinalizationRepository {
 			  AND status = 'processing'
 			  AND locked_by = :workerId
 			  AND lease_token = :leaseToken
-			  AND lease_until > CURRENT_TIMESTAMP
+			  AND lease_until > clock_timestamp()
 			""")
 			.param("embedding", vectorLiteral(context.embedding()))
 			.param("embeddingModel", context.embeddingModel())
@@ -165,7 +165,7 @@ public class JdbcQuestionAnswerFinalizationRepository {
 			  AND status = 'processing'
 			  AND locked_by = :workerId
 			  AND lease_token = :leaseToken
-			  AND lease_until > CURRENT_TIMESTAMP
+			  AND lease_until > clock_timestamp()
 			""")
 			.param("embedding", vectorLiteral(context.embedding()))
 			.param("embeddingModel", context.embeddingModel())

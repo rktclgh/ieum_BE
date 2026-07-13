@@ -33,6 +33,7 @@ class QuestionAnswerTaskProcessorTest {
 	void claimsTheQueuedQuestionIdAndHandsTheClaimToTheOrchestratorOnce() {
 		ClaimedQuestionTask claim = new ClaimedQuestionTask(
 			42L,
+			"worker-1",
 			UUID.randomUUID(),
 			OffsetDateTime.now().plusMinutes(2),
 			1
@@ -103,9 +104,41 @@ class QuestionAnswerTaskProcessorTest {
 		);
 	}
 
+	@Test
+	void usesTheCanonicalWorkerFenceReturnedByClaimForFailureTransitions() {
+		QuestionAnswerTaskProcessor paddedWorkerProcessor = new QuestionAnswerTaskProcessor(
+			repository,
+			orchestrator,
+			" worker-1 ",
+			Duration.ofMinutes(2),
+			5
+		);
+		ClaimedQuestionTask canonicalClaim = claim(1);
+		when(repository.claimByQuestionId(42L, " worker-1 ", Duration.ofMinutes(2), 5))
+			.thenReturn(Optional.of(canonicalClaim));
+		doThrow(new RuntimeException("provider failure"))
+			.when(orchestrator).process(canonicalClaim);
+
+		paddedWorkerProcessor.process(42L);
+
+		verify(repository).markRetry(
+			42L,
+			"worker-1",
+			canonicalClaim.leaseToken(),
+			Duration.ofSeconds(10)
+		);
+		verify(repository, never()).markRetry(
+			42L,
+			" worker-1 ",
+			canonicalClaim.leaseToken(),
+			Duration.ofSeconds(10)
+		);
+	}
+
 	private ClaimedQuestionTask claim(int attempts) {
 		return new ClaimedQuestionTask(
 			42L,
+			"worker-1",
 			UUID.randomUUID(),
 			OffsetDateTime.now().plusMinutes(2),
 			attempts

@@ -1,5 +1,10 @@
 -- ============================================================
--- FiBri Schema v16
+-- FiBri Schema v17
+-- v16 대비 변경:
+--   [18] 질문 AI checkpoint:
+--        Query Analyzer 결과 버전을 ai_question_tasks에 저장해 retry 재사용 여부를 판정한다.
+--        짧은 lease-fenced checkpoint TX는 분석·임베딩·stage 전이만 저장한다.
+--        기존 DB 증분: db/migrations/v17_question_ai_checkpoints.sql
 -- v15 대비 변경:
 --   [17] 질문 AI finalization 잠금:
 --        active question+pin 잠금 함수를 추가하고 AI answer 함수도 두 row를 함께 잠근다.
@@ -362,6 +367,7 @@ CREATE TABLE ai_question_tasks (
     lease_until TIMESTAMPTZ,
     locked_by VARCHAR(100),
     lease_token UUID,
+    analysis_version VARCHAR(80),
     geo_scope VARCHAR(24),
     geo_scope_confidence NUMERIC(5,4),
     region_context JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -405,6 +411,8 @@ CREATE TABLE ai_question_tasks (
     CHECK (jsonb_typeof(evidence) = 'array' AND jsonb_array_length(evidence) <= 8),
     CONSTRAINT ck_ai_question_tasks_geo_scope
         CHECK (geo_scope IS NULL OR geo_scope IN ('general','regional','local','place_specific')),
+    CONSTRAINT ck_ai_question_tasks_analysis_version
+        CHECK (analysis_version IS NULL OR btrim(analysis_version) <> ''),
     CONSTRAINT ck_ai_question_tasks_geo_confidence
         CHECK (geo_scope_confidence IS NULL OR geo_scope_confidence BETWEEN 0 AND 1),
     CONSTRAINT ck_ai_question_tasks_region_context

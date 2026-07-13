@@ -54,12 +54,13 @@ class JdbcQuestionTaskWorkRepositoryIntegrationTest {
 		insertTask(requestedQuestionId, dueAt, 0, dueAt);
 
 		ClaimedQuestionTask claimed = repository.claimByQuestionId(
-			requestedQuestionId, "worker-a", Duration.ofMinutes(2), MAX_ATTEMPTS
+			requestedQuestionId, " worker-a ", Duration.ofMinutes(2), MAX_ATTEMPTS
 		).orElseThrow();
 
 		assertThat(claimed.questionId()).isEqualTo(requestedQuestionId);
 		assertThat(taskStatus(oldestQuestionId)).isEqualTo("pending");
 		assertThat(taskStatus(requestedQuestionId)).isEqualTo("processing");
+		assertThat(claimed.workerId()).isEqualTo("worker-a");
 		assertThat(claimed.leaseToken()).isNotNull();
 		assertThat(claimed.attempts()).isEqualTo(1);
 		assertThat(claimed.leaseUntil()).isAfter(OffsetDateTime.now().plusMinutes(1));

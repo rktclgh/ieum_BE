@@ -31,6 +31,7 @@ public class JdbcQuestionTaskWorkRepository implements QuestionTaskWorkRepositor
 		int maxAttempts
 	) {
 		validateClaim(questionId, workerId, lease, maxAttempts);
+		String canonicalWorkerId = workerId.trim();
 		UUID leaseToken = UUID.randomUUID();
 		return jdbc.sql("""
 			WITH candidate AS (
@@ -62,15 +63,16 @@ public class JdbcQuestionTaskWorkRepository implements QuestionTaskWorkRepositor
 			    updated_at = CURRENT_TIMESTAMP
 			FROM candidate
 			WHERE task.question_id = candidate.question_id
-			RETURNING task.question_id, task.lease_token, task.lease_until, task.attempts
+			RETURNING task.question_id, task.locked_by, task.lease_token, task.lease_until, task.attempts
 			""")
 			.param("questionId", questionId)
 			.param("maxAttempts", maxAttempts)
 			.param("leaseSeconds", lease.toSeconds())
-			.param("workerId", workerId)
+			.param("workerId", canonicalWorkerId)
 			.param("leaseToken", leaseToken)
 			.query((resultSet, rowNumber) -> new ClaimedQuestionTask(
 				resultSet.getLong("question_id"),
+				resultSet.getString("locked_by"),
 				resultSet.getObject("lease_token", UUID.class),
 				resultSet.getObject("lease_until", OffsetDateTime.class),
 				resultSet.getInt("attempts")

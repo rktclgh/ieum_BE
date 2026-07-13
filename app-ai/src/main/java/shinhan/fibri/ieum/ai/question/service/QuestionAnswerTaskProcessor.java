@@ -37,12 +37,12 @@ public class QuestionAnswerTaskProcessor {
 		}
 		catch (RuntimeException exception) {
 			if (claim.attempts() >= maxAttempts) {
-				repository.markDead(claim.questionId(), workerId, claim.leaseToken());
+				repository.markDead(claim.questionId(), claim.workerId(), claim.leaseToken());
 				return;
 			}
 			repository.markRetry(
 				claim.questionId(),
-				workerId,
+				claim.workerId(),
 				claim.leaseToken(),
 				retryDelay(claim.attempts())
 			);
