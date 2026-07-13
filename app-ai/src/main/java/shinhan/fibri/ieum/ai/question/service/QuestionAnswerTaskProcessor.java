@@ -10,6 +10,7 @@ import shinhan.fibri.ieum.ai.question.checkpoint.StaleQuestionCheckpointExceptio
 import shinhan.fibri.ieum.ai.question.finalization.StaleQuestionTaskFinalizationException;
 import shinhan.fibri.ieum.ai.question.generation.LocalAnswerProviderFailureCode;
 import shinhan.fibri.ieum.ai.question.generation.QuestionGenerationUnavailableException;
+import shinhan.fibri.ieum.ai.question.grounding.QuestionGroundingUnavailableException;
 import shinhan.fibri.ieum.ai.question.repository.ClaimedQuestionTask;
 import shinhan.fibri.ieum.ai.question.repository.QuestionTaskWorkRepository;
 import software.amazon.awssdk.core.exception.SdkException;
@@ -93,7 +94,19 @@ public class QuestionAnswerTaskProcessor {
 			if (current instanceof QuestionGenerationUnavailableException generation) {
 				generationFailure = preferProviderFailure(
 					generationFailure,
-					classifyGenerationFailure(generation)
+					classifyProviderFailures(
+						generation.primaryFailure(),
+						generation.fallbackFailure()
+					)
+				);
+			}
+			if (current instanceof QuestionGroundingUnavailableException grounding) {
+				generationFailure = preferProviderFailure(
+					generationFailure,
+					classifyProviderFailures(
+						grounding.primaryFailure(),
+						grounding.fallbackFailure()
+					)
 				);
 			}
 			if (current instanceof SdkServiceException serviceException) {
@@ -151,26 +164,40 @@ public class QuestionAnswerTaskProcessor {
 		};
 	}
 
-	private QuestionTaskFailure classifyGenerationFailure(
-		QuestionGenerationUnavailableException exception
+	private QuestionTaskFailure classifyProviderFailures(
+		LocalAnswerProviderFailureCode primaryFailure,
+		LocalAnswerProviderFailureCode fallbackFailure
 	) {
-		if (hasGenerationFailure(exception, LocalAnswerProviderFailureCode.rate_limited)) {
+		if (hasProviderFailure(
+			primaryFailure,
+			fallbackFailure,
+			LocalAnswerProviderFailureCode.rate_limited
+		)) {
 			return QuestionTaskFailure.PROVIDER_RATE_LIMITED;
 		}
-		if (hasGenerationFailure(exception, LocalAnswerProviderFailureCode.timeout)) {
+		if (hasProviderFailure(
+			primaryFailure,
+			fallbackFailure,
+			LocalAnswerProviderFailureCode.timeout
+		)) {
 			return QuestionTaskFailure.PROVIDER_TIMEOUT;
 		}
-		if (hasGenerationFailure(exception, LocalAnswerProviderFailureCode.provider_unavailable)) {
+		if (hasProviderFailure(
+			primaryFailure,
+			fallbackFailure,
+			LocalAnswerProviderFailureCode.provider_unavailable
+		)) {
 			return QuestionTaskFailure.PROVIDER_UNAVAILABLE;
 		}
 		return QuestionTaskFailure.GENERATION_INVALID_OUTPUT;
 	}
 
-	private boolean hasGenerationFailure(
-		QuestionGenerationUnavailableException exception,
+	private boolean hasProviderFailure(
+		LocalAnswerProviderFailureCode primaryFailure,
+		LocalAnswerProviderFailureCode fallbackFailure,
 		LocalAnswerProviderFailureCode expected
 	) {
-		return exception.primaryFailure() == expected || exception.fallbackFailure() == expected;
+		return primaryFailure == expected || fallbackFailure == expected;
 	}
 
 	private QuestionTaskFailure classifyServiceFailure(SdkServiceException exception) {

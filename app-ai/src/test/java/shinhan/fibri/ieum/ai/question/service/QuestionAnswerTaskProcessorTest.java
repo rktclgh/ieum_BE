@@ -20,6 +20,7 @@ import shinhan.fibri.ieum.ai.question.checkpoint.StaleQuestionCheckpointExceptio
 import shinhan.fibri.ieum.ai.question.finalization.StaleQuestionTaskFinalizationException;
 import shinhan.fibri.ieum.ai.question.generation.LocalAnswerProviderFailureCode;
 import shinhan.fibri.ieum.ai.question.generation.QuestionGenerationUnavailableException;
+import shinhan.fibri.ieum.ai.question.grounding.QuestionGroundingUnavailableException;
 import shinhan.fibri.ieum.ai.question.repository.ClaimedQuestionTask;
 import shinhan.fibri.ieum.ai.question.repository.QuestionTaskWorkRepository;
 import software.amazon.awssdk.core.exception.SdkServiceException;
@@ -251,6 +252,53 @@ class QuestionAnswerTaskProcessorTest {
 	}
 
 	@Test
+	void classifiesGroundingRateLimitAheadOfInvalidOutput() {
+		assertGroundingFailureClassification(
+			LocalAnswerProviderFailureCode.invalid_output,
+			LocalAnswerProviderFailureCode.rate_limited,
+			QuestionTaskFailure.PROVIDER_RATE_LIMITED
+		);
+	}
+
+	@Test
+	void classifiesGroundingTimeoutAheadOfProviderUnavailability() {
+		assertGroundingFailureClassification(
+			LocalAnswerProviderFailureCode.timeout,
+			LocalAnswerProviderFailureCode.provider_unavailable,
+			QuestionTaskFailure.PROVIDER_TIMEOUT
+		);
+	}
+
+	@Test
+	void classifiesGroundingProviderUnavailabilityAheadOfInvalidOutput() {
+		assertGroundingFailureClassification(
+			LocalAnswerProviderFailureCode.invalid_output,
+			LocalAnswerProviderFailureCode.provider_unavailable,
+			QuestionTaskFailure.PROVIDER_UNAVAILABLE
+		);
+	}
+
+	@Test
+	void classifiesGroundingInvalidOrEmptyOutputsAsGenerationInvalidOutput() {
+		assertGroundingFailureClassification(
+			LocalAnswerProviderFailureCode.invalid_output,
+			LocalAnswerProviderFailureCode.empty_response,
+			QuestionTaskFailure.GENERATION_INVALID_OUTPUT
+		);
+	}
+
+	@Test
+	void wrappedGroundingFailureKeepsItsAllowlistedClassification() {
+		assertTransientClassification(
+			new IllegalStateException(new QuestionGroundingUnavailableException(
+				LocalAnswerProviderFailureCode.invalid_output,
+				LocalAnswerProviderFailureCode.rate_limited
+			)),
+			QuestionTaskFailure.PROVIDER_RATE_LIMITED
+		);
+	}
+
+	@Test
 	void wrappedStaleFailureStillDiscardsWithoutAStateTransition() {
 		ClaimedQuestionTask claim = claim(1);
 		when(repository.claimByQuestionId(42L, "worker-1", Duration.ofMinutes(2), 5))
@@ -442,6 +490,18 @@ class QuestionAnswerTaskProcessorTest {
 		QuestionTaskFailure expectedFailure
 	) {
 		QuestionGenerationUnavailableException exception = new QuestionGenerationUnavailableException(
+			primaryFailure,
+			fallbackFailure
+		);
+		assertTransientClassification(exception, expectedFailure);
+	}
+
+	private void assertGroundingFailureClassification(
+		LocalAnswerProviderFailureCode primaryFailure,
+		LocalAnswerProviderFailureCode fallbackFailure,
+		QuestionTaskFailure expectedFailure
+	) {
+		QuestionGroundingUnavailableException exception = new QuestionGroundingUnavailableException(
 			primaryFailure,
 			fallbackFailure
 		);
