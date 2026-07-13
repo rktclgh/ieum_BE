@@ -2,6 +2,7 @@ package shinhan.fibri.ieum;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
@@ -15,7 +16,23 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 public class AiApplication {
 
 	public static void main(String[] args) {
-		SpringApplication.run(AiApplication.class, args);
+		ConfigurableApplicationContext context = application().run(args);
+		closeIfOneShot(context);
+	}
+
+	static SpringApplication application() {
+		SpringApplication application = new SpringApplication(AiBootstrapConfiguration.class);
+		application.addListeners(new AiApplicationModeEnvironmentListener());
+		return application;
+	}
+
+	static void closeIfOneShot(ConfigurableApplicationContext context) {
+		AiApplicationMode mode = AiApplicationMode.from(
+			context.getEnvironment().getProperty("app.ai.mode")
+		);
+		if (mode.oneShot()) {
+			context.close();
+		}
 	}
 
 }

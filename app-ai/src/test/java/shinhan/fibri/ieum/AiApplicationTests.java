@@ -8,8 +8,12 @@ import java.nio.file.Path;
 import java.util.Properties;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Import;
+import shinhan.fibri.ieum.ai.knowledge.packageimport.KnowledgeSeedImportRunner;
+import shinhan.fibri.ieum.ai.knowledge.packageimport.KnowledgeSeedPackageImporter;
 import shinhan.fibri.ieum.ai.support.AiDatabaseIntegrationTestBase;
 import shinhan.fibri.ieum.ai.support.NoNetworkProviderTestConfiguration;
 
@@ -17,8 +21,17 @@ import shinhan.fibri.ieum.ai.support.NoNetworkProviderTestConfiguration;
 @Import(NoNetworkProviderTestConfiguration.class)
 class AiApplicationTests extends AiDatabaseIntegrationTestBase {
 
+	@Autowired
+	private ApplicationContext applicationContext;
+
 	@Test
 	void contextLoads() {
+	}
+
+	@Test
+	void serverModeDoesNotCreateKnowledgeImportPipeline() {
+		assertThat(applicationContext.getBeansOfType(KnowledgeSeedPackageImporter.class)).isEmpty();
+		assertThat(applicationContext.getBeansOfType(KnowledgeSeedImportRunner.class)).isEmpty();
 	}
 
 	@Test
@@ -30,6 +43,7 @@ class AiApplicationTests extends AiDatabaseIntegrationTestBase {
 
 		assertThat(properties.getProperty("spring.config.import"))
 			.contains("optional:file:./app-ai/.env[.properties]");
+		assertThat(properties.getProperty("app.ai.mode")).isEqualTo("${APP_AI_MODE:server}");
 		assertThat(properties)
 			.doesNotContainKey("spring.jpa.properties.hibernate.dialect");
 	}
