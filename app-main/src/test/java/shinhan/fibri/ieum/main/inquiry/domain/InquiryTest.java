@@ -2,6 +2,8 @@ package shinhan.fibri.ieum.main.inquiry.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import jakarta.persistence.Column;
+import java.lang.reflect.Field;
 import org.junit.jupiter.api.Test;
 
 class InquiryTest {
@@ -18,5 +20,12 @@ class InquiryTest {
 		assertThat(inquiry.getAnsweredBy()).isNull();
 		assertThat(inquiry.getAnsweredAt()).isNull();
 		assertThat(inquiry.getCreatedAt()).isNotNull();
+	}
+
+	@Test
+	void keepsInquiryOwnerColumnImmutable() throws NoSuchFieldException {
+		Field userId = Inquiry.class.getDeclaredField("userId");
+
+		assertThat(userId.getAnnotation(Column.class).updatable()).isFalse();
 	}
 }
