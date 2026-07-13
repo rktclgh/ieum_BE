@@ -3,6 +3,7 @@ package shinhan.fibri.ieum.ai.question.retrieval;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
@@ -14,6 +15,7 @@ class VectorKnowledgeScorerTest {
 
 	private final VectorKnowledgeRetrievalConfig config = VectorKnowledgeRetrievalConfig.defaults();
 	private final VectorKnowledgeScorer scorer = new VectorKnowledgeScorer(config);
+	private final Instant retrievedAt = Instant.parse("2026-07-13T03:04:05Z");
 
 	@ParameterizedTest
 	@MethodSource("queryScopeScores")
@@ -21,7 +23,8 @@ class VectorKnowledgeScorerTest {
 		VectorKnowledgeEvidence evidence = scorer.score(
 			candidate(1L, GeoScope.general, "curated", "community", null, RegionContext.empty()),
 			1,
-			request(queryScope, RegionContext.empty())
+			request(queryScope, RegionContext.empty()),
+			retrievedAt
 		);
 
 		assertThat(evidence.semanticScore()).isEqualByComparingTo("0.620000");
@@ -35,12 +38,14 @@ class VectorKnowledgeScorerTest {
 		VectorKnowledgeEvidence local = scorer.score(
 			candidate(1L, GeoScope.local, "curated", "community", 20.0d, RegionContext.empty()),
 			1,
-			request(GeoScope.local, RegionContext.empty())
+			request(GeoScope.local, RegionContext.empty()),
+			retrievedAt
 		);
 		VectorKnowledgeEvidence placeSpecific = scorer.score(
 			candidate(2L, GeoScope.place_specific, "curated", "community", 4.0d, RegionContext.empty()),
 			2,
-			request(GeoScope.place_specific, RegionContext.empty())
+			request(GeoScope.place_specific, RegionContext.empty()),
+			retrievedAt
 		);
 
 		assertThat(local.geoScore()).isEqualByComparingTo("0.135335");
@@ -53,7 +58,8 @@ class VectorKnowledgeScorerTest {
 		VectorKnowledgeEvidence evidence = scorer.score(
 			candidate(1L, GeoScope.general, sourceType, sourceGrade, null, RegionContext.empty()),
 			1,
-			request(GeoScope.general, RegionContext.empty())
+			request(GeoScope.general, RegionContext.empty()),
+			retrievedAt
 		);
 
 		assertThat(evidence.semanticScore()).isEqualByComparingTo(expectedSemanticScore);
@@ -82,7 +88,7 @@ class VectorKnowledgeScorerTest {
 		);
 
 		assertThat(candidates.stream()
-			.map(candidate -> scorer.score(candidate, 1, request(GeoScope.general, seoulJongno)).geoScore())
+				.map(candidate -> scorer.score(candidate, 1, request(GeoScope.general, seoulJongno), retrievedAt).geoScore())
 			.toList())
 			.containsOnly(new BigDecimal("0.500000"));
 	}
@@ -119,7 +125,8 @@ class VectorKnowledgeScorerTest {
 		return scorer.score(
 			candidate(1L, GeoScope.regional, "curated", "community", null, sourceRegion),
 			1,
-			request(GeoScope.regional, queryRegion)
+			request(GeoScope.regional, queryRegion),
+			retrievedAt
 		).geoScore();
 	}
 
@@ -147,6 +154,10 @@ class VectorKnowledgeScorerTest {
 			"source-" + sourceId,
 			"content-" + sourceId,
 			sourceGrade,
+			"a".repeat(64),
+			"https://example.com/source/" + sourceId,
+			"transportation",
+			"community",
 			sourceScope,
 			sourceRegion,
 			1.0d,
@@ -162,12 +173,17 @@ class VectorKnowledgeScorerTest {
 			"source",
 			"content",
 			"community",
+			"a".repeat(64),
+			"https://example.com/source",
+			"transportation",
+			"community",
 			GeoScope.general,
 			new BigDecimal("1.000000"),
 			new BigDecimal("0.500000"),
 			new BigDecimal("0.500000"),
 			new BigDecimal(finalScore),
-			null
+			null,
+			retrievedAt
 		);
 	}
 

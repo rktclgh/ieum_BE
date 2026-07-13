@@ -4,7 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.BeforeAll;
@@ -18,6 +21,7 @@ class JdbcVectorOnlyKnowledgeRetrievalIntegrationTest {
 
 	private static final String DATABASE = "ieum_ai_vector_retrieval";
 	private static final GeoPoint SEOUL = new GeoPoint(37.5665, 126.9780);
+	private static final Instant RETRIEVED_AT = Instant.parse("2026-07-13T03:04:05Z");
 
 	private JdbcClient jdbc;
 	private JdbcVectorKnowledgeRepository repository;
@@ -39,8 +43,39 @@ class JdbcVectorOnlyKnowledgeRetrievalIntegrationTest {
 		repository = new JdbcVectorKnowledgeRepository(jdbc);
 		service = new VectorOnlyKnowledgeRetrievalService(
 			repository,
-			VectorKnowledgeRetrievalConfig.defaults()
+			VectorKnowledgeRetrievalConfig.defaults(),
+			Clock.fixed(RETRIEVED_AT, ZoneOffset.UTC)
 		);
+	}
+
+	@Test
+	void mapsCanonicalProvenanceAndStampsOneRetrievalInstant() {
+		String contentHash = "b".repeat(64);
+		Long sourceId = insertSource(source("Korea public service")
+			.withContentHash(contentHash)
+			.withSourceGrade("government")
+			.withCanonicalUrl("https://www.gov.kr/service?id=1")
+			.withRiskDomain("administration")
+			.withDomain("public-service"));
+		Long chunkId = insertChunk(sourceId, vector(1.0f), "gemini-embedding-2");
+
+		VectorKnowledgeCandidate candidate = repository.findGlobalCandidates(vector(1.0f), 100).getFirst();
+		VectorKnowledgeRetrievalResult result = service.retrieve(request(GeoScope.general, null));
+		VectorKnowledgeEvidence evidence = result.evidence().getFirst();
+
+		assertThat(candidate.sourceId()).isEqualTo(sourceId);
+		assertThat(candidate.chunkId()).isEqualTo(chunkId);
+		assertThat(candidate.contentHash()).isEqualTo(contentHash);
+		assertThat(candidate.canonicalUrl()).isEqualTo("https://www.gov.kr/service?id=1");
+		assertThat(candidate.riskDomain()).isEqualTo("administration");
+		assertThat(candidate.domain()).isEqualTo("public-service");
+		assertThat(candidate.title()).isEqualTo("Korea public service");
+		assertThat(candidate.excerpt()).isEqualTo("content for " + sourceId);
+		assertThat(evidence.contentHash()).isEqualTo(contentHash);
+		assertThat(evidence.canonicalUrl()).isEqualTo(candidate.canonicalUrl());
+		assertThat(evidence.retrievedAt()).isEqualTo(RETRIEVED_AT);
+		assertThat(result.candidates()).allSatisfy(item -> assertThat(item.retrievedAt()).isEqualTo(RETRIEVED_AT));
+		assertThat(service.revalidateEvidence(result.evidence()).getFirst().retrievedAt()).isEqualTo(RETRIEVED_AT);
 	}
 
 	@Test
@@ -343,7 +378,11 @@ class JdbcVectorOnlyKnowledgeRetrievalIntegrationTest {
 			GeoScope.general,
 			RegionContext.empty(),
 			null,
-			"community"
+			"community",
+			"a".repeat(64),
+			null,
+			null,
+			null
 		);
 	}
 
@@ -354,12 +393,15 @@ class JdbcVectorOnlyKnowledgeRetrievalIntegrationTest {
 			    valid_until, geo_scope, region_context, metadata
 			)
 			VALUES (
-			    CAST(:sourceType AS knowledge_source_type), :externalRef, repeat('a', 64),
+			    CAST(:sourceType AS knowledge_source_type), :externalRef, :contentHash,
 			    :displayName, :status, :active, CAST(:validUntil AS timestamptz), :geoScope,
 			    jsonb_strip_nulls(jsonb_build_object(
 			        'sido', CAST(:sido AS text), 'sigungu', CAST(:sigungu AS text)
 			    )),
-			    jsonb_build_object('sourceGrade', :sourceGrade)
+			    jsonb_strip_nulls(jsonb_build_object(
+			        'sourceGrade', :sourceGrade, 'canonicalUrl', CAST(:canonicalUrl AS text),
+			        'riskDomain', CAST(:riskDomain AS text), 'domain', CAST(:domain AS text)
+			    ))
 			)
 			RETURNING source_id
 			""" : """
@@ -368,13 +410,16 @@ class JdbcVectorOnlyKnowledgeRetrievalIntegrationTest {
 			    valid_until, geo_scope, region_context, anchor_location, metadata
 			)
 			VALUES (
-			    CAST(:sourceType AS knowledge_source_type), :externalRef, repeat('a', 64),
+			    CAST(:sourceType AS knowledge_source_type), :externalRef, :contentHash,
 			    :displayName, :status, :active, CAST(:validUntil AS timestamptz), :geoScope,
 			    jsonb_strip_nulls(jsonb_build_object(
 			        'sido', CAST(:sido AS text), 'sigungu', CAST(:sigungu AS text)
 			    )),
 			    ST_SetSRID(ST_MakePoint(:longitude, :latitude), 4326)::geography,
-			    jsonb_build_object('sourceGrade', :sourceGrade)
+			    jsonb_strip_nulls(jsonb_build_object(
+			        'sourceGrade', :sourceGrade, 'canonicalUrl', CAST(:canonicalUrl AS text),
+			        'riskDomain', CAST(:riskDomain AS text), 'domain', CAST(:domain AS text)
+			    ))
 			)
 			RETURNING source_id
 			""";
@@ -388,7 +433,11 @@ class JdbcVectorOnlyKnowledgeRetrievalIntegrationTest {
 			.param("geoScope", source.geoScope().name())
 			.param("sido", source.regionContext().sido())
 			.param("sigungu", source.regionContext().sigungu())
-			.param("sourceGrade", source.sourceGrade());
+			.param("sourceGrade", source.sourceGrade())
+			.param("contentHash", source.contentHash())
+			.param("canonicalUrl", source.canonicalUrl())
+			.param("riskDomain", source.riskDomain())
+			.param("domain", source.domain());
 		if (source.coordinates() != null) {
 			statement = statement
 				.param("latitude", source.coordinates().latitude())
@@ -438,31 +487,60 @@ class JdbcVectorOnlyKnowledgeRetrievalIntegrationTest {
 		GeoScope geoScope,
 		RegionContext regionContext,
 		GeoPoint coordinates,
-		String sourceGrade
+		String sourceGrade,
+		String contentHash,
+		String canonicalUrl,
+		String riskDomain,
+		String domain
 	) {
 		private SourceFixture withStatus(String value) {
 			return new SourceFixture(displayName, sourceType, value, active, validUntil, geoScope,
-				regionContext, coordinates, sourceGrade);
+				regionContext, coordinates, sourceGrade, contentHash, canonicalUrl, riskDomain, domain);
 		}
 
 		private SourceFixture withValidUntil(OffsetDateTime value) {
 			return new SourceFixture(displayName, sourceType, status, active, value, geoScope,
-				regionContext, coordinates, sourceGrade);
+				regionContext, coordinates, sourceGrade, contentHash, canonicalUrl, riskDomain, domain);
 		}
 
 		private SourceFixture withGeoScope(GeoScope value) {
 			return new SourceFixture(displayName, sourceType, status, active, validUntil, value,
-				regionContext, coordinates, sourceGrade);
+				regionContext, coordinates, sourceGrade, contentHash, canonicalUrl, riskDomain, domain);
 		}
 
 		private SourceFixture withCoordinates(GeoPoint value) {
 			return new SourceFixture(displayName, sourceType, status, active, validUntil, geoScope,
-				regionContext, value, sourceGrade);
+				regionContext, value, sourceGrade, contentHash, canonicalUrl, riskDomain, domain);
 		}
 
 		private SourceFixture withRegionContext(RegionContext value) {
 			return new SourceFixture(displayName, sourceType, status, active, validUntil, geoScope,
-				value, coordinates, sourceGrade);
+				value, coordinates, sourceGrade, contentHash, canonicalUrl, riskDomain, domain);
+		}
+
+		private SourceFixture withSourceGrade(String value) {
+			return new SourceFixture(displayName, sourceType, status, active, validUntil, geoScope,
+				regionContext, coordinates, value, contentHash, canonicalUrl, riskDomain, domain);
+		}
+
+		private SourceFixture withContentHash(String value) {
+			return new SourceFixture(displayName, sourceType, status, active, validUntil, geoScope,
+				regionContext, coordinates, sourceGrade, value, canonicalUrl, riskDomain, domain);
+		}
+
+		private SourceFixture withCanonicalUrl(String value) {
+			return new SourceFixture(displayName, sourceType, status, active, validUntil, geoScope,
+				regionContext, coordinates, sourceGrade, contentHash, value, riskDomain, domain);
+		}
+
+		private SourceFixture withRiskDomain(String value) {
+			return new SourceFixture(displayName, sourceType, status, active, validUntil, geoScope,
+				regionContext, coordinates, sourceGrade, contentHash, canonicalUrl, value, domain);
+		}
+
+		private SourceFixture withDomain(String value) {
+			return new SourceFixture(displayName, sourceType, status, active, validUntil, geoScope,
+				regionContext, coordinates, sourceGrade, contentHash, canonicalUrl, riskDomain, value);
 		}
 	}
 }

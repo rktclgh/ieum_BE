@@ -2,6 +2,7 @@ package shinhan.fibri.ieum.ai.question.retrieval;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Instant;
 import java.util.Objects;
 
 public class VectorKnowledgeScorer {
@@ -20,10 +21,12 @@ public class VectorKnowledgeScorer {
 	public VectorKnowledgeEvidence score(
 		VectorKnowledgeCandidate candidate,
 		int vectorRank,
-		VectorKnowledgeRetrievalRequest request
+		VectorKnowledgeRetrievalRequest request,
+		Instant retrievedAt
 	) {
 		Objects.requireNonNull(candidate, "candidate must not be null");
 		Objects.requireNonNull(request, "request must not be null");
+		Objects.requireNonNull(retrievedAt, "retrievedAt must not be null");
 		if (vectorRank <= 0) {
 			throw new IllegalArgumentException("vectorRank must be positive");
 		}
@@ -46,15 +49,20 @@ public class VectorKnowledgeScorer {
 			candidate.sourceId(),
 			candidate.chunkId(),
 			candidate.sourceType(),
-			candidate.displayName(),
-			candidate.content(),
+			candidate.title(),
+			candidate.excerpt(),
 			candidate.sourceGrade(),
+			candidate.contentHash(),
+			candidate.canonicalUrl(),
+			candidate.riskDomain(),
+			candidate.domain(),
 			candidate.sourceGeoScope(),
 			round(candidate.cosineSimilarity()),
 			round(semanticScore),
 			round(geoScore),
 			round(finalScore),
-			candidate.distanceKm() == null ? null : round(candidate.distanceKm())
+			candidate.distanceKm() == null ? null : round(candidate.distanceKm()),
+			retrievedAt
 		);
 	}
 

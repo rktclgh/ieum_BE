@@ -1,5 +1,9 @@
 -- ============================================================
--- FiBri Schema v17
+-- FiBri Schema v18
+-- v17 대비 변경:
+--   [19] 지식 원천 content hash 무결성:
+--        knowledge_sources.content_hash를 lowercase SHA-256으로 DB에서도 강제한다.
+--        기존 DB 증분: db/migrations/v18_knowledge_source_content_hash.sql
 -- v16 대비 변경:
 --   [18] 질문 AI checkpoint:
 --        Query Analyzer 결과 버전을 ai_question_tasks에 저장해 retry 재사용 여부를 판정한다.
@@ -491,6 +495,8 @@ CREATE TABLE knowledge_sources (
         CHECK (jsonb_typeof(region_context) = 'object'),
     CONSTRAINT ck_knowledge_sources_metadata
         CHECK (jsonb_typeof(metadata) = 'object'),
+    CONSTRAINT ck_knowledge_sources_content_hash
+        CHECK (btrim(content_hash) ~ '^[0-9a-f]{64}$'),
     CONSTRAINT ck_knowledge_sources_ingestion_lease
         CHECK ((status = 'pending') = (ingestion_token IS NOT NULL AND ingestion_lease_until IS NOT NULL))
 );

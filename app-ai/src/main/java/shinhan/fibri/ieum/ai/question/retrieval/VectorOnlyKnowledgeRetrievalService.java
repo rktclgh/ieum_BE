@@ -1,5 +1,7 @@
 package shinhan.fibri.ieum.ai.question.retrieval;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -24,23 +26,34 @@ public class VectorOnlyKnowledgeRetrievalService {
 	private final VectorKnowledgeRepository repository;
 	private final VectorKnowledgeRetrievalConfig config;
 	private final VectorKnowledgeScorer scorer;
+	private final Clock clock;
 
 	@Autowired
 	public VectorOnlyKnowledgeRetrievalService(VectorKnowledgeRepository repository) {
-		this(repository, VectorKnowledgeRetrievalConfig.defaults());
+		this(repository, VectorKnowledgeRetrievalConfig.defaults(), Clock.systemUTC());
 	}
 
 	VectorOnlyKnowledgeRetrievalService(
 		VectorKnowledgeRepository repository,
 		VectorKnowledgeRetrievalConfig config
 	) {
+		this(repository, config, Clock.systemUTC());
+	}
+
+	VectorOnlyKnowledgeRetrievalService(
+		VectorKnowledgeRepository repository,
+		VectorKnowledgeRetrievalConfig config,
+		Clock clock
+	) {
 		this.repository = Objects.requireNonNull(repository, "repository must not be null");
 		this.config = Objects.requireNonNull(config, "config must not be null");
 		this.scorer = new VectorKnowledgeScorer(config);
+		this.clock = Objects.requireNonNull(clock, "clock must not be null");
 	}
 
 	public VectorKnowledgeRetrievalResult retrieve(VectorKnowledgeRetrievalRequest request) {
 		Objects.requireNonNull(request, "request must not be null");
+		Instant retrievedAt = Objects.requireNonNull(clock.instant(), "clock instant must not be null");
 		List<VectorKnowledgeCandidate> globalCandidates = repository.findGlobalCandidates(
 			request.embedding(),
 			config.globalOverfetch()
@@ -57,7 +70,7 @@ public class VectorOnlyKnowledgeRetrievalService {
 		List<VectorKnowledgeCandidate> ranked = mergeCandidates(globalCandidates, locationCandidates);
 		List<VectorKnowledgeEvidence> scored = new ArrayList<>(ranked.size());
 		for (int index = 0; index < ranked.size(); index++) {
-			scored.add(scorer.score(ranked.get(index), index + 1, request));
+			scored.add(scorer.score(ranked.get(index), index + 1, request, retrievedAt));
 		}
 
 		Set<Long> eligibleChunkIds = repository.findEligibleChunkIds(chunkIds(scored));
