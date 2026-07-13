@@ -255,6 +255,7 @@ class QuestionCheckpointServiceIntegrationTest {
 		List<Transition> transitions = List.of(
 			new Transition(QuestionTaskStage.RETRIEVING, QuestionTaskStage.GENERATING),
 			new Transition(QuestionTaskStage.RETRIEVING, QuestionTaskStage.WEB_GROUNDING),
+			new Transition(QuestionTaskStage.RETRIEVING, QuestionTaskStage.PERSISTING),
 			new Transition(QuestionTaskStage.GENERATING, QuestionTaskStage.VALIDATING),
 			new Transition(QuestionTaskStage.VALIDATING, QuestionTaskStage.WEB_GROUNDING),
 			new Transition(QuestionTaskStage.VALIDATING, QuestionTaskStage.PERSISTING),

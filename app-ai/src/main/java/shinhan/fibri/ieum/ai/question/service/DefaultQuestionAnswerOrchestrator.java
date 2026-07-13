@@ -283,14 +283,6 @@ public class DefaultQuestionAnswerOrchestrator implements QuestionAnswerOrchestr
 		if (cancelled(checkpointService.guardAndAdvance(
 			task,
 			currentStage,
-			QuestionTaskStage.WEB_GROUNDING,
-			leaseExtension
-		))) {
-			return;
-		}
-		if (cancelled(checkpointService.guardAndAdvance(
-			task,
-			QuestionTaskStage.WEB_GROUNDING,
 			QuestionTaskStage.PERSISTING,
 			leaseExtension
 		))) {

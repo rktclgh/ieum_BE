@@ -24,7 +24,7 @@ public enum QuestionTaskStage {
 	public boolean canAdvanceTo(QuestionTaskStage next) {
 		Objects.requireNonNull(next, "next stage must not be null");
 		return switch (this) {
-			case RETRIEVING -> next == GENERATING || next == WEB_GROUNDING;
+			case RETRIEVING -> next == GENERATING || next == WEB_GROUNDING || next == PERSISTING;
 			case GENERATING -> next == VALIDATING;
 			case VALIDATING -> next == WEB_GROUNDING || next == PERSISTING;
 			case WEB_GROUNDING -> next == PERSISTING;

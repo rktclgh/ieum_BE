@@ -166,6 +166,40 @@ class QuestionCheckpointServiceTest {
 		verifyNoInteractions(repository);
 	}
 
+	@Test
+	void allowsRetrievingToPersistingForAWebDisabledInsufficientResult() {
+		ClaimedQuestionTask claim = claim();
+		Duration extension = Duration.ofMinutes(2);
+		when(repository.lockCurrentFence(claim))
+			.thenReturn(Optional.of(new LockedQuestionCheckpoint(false)));
+		when(repository.lockActiveQuestion(claim.questionId())).thenReturn(true);
+		when(repository.advanceStage(
+			claim,
+			QuestionTaskStage.RETRIEVING,
+			QuestionTaskStage.PERSISTING,
+			extension
+		)).thenReturn(true);
+
+		QuestionCheckpointResult result = service.guardAndAdvance(
+			claim,
+			QuestionTaskStage.RETRIEVING,
+			QuestionTaskStage.PERSISTING,
+			extension
+		);
+
+		assertThat(result).isEqualTo(QuestionCheckpointResult.APPLIED);
+		InOrder order = inOrder(repository);
+		order.verify(repository).lockCurrentFence(claim);
+		order.verify(repository).lockActiveQuestion(claim.questionId());
+		order.verify(repository).advanceStage(
+			claim,
+			QuestionTaskStage.RETRIEVING,
+			QuestionTaskStage.PERSISTING,
+			extension
+		);
+		order.verifyNoMoreInteractions();
+	}
+
 	private ClaimedQuestionTask claim() {
 		return new ClaimedQuestionTask(
 			42L,

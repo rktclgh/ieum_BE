@@ -234,6 +234,18 @@ class DefaultQuestionAnswerOrchestratorTest {
 		assertThat(command.getValue().context().promptVersion()).isNull();
 		assertThat(command.getValue().context().groundingScore()).isEqualByComparingTo(BigDecimal.ZERO);
 		assertThat(command.getValue().context().evidence()).isEmpty();
+		verify(fixture.checkpointService).guardAndAdvance(
+			fixture.task,
+			QuestionTaskStage.RETRIEVING,
+			QuestionTaskStage.PERSISTING,
+			Fixture.LEASE
+		);
+		verify(fixture.checkpointService, never()).guardAndAdvance(
+			fixture.task,
+			QuestionTaskStage.RETRIEVING,
+			QuestionTaskStage.WEB_GROUNDING,
+			Fixture.LEASE
+		);
 		verify(fixture.callbackWake, never()).wake(anyLong());
 	}
 
@@ -258,6 +270,18 @@ class DefaultQuestionAnswerOrchestratorTest {
 		assertThat(command.getValue().context().promptVersion()).isEqualTo("repair-v1");
 		assertThat(command.getValue().context().groundingScore()).isEqualByComparingTo("0.44");
 		assertThat(command.getValue().context().evidence()).isEmpty();
+		verify(fixture.checkpointService).guardAndAdvance(
+			fixture.task,
+			QuestionTaskStage.VALIDATING,
+			QuestionTaskStage.PERSISTING,
+			Fixture.LEASE
+		);
+		verify(fixture.checkpointService, never()).guardAndAdvance(
+			fixture.task,
+			QuestionTaskStage.VALIDATING,
+			QuestionTaskStage.WEB_GROUNDING,
+			Fixture.LEASE
+		);
 		verify(fixture.callbackWake, never()).wake(anyLong());
 	}
 
