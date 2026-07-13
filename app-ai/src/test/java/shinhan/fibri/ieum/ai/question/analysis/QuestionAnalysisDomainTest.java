@@ -103,8 +103,8 @@ class QuestionAnalysisDomainTest {
 		assertThat(fallback.geoScope()).isEqualTo(GeoScope.general);
 		assertThat(fallback.confidence()).isEqualByComparingTo(BigDecimal.ZERO);
 		assertThat(fallback.regionContext()).isEqualTo(RegionContext.empty());
-		assertThat(fallback.domain()).isEqualTo("general");
-		assertThat(fallback.highRiskDomain()).isFalse();
+		assertThat(fallback.domain()).isEqualTo("unknown");
+		assertThat(fallback.highRiskDomain()).isTrue();
 		assertThat(fallback.entityCandidates()).isEmpty();
 		assertThat(fallback.searchTerms()).isEmpty();
 	}

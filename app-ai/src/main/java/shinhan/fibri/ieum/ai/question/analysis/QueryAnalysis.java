@@ -45,8 +45,8 @@ public record QueryAnalysis(
 			GeoScope.general,
 			BigDecimal.ZERO,
 			RegionContext.empty(),
-			"general",
-			false,
+			"unknown",
+			true,
 			List.of(),
 			List.of(),
 			analysisVersion
