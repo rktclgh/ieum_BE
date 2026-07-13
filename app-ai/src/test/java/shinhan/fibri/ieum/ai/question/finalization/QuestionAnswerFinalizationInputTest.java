@@ -256,6 +256,38 @@ class QuestionAnswerFinalizationInputTest {
 	}
 
 	@Test
+	void citationRangesAreUniqueAndCannotSplitUtf16SurrogatePairsButMayOverlap() {
+		String content = "A😀BCDE";
+		ObjectNode first = evidence().put("startIndex", 0).put("endIndex", 4);
+		ObjectNode overlapping = kgEvidence().put("startIndex", 3).put("endIndex", 6);
+
+		assertThat(new GroundedQuestionAnswerFinalization(
+			fence(),
+			QuestionAnswerMode.LOCAL_GROUNDED,
+			content,
+			context(List.of(first, overlapping))
+		)).isNotNull();
+
+		ObjectNode duplicateRange = kgEvidence().put("startIndex", 0).put("endIndex", 4);
+		assertThatThrownBy(() -> new GroundedQuestionAnswerFinalization(
+			fence(),
+			QuestionAnswerMode.LOCAL_GROUNDED,
+			content,
+			context(List.of(first, duplicateRange))
+		)).isInstanceOf(IllegalArgumentException.class)
+			.hasMessageContaining("citation range");
+
+		ObjectNode splitSurrogate = evidence().put("startIndex", 2).put("endIndex", 4);
+		assertThatThrownBy(() -> new GroundedQuestionAnswerFinalization(
+			fence(),
+			QuestionAnswerMode.LOCAL_GROUNDED,
+			content,
+			context(List.of(splitSurrogate))
+		)).isInstanceOf(IllegalArgumentException.class)
+			.hasMessageContaining("surrogate pair");
+	}
+
+	@Test
 	void preservesNonblankAnswerContentExactlySoCitationOffsetsRemainStable() {
 		String content = " answer ";
 		GroundedQuestionAnswerFinalization command = new GroundedQuestionAnswerFinalization(

@@ -6,6 +6,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -103,6 +104,7 @@ final class QuestionAnswerEvidenceValidator {
 	) {
 		int webEvidenceCount = 0;
 		int citationCount = 0;
+		Set<CitationRange> citationRanges = new HashSet<>();
 		for (JsonNode item : evidence) {
 			String type = item.get("type").textValue();
 			if (WEB.equals(type)) {
@@ -111,10 +113,13 @@ final class QuestionAnswerEvidenceValidator {
 					throw invalid("local grounded answers cannot contain web evidence");
 				}
 			}
-			if (item.hasNonNull("startIndex")) {
+			CitationRange citationRange = validateAnnotationRange(item, content);
+			if (citationRange != null) {
 				citationCount++;
+				if (!citationRanges.add(citationRange)) {
+					throw invalid("each citation range must be unique");
+				}
 			}
-			validateAnnotationRange(item, content.length());
 		}
 		if (citationCount == 0) {
 			throw invalid("grounded answers require at least one citation");
@@ -218,18 +223,34 @@ final class QuestionAnswerEvidenceValidator {
 		}
 	}
 
-	private static void validateAnnotationRange(JsonNode evidence, int contentLength) {
+	private static CitationRange validateAnnotationRange(JsonNode evidence, String content) {
 		JsonNode start = evidence.get("startIndex");
 		JsonNode end = evidence.get("endIndex");
 		if (start == null || start.isNull()) {
-			return;
+			return null;
 		}
-		if (start.intValue() < 0 || end.intValue() <= start.intValue() || end.intValue() > contentLength) {
+		int startIndex = start.intValue();
+		int endIndex = end.intValue();
+		if (startIndex < 0 || endIndex <= startIndex || endIndex > content.length()) {
 			throw invalid("citation indices must be inside answer content");
 		}
+		if (splitsSurrogatePair(content, startIndex) || splitsSurrogatePair(content, endIndex)) {
+			throw invalid("citation indices must not split a UTF-16 surrogate pair");
+		}
+		return new CitationRange(startIndex, endIndex);
+	}
+
+	private static boolean splitsSurrogatePair(String content, int index) {
+		return index > 0
+			&& index < content.length()
+			&& Character.isHighSurrogate(content.charAt(index - 1))
+			&& Character.isLowSurrogate(content.charAt(index));
 	}
 
 	private static IllegalArgumentException invalid(String message) {
 		return new IllegalArgumentException(message);
+	}
+
+	private record CitationRange(int startIndex, int endIndex) {
 	}
 }
