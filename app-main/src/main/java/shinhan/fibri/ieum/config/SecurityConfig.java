@@ -18,6 +18,7 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import shinhan.fibri.ieum.main.auth.session.CsrfDoubleSubmitFilter;
 import shinhan.fibri.ieum.main.auth.session.JwtAuthenticationFilter;
+import shinhan.fibri.ieum.main.notification.internal.InternalAiCallbackEndpoint;
 
 @Configuration
 @RequiredArgsConstructor
@@ -42,6 +43,7 @@ public class SecurityConfig {
 			)
 			.authorizeHttpRequests(authorize -> authorize
 				.requestMatchers(HttpMethod.GET, "/api/places/**").permitAll()
+				.requestMatchers(HttpMethod.POST, InternalAiCallbackEndpoint.SECURITY_PATTERN).permitAll()
 				.requestMatchers(
 					"/api/v1/auth/**",
 					"/ws/**",

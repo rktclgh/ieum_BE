@@ -126,6 +126,33 @@ class CsrfDoubleSubmitFilterTest {
 	}
 
 	@Test
+	void doFilterSkipsOnlyTheExactAiCompletionCallbackRoute() throws Exception {
+		CsrfDoubleSubmitFilter filter = new CsrfDoubleSubmitFilter();
+		MockHttpServletRequest callback = new MockHttpServletRequest(
+			"POST",
+			"/api/v1/internal/ai/question-answer-jobs/10/completed"
+		);
+		MockHttpServletResponse callbackResponse = new MockHttpServletResponse();
+		FilterChain callbackChain = mock(FilterChain.class);
+
+		filter.doFilter(callback, callbackResponse, callbackChain);
+
+		verify(callbackChain).doFilter(callback, callbackResponse);
+
+		MockHttpServletRequest nearMiss = new MockHttpServletRequest(
+			"POST",
+			"/api/v1/internal/ai/question-answer-jobs/10/retry"
+		);
+		MockHttpServletResponse nearMissResponse = new MockHttpServletResponse();
+		FilterChain nearMissChain = mock(FilterChain.class);
+
+		filter.doFilter(nearMiss, nearMissResponse, nearMissChain);
+
+		assertThat(nearMissResponse.getStatus()).isEqualTo(HttpStatus.FORBIDDEN.value());
+		verify(nearMissChain, never()).doFilter(nearMiss, nearMissResponse);
+	}
+
+	@Test
 	void doFilterRejectsBlankCsrfTokenPair() throws Exception {
 		CsrfDoubleSubmitFilter filter = new CsrfDoubleSubmitFilter();
 		MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/users/me");

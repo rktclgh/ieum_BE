@@ -8,9 +8,11 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.OffsetDateTime;
 import java.util.Objects;
+import org.hibernate.annotations.SQLRestriction;
 
 @Entity
 @Table(name = "questions")
+@SQLRestriction("deleted_at IS NULL")
 public class Question {
 
 	@Id
@@ -39,6 +41,9 @@ public class Question {
 	@Column(name = "updated_at", insertable = false, updatable = false)
 	private OffsetDateTime updatedAt;
 
+	@Column(name = "deleted_at")
+	private OffsetDateTime deletedAt;
+
 	protected Question() {
 	}
 
@@ -54,17 +59,14 @@ public class Question {
 		return new Question(pinId, authorId, title, content);
 	}
 
-	public void update(String title, String content) {
-		if (title != null) {
-			this.title = title;
-		}
-		if (content != null) {
-			this.content = content;
-		}
-	}
-
 	public void markResolved() {
 		this.resolved = true;
+	}
+
+	public void softDelete(OffsetDateTime deletedAt) {
+		if (this.deletedAt == null) {
+			this.deletedAt = Objects.requireNonNull(deletedAt, "deletedAt must not be null");
+		}
 	}
 
 	public Long getId() {
@@ -97,5 +99,13 @@ public class Question {
 
 	public OffsetDateTime getUpdatedAt() {
 		return updatedAt;
+	}
+
+	public OffsetDateTime getDeletedAt() {
+		return deletedAt;
+	}
+
+	public boolean isDeleted() {
+		return deletedAt != null;
 	}
 }

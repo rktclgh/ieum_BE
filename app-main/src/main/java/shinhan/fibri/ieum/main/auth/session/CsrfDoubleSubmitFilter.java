@@ -13,6 +13,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import shinhan.fibri.ieum.main.notification.internal.InternalAiCallbackEndpoint;
 
 @Component
 public class CsrfDoubleSubmitFilter extends OncePerRequestFilter {
@@ -48,7 +49,9 @@ public class CsrfDoubleSubmitFilter extends OncePerRequestFilter {
 	}
 
 	private boolean shouldSkip(HttpServletRequest request) {
-		return isSafeMethod(request.getMethod()) || CSRF_BOOTSTRAP_ENDPOINTS.contains(requestPath(request));
+		return isSafeMethod(request.getMethod())
+			|| CSRF_BOOTSTRAP_ENDPOINTS.contains(requestPath(request))
+			|| InternalAiCallbackEndpoint.matches(request);
 	}
 
 	private boolean isSafeMethod(String method) {

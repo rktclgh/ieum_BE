@@ -1,5 +1,6 @@
 package shinhan.fibri.ieum.main.question.service;
 
+import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -11,13 +12,12 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
 import shinhan.fibri.ieum.common.file.domain.File;
 import shinhan.fibri.ieum.common.file.repository.FileRepository;
+import shinhan.fibri.ieum.main.ai.question.repository.QuestionAnswerTicketWriter;
 import shinhan.fibri.ieum.main.answer.domain.AnswerImage;
 import shinhan.fibri.ieum.main.answer.repository.AnswerImageRepository;
 import shinhan.fibri.ieum.main.pin.domain.PinType;
@@ -32,13 +32,13 @@ import shinhan.fibri.ieum.main.question.dto.CursorPage;
 import shinhan.fibri.ieum.main.question.dto.MyQuestionItem;
 import shinhan.fibri.ieum.main.question.dto.QuestionCreateRequest;
 import shinhan.fibri.ieum.main.question.dto.QuestionDetailResponse;
-import shinhan.fibri.ieum.main.question.dto.QuestionUpdateRequest;
 import shinhan.fibri.ieum.main.question.exception.InvalidQuestionRequestException;
 import shinhan.fibri.ieum.main.question.exception.QuestionForbiddenException;
 import shinhan.fibri.ieum.main.question.exception.QuestionNotFoundException;
 import shinhan.fibri.ieum.main.question.repository.AnswerItemProjection;
 import shinhan.fibri.ieum.main.question.repository.MyQuestionItemProjection;
 import shinhan.fibri.ieum.main.question.repository.QuestionDetailProjection;
+import shinhan.fibri.ieum.main.question.repository.QuestionDeletionState;
 import shinhan.fibri.ieum.main.question.repository.QuestionImageRepository;
 import shinhan.fibri.ieum.main.question.repository.QuestionRepository;
 import shinhan.fibri.ieum.main.notification.presence.QuestionCreatedEvent;
@@ -57,7 +57,7 @@ public class QuestionService {
 	private final FileRepository fileRepository;
 	private final UserRepository userRepository;
 	private final PinWriter pinWriter;
-	private final QuestionImageCleanupService imageCleanupService;
+	private final QuestionAnswerTicketWriter questionAnswerTicketWriter;
 	private final ApplicationEventPublisher eventPublisher;
 
 	@Transactional
@@ -84,6 +84,7 @@ public class QuestionService {
 			images.add(QuestionImage.link(question.getId(), files.get(index).getFileId(), index));
 		}
 		questionImageRepository.saveAll(images);
+		questionAnswerTicketWriter.create(question.getId());
 		eventPublisher.publishEvent(new QuestionCreatedEvent(
 			question.getId(), principal.userId(), question.getTitle(), request.location().lat(), request.location().lng()
 		));
@@ -141,55 +142,31 @@ public class QuestionService {
 	}
 
 	@Transactional
-	public QuestionDetailResponse update(AuthenticatedUser principal, Long questionId, QuestionUpdateRequest request) {
-		Question question = questionRepository.findByIdForUpdate(questionId)
+	public void delete(AuthenticatedUser principal, Long questionId) {
+		QuestionDeletionState precheck = questionRepository.findDeletionState(questionId)
 			.orElseThrow(QuestionNotFoundException::new);
+		if (!precheck.getAuthorId().equals(principal.userId())) {
+			throw new QuestionForbiddenException();
+		}
+		if (precheck.getDeletedAt() != null) {
+			return;
+		}
+
+		questionAnswerTicketWriter.requestCancellation(questionId);
+		Question question = questionRepository.findByIdForUpdate(questionId).orElse(null);
+		if (question == null) {
+			return;
+		}
 		if (!question.getAuthorId().equals(principal.userId())) {
 			throw new QuestionForbiddenException();
 		}
-
-		question.update(requireNonBlankIfPresent(request.title(), "title"), requireNonBlankIfPresent(request.content(), "content"));
-		List<UUID> imageFileIds = request.imageFileIds() == null ? null : normalizeImageFileIds(request.imageFileIds());
-		List<UUID> removedFileIds = List.of();
-		if (imageFileIds != null) {
-			List<QuestionImage> existingImages = questionImageRepository.findByQuestionIdOrderBySortOrderAsc(questionId);
-			removedFileIds = existingImages.stream()
-				.map(QuestionImage::getFileId)
-				.filter(fileId -> !imageFileIds.contains(fileId))
-				.toList();
-			List<File> files = validateImages(imageFileIds, principal.userId());
-			questionImageRepository.deleteByQuestionId(questionId);
-			List<QuestionImage> newImages = new ArrayList<>();
-			for (int index = 0; index < files.size(); index++) {
-				newImages.add(QuestionImage.link(questionId, files.get(index).getFileId(), index));
-			}
-			questionImageRepository.saveAll(newImages);
+		if (question.isDeleted()) {
+			return;
 		}
 
-		if (!removedFileIds.isEmpty()) {
-			scheduleRemovedImagesCleanupAfterCommit(removedFileIds);
-		}
-		User author = userRepository.findByIdAndDeletedAtIsNull(principal.userId())
-			.orElseThrow(() -> new InvalidQuestionRequestException("QUESTION_AUTHOR_NOT_FOUND", "author", "Author not found"));
-		List<String> imageUrls = imageFileIds == null
-			? questionImageRepository.findByQuestionIdOrderBySortOrderAsc(questionId).stream()
-				.map(QuestionImage::getFileId)
-				.map(fileId -> DISPLAY_URL_TEMPLATE.formatted(fileId))
-				.toList()
-			: imageFileIds.stream().map(fileId -> DISPLAY_URL_TEMPLATE.formatted(fileId)).toList();
-		LocationSnapshot location = questionRepository.findDetailByQuestionId(questionId)
-			.map(this::toLocationSnapshot)
-			.orElseThrow(QuestionNotFoundException::new);
-		return new QuestionDetailResponse(
-			question.getId(),
-			question.getTitle(),
-			question.getContent(),
-			question.isResolved(),
-			new AuthorSummary(author.getId(), author.getNickname(), profileUrl(author.getProfileFileId())),
-			location,
-			imageUrls,
-			List.<AnswerItem>of()
-		);
+		OffsetDateTime deletedAt = OffsetDateTime.now();
+		question.softDelete(deletedAt);
+		pinWriter.softDelete(question.getPinId(), deletedAt);
 	}
 
 	private QuestionDetailResponse toDetailResponse(
@@ -259,33 +236,8 @@ public class QuestionService {
 		);
 	}
 
-	private void scheduleRemovedImagesCleanupAfterCommit(List<UUID> removedFileIds) {
-		List<UUID> cleanupFileIds = List.copyOf(removedFileIds);
-		if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-			imageCleanupService.cleanRemovedImagesAfterCommit(cleanupFileIds);
-			return;
-		}
-		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-			@Override
-			public void afterCommit() {
-				imageCleanupService.cleanRemovedImagesAfterCommit(cleanupFileIds);
-			}
-		});
-	}
-
 	private String profileUrl(UUID fileId) {
 		return fileId == null ? null : PROFILE_URL_TEMPLATE.formatted(fileId);
-	}
-
-	private String requireNonBlankIfPresent(String value, String field) {
-		if (value != null && value.isBlank()) {
-			throw new InvalidQuestionRequestException(
-				"INVALID_" + field.toUpperCase(),
-				field,
-				field + " must not be blank"
-			);
-		}
-		return value;
 	}
 
 	private List<UUID> normalizeImageFileIds(List<UUID> imageFileIds) {

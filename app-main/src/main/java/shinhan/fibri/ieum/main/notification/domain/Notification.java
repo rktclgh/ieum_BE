@@ -41,6 +41,12 @@ public class Notification {
 	@Column(name = "ref_id")
 	private Long refId;
 
+	@Column(name = "answer_is_ai")
+	private Boolean answerIsAi;
+
+	@Column(name = "event_key", length = 120)
+	private String eventKey;
+
 	@Column(name = "is_read", nullable = false)
 	private boolean read;
 
@@ -51,17 +57,36 @@ public class Notification {
 	protected Notification() {
 	}
 
-	private Notification(Long userId, NotificationType type, String title, String body, Long refId) {
+	private Notification(
+		Long userId,
+		NotificationType type,
+		String title,
+		String body,
+		Long refId,
+		Boolean answerIsAi
+	) {
 		this.userId = Objects.requireNonNull(userId, "userId must not be null");
 		this.type = Objects.requireNonNull(type, "type must not be null");
 		this.title = Objects.requireNonNull(title, "title must not be null");
 		this.body = body;
 		this.refId = refId;
+		this.answerIsAi = answerIsAi;
 		this.read = false;
 	}
 
 	public static Notification of(Long userId, NotificationType type, String title, String body, Long refId) {
-		return new Notification(userId, type, title, body, refId);
+		return of(userId, type, title, body, refId, null);
+	}
+
+	public static Notification of(
+		Long userId,
+		NotificationType type,
+		String title,
+		String body,
+		Long refId,
+		Boolean answerIsAi
+	) {
+		return new Notification(userId, type, title, body, refId, answerIsAi);
 	}
 
 	public Long getId() {
@@ -86,6 +111,14 @@ public class Notification {
 
 	public Long getRefId() {
 		return refId;
+	}
+
+	public Boolean getAnswerIsAi() {
+		return answerIsAi;
+	}
+
+	public String getEventKey() {
+		return eventKey;
 	}
 
 	public boolean isRead() {

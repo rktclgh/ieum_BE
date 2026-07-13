@@ -1,8 +1,11 @@
 package shinhan.fibri.ieum.ai.report.service;
 
 import java.net.SocketTimeoutException;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.TimeoutException;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
@@ -91,8 +94,9 @@ public class BedrockReportReviewModelProvider implements ReportReviewModelProvid
 	}
 
 	private ReportReviewProviderErrorCode errorCode(RuntimeException exception) {
+		Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
 		Throwable current = exception;
-		while (current != null) {
+		while (current != null && visited.add(current)) {
 			if (current instanceof SdkServiceException sdkServiceException) {
 				return serviceErrorCode(sdkServiceException);
 			}

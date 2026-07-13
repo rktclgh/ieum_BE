@@ -2,11 +2,11 @@ package shinhan.fibri.ieum.ai.question.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.sql.Connection;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -14,12 +14,14 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.UUID;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+import shinhan.fibri.ieum.ai.question.service.QuestionTaskFailure;
 import shinhan.fibri.ieum.testsupport.CanonicalPostgresContainer;
 import shinhan.fibri.ieum.testsupport.SqlScriptRunner;
 
@@ -50,76 +52,41 @@ class JdbcQuestionTaskWorkRepositoryIntegrationTest {
 	}
 
 	@Test
-	void claimsTheOldestDueActiveTaskWithANewLeaseToken() {
-		long olderQuestionId = insertQuestion(false, false);
-		long newerQuestionId = insertQuestion(false, false);
-		insertTask(olderQuestionId, OffsetDateTime.parse("2026-07-01T00:00:00Z"), 0, OffsetDateTime.parse("2026-07-01T00:00:00Z"));
-		insertTask(newerQuestionId, OffsetDateTime.parse("2026-07-01T00:01:00Z"), 0, OffsetDateTime.parse("2026-07-01T00:00:00Z"));
+	void claimsOnlyTheRequestedQuestionIdInsteadOfTheGlobalOldestTask() {
+		long oldestQuestionId = insertQuestion(false, false);
+		long requestedQuestionId = insertQuestion(false, false);
+		OffsetDateTime dueAt = OffsetDateTime.parse("2026-07-01T00:00:00Z");
+		insertTask(oldestQuestionId, dueAt.minusMinutes(1), 0, dueAt);
+		insertTask(requestedQuestionId, dueAt, 0, dueAt);
 
-		ClaimedQuestionTask claimed = repository.claimNext("worker-a", Duration.ofMinutes(2), MAX_ATTEMPTS)
-			.orElseThrow();
+		ClaimedQuestionTask claimed = repository.claimByQuestionId(
+			requestedQuestionId, " worker-a ", Duration.ofMinutes(2), MAX_ATTEMPTS
+		).orElseThrow();
 
-		assertThat(claimed.questionId()).isEqualTo(olderQuestionId);
+		assertThat(claimed.questionId()).isEqualTo(requestedQuestionId);
+		assertThat(taskStatus(oldestQuestionId)).isEqualTo("pending");
+		assertThat(taskStatus(requestedQuestionId)).isEqualTo("processing");
+		assertThat(claimed.workerId()).isEqualTo("worker-a");
 		assertThat(claimed.leaseToken()).isNotNull();
 		assertThat(claimed.attempts()).isEqualTo(1);
 		assertThat(claimed.leaseUntil()).isAfter(OffsetDateTime.now().plusMinutes(1));
-		var row = jdbc.sql("""
-			SELECT status::text, stage::text, attempts, locked_by, lease_token
-			FROM ai_question_tasks
-			WHERE question_id = :questionId
-			""").param("questionId", olderQuestionId).query().singleRow();
-		assertThat(row.get("status")).isEqualTo("processing");
-		assertThat(row.get("stage")).isEqualTo("analyzing");
-		assertThat(((Number) row.get("attempts")).intValue()).isEqualTo(1);
-		assertThat(row.get("locked_by")).isEqualTo("worker-a");
-		assertThat(row.get("lease_token")).isEqualTo(claimed.leaseToken());
-		OffsetDateTime storedLeaseUntil = jdbc.sql("""
-			SELECT lease_until
-			FROM ai_question_tasks
-			WHERE question_id = :questionId
-			""")
-			.param("questionId", olderQuestionId)
-			.query((resultSet, rowNumber) -> resultSet.getObject("lease_until", OffsetDateTime.class))
-			.single();
-		assertThat(storedLeaseUntil).isEqualTo(claimed.leaseUntil());
 	}
 
 	@Test
-	void doesNotClaimTasksWhoseQuestionOrPinWasDeleted() {
-		long deletedQuestionId = insertQuestion(true, false);
-		long deletedPinQuestionId = insertQuestion(false, true);
-		long activeQuestionId = insertQuestion(false, false);
-		OffsetDateTime dueAt = OffsetDateTime.parse("2026-07-01T00:00:00Z");
-		insertTask(deletedQuestionId, dueAt.minusMinutes(2), 0, dueAt);
-		insertTask(deletedPinQuestionId, dueAt.minusMinutes(1), 0, dueAt);
-		insertTask(activeQuestionId, dueAt, 0, dueAt);
-
-		ClaimedQuestionTask claimed = repository.claimNext("worker-a", Duration.ofMinutes(2), MAX_ATTEMPTS)
-			.orElseThrow();
-
-		assertThat(claimed.questionId()).isEqualTo(activeQuestionId);
-	}
-
-	@Test
-	void doesNotClaimFutureOrExhaustedTasks() {
-		long futureQuestionId = insertQuestion(false, false);
-		long exhaustedQuestionId = insertQuestion(false, false);
-		insertTask(futureQuestionId, OffsetDateTime.parse("2026-07-01T00:00:00Z"), 0, OffsetDateTime.now().plusMinutes(5));
-		insertTask(exhaustedQuestionId, OffsetDateTime.parse("2026-07-01T00:01:00Z"), MAX_ATTEMPTS, OffsetDateTime.parse("2026-07-01T00:00:00Z"));
-
-		assertThat(repository.claimNext("worker-a", Duration.ofMinutes(2), MAX_ATTEMPTS)).isEmpty();
-	}
-
-	@Test
-	void doesNotClaimTheSameTaskForTwoConcurrentWorkers() throws Exception {
+	void allowsOnlyOneConcurrentClaimForTheSameQuestionId() throws Exception {
 		long questionId = insertQuestion(false, false);
-		insertTask(questionId, OffsetDateTime.parse("2026-07-01T00:00:00Z"), 0, OffsetDateTime.parse("2026-07-01T00:00:00Z"));
+		insertTask(questionId, OffsetDateTime.parse("2026-07-01T00:00:00Z"), 0,
+			OffsetDateTime.parse("2026-07-01T00:00:00Z"));
 		CountDownLatch ready = new CountDownLatch(2);
 		CountDownLatch start = new CountDownLatch(1);
 
 		try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
-			Future<Optional<ClaimedQuestionTask>> first = executor.submit(claimAfterStart("worker-a", ready, start));
-			Future<Optional<ClaimedQuestionTask>> second = executor.submit(claimAfterStart("worker-b", ready, start));
+			Future<Optional<ClaimedQuestionTask>> first = executor.submit(
+				claimAfterStart(questionId, "worker-a", ready, start)
+			);
+			Future<Optional<ClaimedQuestionTask>> second = executor.submit(
+				claimAfterStart(questionId, "worker-b", ready, start)
+			);
 			assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
 			start.countDown();
 
@@ -127,64 +94,146 @@ class JdbcQuestionTaskWorkRepositoryIntegrationTest {
 				.stream()
 				.flatMap(Optional::stream)
 				.toList();
-			assertThat(claims).singleElement().satisfies(claimed -> {
-				assertThat(claimed.questionId()).isEqualTo(questionId);
-				assertThat(claimed.attempts()).isEqualTo(1);
+
+			assertThat(claims).singleElement().satisfies(claim -> {
+				assertThat(claim.questionId()).isEqualTo(questionId);
+				assertThat(claim.attempts()).isEqualTo(1);
 			});
 		}
 	}
 
 	@Test
-	void skipsALockedOldestTaskAndClaimsTheNextDueTask() throws Exception {
-		long oldestQuestionId = insertQuestion(false, false);
-		long nextQuestionId = insertQuestion(false, false);
+	void reclaimsOnlyAnExpiredProcessingLeaseWithANewFence() {
+		long questionId = insertQuestion(false, false);
 		OffsetDateTime dueAt = OffsetDateTime.parse("2026-07-01T00:00:00Z");
-		insertTask(oldestQuestionId, dueAt, 0, dueAt);
-		insertTask(nextQuestionId, dueAt.plusMinutes(1), 0, dueAt);
+		insertTask(questionId, dueAt, 0, dueAt);
+		ClaimedQuestionTask first = repository.claimByQuestionId(
+			questionId, "worker-a", Duration.ofMinutes(2), MAX_ATTEMPTS
+		).orElseThrow();
 
-		try (Connection lockConnection = dataSource.getConnection()) {
-			lockConnection.setAutoCommit(false);
-			try (var statement = lockConnection.prepareStatement("""
-				SELECT 1
-				FROM ai_question_tasks
-				WHERE question_id = ?
-				FOR UPDATE
-				""")) {
-				statement.setLong(1, oldestQuestionId);
-				statement.executeQuery();
-			}
+		assertThat(repository.claimByQuestionId(
+			questionId, "worker-b", Duration.ofMinutes(2), MAX_ATTEMPTS
+		)).isEmpty();
+		jdbc.sql("""
+			UPDATE ai_question_tasks
+			SET lease_until = :expiredAt
+			WHERE question_id = :questionId
+			""")
+			.param("expiredAt", OffsetDateTime.now().minusSeconds(1))
+			.param("questionId", questionId)
+			.update();
 
-			ClaimedQuestionTask claimed = repository.claimNext("worker-a", Duration.ofMinutes(2), MAX_ATTEMPTS)
-				.orElseThrow();
+		ClaimedQuestionTask reclaimed = repository.claimByQuestionId(
+			questionId, "worker-b", Duration.ofMinutes(2), MAX_ATTEMPTS
+		).orElseThrow();
 
-			assertThat(claimed.questionId()).isEqualTo(nextQuestionId);
-			lockConnection.rollback();
+		assertThat(reclaimed.questionId()).isEqualTo(questionId);
+		assertThat(reclaimed.attempts()).isEqualTo(2);
+		assertThat(reclaimed.leaseToken()).isNotEqualTo(first.leaseToken());
+	}
+
+	@Test
+	void doesNotClaimFutureExhaustedCancelledOrDeletedTasks() {
+		OffsetDateTime dueAt = OffsetDateTime.parse("2026-07-01T00:00:00Z");
+		long futureId = insertQuestion(false, false);
+		long exhaustedId = insertQuestion(false, false);
+		long cancelledId = insertQuestion(false, false);
+		long deletedQuestionId = insertQuestion(true, false);
+		long deletedPinId = insertQuestion(false, true);
+		insertTask(futureId, dueAt, 0, OffsetDateTime.now().plusMinutes(5));
+		insertTask(exhaustedId, dueAt, MAX_ATTEMPTS, dueAt);
+		insertTask(cancelledId, dueAt, 0, dueAt);
+		insertTask(deletedQuestionId, dueAt, 0, dueAt);
+		insertTask(deletedPinId, dueAt, 0, dueAt);
+		jdbc.sql("UPDATE ai_question_tasks SET cancel_requested_at = now() WHERE question_id = :questionId")
+			.param("questionId", cancelledId)
+			.update();
+
+		for (long questionId : List.of(futureId, exhaustedId, cancelledId, deletedQuestionId, deletedPinId)) {
+			assertThat(repository.claimByQuestionId(
+				questionId, "worker-a", Duration.ofMinutes(2), MAX_ATTEMPTS
+			)).isEmpty();
 		}
 	}
 
 	@Test
-	void marksOnlyTheCurrentLeaseForRetryAndRespectsTheNextAttemptTime() {
+	void findsAtMostThirtyTwoDueTicketIdsIncludingExpiredLeasesWithoutDiscoveringQuestions() {
+		OffsetDateTime now = OffsetDateTime.now();
+		long expiredId = insertQuestion(false, false);
+		insertTask(expiredId, now.minusMinutes(2), 0, now.minusMinutes(2));
+		repository.claimByQuestionId(expiredId, "worker-a", Duration.ofMinutes(2), MAX_ATTEMPTS).orElseThrow();
+		jdbc.sql("UPDATE ai_question_tasks SET lease_until = :expiredAt WHERE question_id = :questionId")
+			.param("expiredAt", now.minusSeconds(1))
+			.param("questionId", expiredId)
+			.update();
+		for (int index = 0; index < 35; index++) {
+			long questionId = insertQuestion(false, false);
+			insertTask(questionId, now.minusMinutes(1).plusSeconds(index), 0, now.minusSeconds(1));
+		}
+		insertQuestion(false, false);
+
+		List<Long> dueIds = repository.findDueQuestionIds(MAX_ATTEMPTS, 32);
+
+		assertThat(dueIds).hasSize(32).contains(expiredId);
+		assertThat(dueIds).allMatch(this::taskExists);
+	}
+
+	@Test
+	void cleanupOfCancelledOrDeletedTicketsIsBoundedAndRemovesThemFromRecovery() {
+		OffsetDateTime now = OffsetDateTime.now();
+		long requestedCancellationId = insertQuestion(false, false);
+		long deletedQuestionId = insertQuestion(true, false);
+		long deletedPinId = insertQuestion(false, true);
+		long activeId = insertQuestion(false, false);
+		for (long id : List.of(requestedCancellationId, deletedQuestionId, deletedPinId, activeId)) {
+			insertTask(id, now.minusMinutes(1), 0, now.minusSeconds(1));
+		}
+		jdbc.sql("UPDATE ai_question_tasks SET cancel_requested_at = :now WHERE question_id = :questionId")
+			.param("now", now)
+			.param("questionId", requestedCancellationId)
+			.update();
+
+		assertThat(repository.cleanupCancelledOrDeleted(2)).isEqualTo(2);
+		assertThat(repository.findDueQuestionIds(MAX_ATTEMPTS, 32)).containsExactly(activeId);
+		assertThat(repository.cleanupCancelledOrDeleted(2)).isEqualTo(1);
+		assertThat(cancelledTaskCount()).isEqualTo(3);
+		assertThat(taskStatus(activeId)).isEqualTo("pending");
+	}
+
+	@Test
+	void marksRetryOnlyForTheCurrentUnexpiredLeaseFence() {
 		long questionId = insertQuestion(false, false);
 		OffsetDateTime dueAt = OffsetDateTime.parse("2026-07-01T00:00:00Z");
 		insertTask(questionId, dueAt, 0, dueAt);
-		ClaimedQuestionTask claimed = repository.claimNext("worker-a", Duration.ofMinutes(2), MAX_ATTEMPTS)
-			.orElseThrow();
-		OffsetDateTime nextAttemptAt = OffsetDateTime.now().plusMinutes(5);
+		ClaimedQuestionTask claimed = repository.claimByQuestionId(
+			questionId, "worker-a", Duration.ofMinutes(2), MAX_ATTEMPTS
+		).orElseThrow();
 
 		assertThat(repository.markRetry(
-			questionId, "worker-a", claimed.leaseToken(), nextAttemptAt, "MODEL_TIMEOUT", "model timed out"
+			questionId,
+			"worker-a",
+			UUID.randomUUID(),
+			Duration.ofSeconds(10),
+			QuestionTaskFailure.PROVIDER_TIMEOUT
+		)).isFalse();
+		assertThat(repository.markRetry(
+			questionId,
+			"worker-a",
+			claimed.leaseToken(),
+			Duration.ofSeconds(10),
+			QuestionTaskFailure.PROVIDER_TIMEOUT
 		)).isTrue();
 		var row = jdbc.sql("""
-			SELECT status::text, lease_until, locked_by, lease_token, next_attempt_at, last_error_code
+			SELECT status::text, last_error_code, last_error_message
 			FROM ai_question_tasks
 			WHERE question_id = :questionId
-			""").param("questionId", questionId).query().singleRow();
+			""")
+			.param("questionId", questionId)
+			.query().singleRow();
 		assertThat(row.get("status")).isEqualTo("retry");
-		assertThat(row.get("lease_until")).isNull();
-		assertThat(row.get("locked_by")).isNull();
-		assertThat(row.get("lease_token")).isNull();
-		assertThat(row.get("last_error_code")).isEqualTo("MODEL_TIMEOUT");
-		OffsetDateTime storedNextAttemptAt = jdbc.sql("""
+		assertThat(row.get("last_error_code")).isEqualTo("QUESTION_ANSWER_PROVIDER_TIMEOUT");
+		assertThat(row.get("last_error_message")).isEqualTo("Question answer provider timed out");
+		OffsetDateTime nextAttemptAt = jdbc.sql("""
 			SELECT next_attempt_at
 			FROM ai_question_tasks
 			WHERE question_id = :questionId
@@ -192,59 +241,169 @@ class JdbcQuestionTaskWorkRepositoryIntegrationTest {
 			.param("questionId", questionId)
 			.query((resultSet, rowNumber) -> resultSet.getObject("next_attempt_at", OffsetDateTime.class))
 			.single();
-		assertThat(storedNextAttemptAt).isEqualTo(nextAttemptAt);
-		assertThat(repository.claimNext("worker-b", Duration.ofMinutes(2), MAX_ATTEMPTS)).isEmpty();
+		assertThat(nextAttemptAt)
+			.isAfter(OffsetDateTime.now().plusSeconds(8))
+			.isBefore(OffsetDateTime.now().plusSeconds(12));
 	}
 
 	@Test
-	void reclaimsARetryTaskWhenItsNextAttemptIsDue() {
+	void failureTransitionUsesWallClockInsteadOfTheTransactionStartClockForLeaseExpiry() {
 		long questionId = insertQuestion(false, false);
 		OffsetDateTime dueAt = OffsetDateTime.parse("2026-07-01T00:00:00Z");
 		insertTask(questionId, dueAt, 0, dueAt);
-		ClaimedQuestionTask first = repository.claimNext("worker-a", Duration.ofMinutes(2), MAX_ATTEMPTS)
-			.orElseThrow();
+		TransactionTemplate transaction = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
 
-		assertThat(repository.markRetry(
-			questionId, "worker-a", first.leaseToken(), OffsetDateTime.now().minusSeconds(1), "MODEL_TIMEOUT", "model timed out"
-		)).isTrue();
-		ClaimedQuestionTask second = repository.claimNext("worker-b", Duration.ofMinutes(2), MAX_ATTEMPTS)
-			.orElseThrow();
+		Boolean transitioned = transaction.execute(status -> {
+			ClaimedQuestionTask claimed = repository.claimByQuestionId(
+				questionId, "worker-a", Duration.ofSeconds(1), MAX_ATTEMPTS
+			).orElseThrow();
+			jdbc.sql("SELECT pg_sleep(1.1)")
+				.query((resultSet, rowNumber) -> Boolean.TRUE)
+				.single();
+			return repository.markRetry(
+				questionId,
+				"worker-a",
+				claimed.leaseToken(),
+				Duration.ofSeconds(10),
+				QuestionTaskFailure.PROVIDER_TIMEOUT
+			);
+		});
 
-		assertThat(second.questionId()).isEqualTo(questionId);
-		assertThat(second.attempts()).isEqualTo(2);
-		assertThat(second.leaseToken()).isNotEqualTo(first.leaseToken());
+		assertThat(transitioned).isFalse();
+		assertThat(taskStatus(questionId)).isEqualTo("processing");
 	}
 
 	@Test
-	void rejectsRetryForAnotherLeaseTokenOrAnExpiredLease() {
+	void cancellationRequestWinsOverRetryAndDeadFailureTransitions() {
 		long questionId = insertQuestion(false, false);
 		OffsetDateTime dueAt = OffsetDateTime.parse("2026-07-01T00:00:00Z");
 		insertTask(questionId, dueAt, 0, dueAt);
-		ClaimedQuestionTask claimed = repository.claimNext("worker-a", Duration.ofMinutes(2), MAX_ATTEMPTS)
-			.orElseThrow();
+		ClaimedQuestionTask claimed = repository.claimByQuestionId(
+			questionId, "worker-a", Duration.ofMinutes(2), MAX_ATTEMPTS
+		).orElseThrow();
+		jdbc.sql("UPDATE ai_question_tasks SET cancel_requested_at = CURRENT_TIMESTAMP WHERE question_id = :questionId")
+			.param("questionId", questionId)
+			.update();
 
 		assertThat(repository.markRetry(
-			questionId, "worker-a", UUID.randomUUID(), OffsetDateTime.now(), "MODEL_TIMEOUT", "model timed out"
+			questionId,
+			"worker-a",
+			claimed.leaseToken(),
+			Duration.ofSeconds(10),
+			QuestionTaskFailure.PROVIDER_TIMEOUT
 		)).isFalse();
-		assertThat(repository.markRetry(
-			questionId, "worker-b", claimed.leaseToken(), OffsetDateTime.now(), "MODEL_TIMEOUT", "model timed out"
+		assertThat(repository.markDead(
+			questionId,
+			"worker-a",
+			claimed.leaseToken(),
+			QuestionTaskFailure.PROVIDER_TIMEOUT
 		)).isFalse();
+		assertThat(taskStatus(questionId)).isEqualTo("processing");
+		assertThat(repository.cleanupCancelledOrDeleted(1)).isEqualTo(1);
+		assertThat(taskStatus(questionId)).isEqualTo("cancelled");
+	}
+
+	@Test
+	void dispatchSnapshotComputesAnActiveLeaseWithTheDatabaseClock() {
+		long questionId = insertQuestion(false, false);
+		OffsetDateTime dueAt = OffsetDateTime.parse("2026-07-01T00:00:00Z");
+		insertTask(questionId, dueAt, 0, dueAt);
+		repository.claimByQuestionId(
+			questionId, "worker-a", Duration.ofMinutes(2), MAX_ATTEMPTS
+		).orElseThrow();
+
+		assertThat(repository.findDispatchSnapshot(questionId).orElseThrow().activeLease()).isTrue();
+
 		jdbc.sql("""
 			UPDATE ai_question_tasks
 			SET lease_until = CURRENT_TIMESTAMP - INTERVAL '1 second'
 			WHERE question_id = :questionId
-			""").param("questionId", questionId).update();
-		assertThat(repository.markRetry(
-			questionId, "worker-a", claimed.leaseToken(), OffsetDateTime.now(), "MODEL_TIMEOUT", "model timed out"
+			""")
+			.param("questionId", questionId)
+			.update();
+
+		assertThat(repository.findDispatchSnapshot(questionId).orElseThrow().activeLease()).isFalse();
+	}
+
+	@Test
+	void marksDeadOnlyForTheCurrentFenceAndClearsLeaseOwnership() {
+		long questionId = insertQuestion(false, false);
+		OffsetDateTime dueAt = OffsetDateTime.parse("2026-07-01T00:00:00Z");
+		insertTask(questionId, dueAt, 4, dueAt);
+		ClaimedQuestionTask claimed = repository.claimByQuestionId(
+			questionId, "worker-a", Duration.ofMinutes(2), MAX_ATTEMPTS
+		).orElseThrow();
+
+		assertThat(repository.markDead(
+			questionId,
+			"worker-a",
+			UUID.randomUUID(),
+			QuestionTaskFailure.PERMANENT_INPUT
 		)).isFalse();
-		long pendingQuestionId = insertQuestion(false, false);
-		insertTask(pendingQuestionId, dueAt, 0, dueAt);
-		assertThat(repository.markRetry(
-			pendingQuestionId, "worker-a", claimed.leaseToken(), OffsetDateTime.now(), "MODEL_TIMEOUT", "model timed out"
-		)).isFalse();
+		assertThat(repository.markDead(
+			questionId,
+			"worker-a",
+			claimed.leaseToken(),
+			QuestionTaskFailure.PERMANENT_INPUT
+		)).isTrue();
+
+		var row = jdbc.sql("""
+			SELECT status::text, lease_until, locked_by, lease_token, last_error_code, last_error_message
+			FROM ai_question_tasks
+			WHERE question_id = :questionId
+			""")
+			.param("questionId", questionId)
+			.query().singleRow();
+		assertThat(row.get("status")).isEqualTo("dead");
+		assertThat(row.get("lease_until")).isNull();
+		assertThat(row.get("locked_by")).isNull();
+		assertThat(row.get("lease_token")).isNull();
+		assertThat(row.get("last_error_code")).isEqualTo("QUESTION_ANSWER_INVALID_INPUT");
+		assertThat(row.get("last_error_message")).isEqualTo("Question answer input is invalid");
+	}
+
+	@Test
+	void recoveryMarksDueAndExpiredExhaustedTasksDeadInBoundedBatches() {
+		OffsetDateTime dueAt = OffsetDateTime.now().minusMinutes(5);
+		long pendingId = insertQuestion(false, false);
+		long expiredProcessingId = insertQuestion(false, false);
+		long futureId = insertQuestion(false, false);
+		insertTask(pendingId, dueAt, MAX_ATTEMPTS, dueAt);
+		insertTask(expiredProcessingId, dueAt.plusSeconds(1), 4, dueAt);
+		repository.claimByQuestionId(
+			expiredProcessingId, "worker-a", Duration.ofMinutes(2), MAX_ATTEMPTS
+		).orElseThrow();
+		jdbc.sql("""
+			UPDATE ai_question_tasks
+			SET lease_until = CURRENT_TIMESTAMP - INTERVAL '1 second'
+			WHERE question_id = :questionId
+			""")
+			.param("questionId", expiredProcessingId)
+			.update();
+		insertTask(futureId, dueAt.plusSeconds(2), MAX_ATTEMPTS, OffsetDateTime.now().plusMinutes(5));
+
+		assertThat(repository.markExhaustedDueTasksDead(MAX_ATTEMPTS, 1)).isEqualTo(1);
+		assertThat(deadTaskCount()).isEqualTo(1);
+		assertThat(repository.markExhaustedDueTasksDead(MAX_ATTEMPTS, 1)).isEqualTo(1);
+
+		assertThat(taskStatus(pendingId)).isEqualTo("dead");
+		assertThat(taskStatus(expiredProcessingId)).isEqualTo("dead");
+		assertThat(taskStatus(futureId)).isEqualTo("pending");
+		assertThat(deadTasksRetainLeaseOwnership()).isFalse();
+	}
+
+	@Test
+	void dueRecoveryUsesTheConfiguredMaximumAttemptsInsteadOfFive() {
+		long questionId = insertQuestion(false, false);
+		OffsetDateTime dueAt = OffsetDateTime.now().minusMinutes(1);
+		insertTask(questionId, dueAt, 3, dueAt);
+
+		assertThat(repository.findDueQuestionIds(3, 32)).doesNotContain(questionId);
+		assertThat(repository.findDueQuestionIds(4, 32)).contains(questionId);
 	}
 
 	private Callable<Optional<ClaimedQuestionTask>> claimAfterStart(
+		long questionId,
 		String workerId,
 		CountDownLatch ready,
 		CountDownLatch start
@@ -254,8 +413,47 @@ class JdbcQuestionTaskWorkRepositoryIntegrationTest {
 			assertThat(start.await(5, TimeUnit.SECONDS)).isTrue();
 			return new JdbcQuestionTaskWorkRepository(
 				JdbcClient.create(CanonicalPostgresContainer.dataSource(DATABASE))
-			).claimNext(workerId, Duration.ofMinutes(2), MAX_ATTEMPTS);
+			).claimByQuestionId(questionId, workerId, Duration.ofMinutes(2), MAX_ATTEMPTS);
 		};
+	}
+
+	private String taskStatus(long questionId) {
+		return jdbc.sql("SELECT status::text FROM ai_question_tasks WHERE question_id = :questionId")
+			.param("questionId", questionId)
+			.query(String.class)
+			.single();
+	}
+
+	private boolean taskExists(long questionId) {
+		return jdbc.sql("SELECT count(*) FROM ai_question_tasks WHERE question_id = :questionId")
+			.param("questionId", questionId)
+			.query(Integer.class)
+			.single() == 1;
+	}
+
+	private int cancelledTaskCount() {
+		return jdbc.sql("SELECT count(*) FROM ai_question_tasks WHERE status = 'cancelled'")
+			.query(Integer.class)
+			.single();
+	}
+
+	private int deadTaskCount() {
+		return jdbc.sql("SELECT count(*) FROM ai_question_tasks WHERE status = 'dead'")
+			.query(Integer.class)
+			.single();
+	}
+
+	private boolean deadTasksRetainLeaseOwnership() {
+		return jdbc.sql("""
+			SELECT EXISTS (
+			    SELECT 1
+			    FROM ai_question_tasks
+			    WHERE status = 'dead'
+			      AND (lease_until IS NOT NULL OR locked_by IS NOT NULL OR lease_token IS NOT NULL)
+			)
+			""")
+			.query(Boolean.class)
+			.single();
 	}
 
 	private long insertQuestion(boolean deletedQuestion, boolean deletedPin) {

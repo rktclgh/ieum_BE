@@ -27,6 +27,8 @@ import shinhan.fibri.ieum.main.auth.session.JwtAuthenticationFilter;
 import shinhan.fibri.ieum.testsupport.CanonicalPostgresDataSource;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -105,6 +107,15 @@ class MainApplicationTests {
 			.andExpect(status().isOk())
 			.andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:3000"))
 			.andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"));
+	}
+
+	@Test
+	void internalAiCompletionRouteReachesTokenVerifierWithoutJwtOrCsrf() throws Exception {
+		mockMvc.perform(post("/api/v1/internal/ai/question-answer-jobs/{questionId}/completed", 10L)
+				.contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+				.content("{\"answerId\":40}"))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.code").value("INVALID_INTERNAL_AI_TOKEN"));
 	}
 
 	private Path applicationPropertiesPath() {

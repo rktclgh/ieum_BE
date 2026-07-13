@@ -30,6 +30,7 @@ public interface QuestionRepository extends JpaRepository<Question, Long> {
 			JOIN users u ON u.user_id = q.author_id
 			JOIN pins p ON p.pin_id = q.pin_id AND p.deleted_at IS NULL
 			WHERE q.question_id = :questionId
+			  AND q.deleted_at IS NULL
 			""",
 		nativeQuery = true
 	)
@@ -52,6 +53,7 @@ public interface QuestionRepository extends JpaRepository<Question, Long> {
 			    LIMIT 1
 			) first_image ON true
 			WHERE q.author_id = :authorId
+			  AND q.deleted_at IS NULL
 			ORDER BY q.question_id DESC
 			LIMIT :limit
 			""",
@@ -79,6 +81,7 @@ public interface QuestionRepository extends JpaRepository<Question, Long> {
 			    LIMIT 1
 			) first_image ON true
 			WHERE q.author_id = :authorId
+			  AND q.deleted_at IS NULL
 			  AND q.question_id < :cursor
 			ORDER BY q.question_id DESC
 			LIMIT :limit
@@ -109,6 +112,21 @@ public interface QuestionRepository extends JpaRepository<Question, Long> {
 		nativeQuery = true
 	)
 	List<AnswerItemProjection> findAnswersByQuestionId(@Param("questionId") Long questionId);
+
+	@Query(
+		value = """
+			SELECT q.author_id AS authorId,
+			       q.deleted_at AS deletedAt
+			  FROM questions q
+			 WHERE q.question_id = :questionId
+			""",
+		nativeQuery = true
+	)
+	Optional<QuestionDeletionState> findDeletionState(@Param("questionId") Long questionId);
+
+	@Lock(LockModeType.PESSIMISTIC_READ)
+	@Query("select q from Question q where q.id = :questionId")
+	Optional<Question> findActiveByIdForShare(@Param("questionId") Long questionId);
 
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select q from Question q where q.id = :questionId")

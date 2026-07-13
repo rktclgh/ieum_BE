@@ -7,6 +7,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -45,7 +46,6 @@ import shinhan.fibri.ieum.main.question.dto.CursorPage;
 import shinhan.fibri.ieum.main.question.dto.MyQuestionItem;
 import shinhan.fibri.ieum.main.question.dto.QuestionCreateRequest;
 import shinhan.fibri.ieum.main.question.dto.QuestionDetailResponse;
-import shinhan.fibri.ieum.main.question.dto.QuestionUpdateRequest;
 import shinhan.fibri.ieum.main.question.exception.QuestionNotFoundException;
 import shinhan.fibri.ieum.main.question.service.QuestionService;
 
@@ -120,10 +120,7 @@ class QuestionControllerTest {
 	}
 
 	@Test
-	void updateQuestionReturnsUpdatedBody() throws Exception {
-		when(questionService.update(any(AuthenticatedUser.class), eq(200L), any(QuestionUpdateRequest.class)))
-			.thenReturn(detailResponse());
-
+	void updateQuestionIsNotSupported() throws Exception {
 		mockMvc.perform(patch("/api/v1/questions/200")
 				.with(authenticated())
 				.contentType(MediaType.APPLICATION_JSON)
@@ -133,10 +130,15 @@ class QuestionControllerTest {
 					  "imageFileIds": []
 					}
 					"""))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.questionId", is(200)));
+			.andExpect(status().isMethodNotAllowed());
+	}
 
-		verify(questionService).update(any(AuthenticatedUser.class), eq(200L), any(QuestionUpdateRequest.class));
+	@Test
+	void deleteQuestionReturnsNoContent() throws Exception {
+		mockMvc.perform(delete("/api/v1/questions/200").with(authenticated()))
+			.andExpect(status().isNoContent());
+
+		verify(questionService).delete(any(AuthenticatedUser.class), eq(200L));
 	}
 
 	@Test

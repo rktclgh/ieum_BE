@@ -3,6 +3,7 @@ package shinhan.fibri.ieum.main.question.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -16,8 +17,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.context.ApplicationEventPublisher;
 import shinhan.fibri.ieum.common.auth.domain.GenderType;
 import shinhan.fibri.ieum.common.auth.domain.User;
@@ -27,22 +28,24 @@ import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
 import shinhan.fibri.ieum.common.file.domain.File;
 import shinhan.fibri.ieum.common.file.repository.FileRepository;
+import shinhan.fibri.ieum.main.ai.question.repository.QuestionAnswerTicketWriter;
 import shinhan.fibri.ieum.main.answer.domain.AnswerImage;
 import shinhan.fibri.ieum.main.answer.repository.AnswerImageRepository;
 import shinhan.fibri.ieum.main.pin.domain.PinType;
 import shinhan.fibri.ieum.main.pin.dto.LocationSnapshot;
 import shinhan.fibri.ieum.main.pin.repository.PinWriter;
 import shinhan.fibri.ieum.main.question.domain.Question;
+import shinhan.fibri.ieum.main.question.domain.QuestionImage;
 import shinhan.fibri.ieum.main.question.dto.AnswerItem;
 import shinhan.fibri.ieum.main.question.dto.QuestionCreateRequest;
 import shinhan.fibri.ieum.main.question.dto.QuestionDetailResponse;
-import shinhan.fibri.ieum.main.question.dto.QuestionUpdateRequest;
 import shinhan.fibri.ieum.main.question.exception.InvalidQuestionRequestException;
 import shinhan.fibri.ieum.main.question.exception.QuestionForbiddenException;
-import shinhan.fibri.ieum.main.question.domain.QuestionImage;
+import shinhan.fibri.ieum.main.question.exception.QuestionNotFoundException;
 import shinhan.fibri.ieum.main.question.repository.AnswerItemProjection;
 import shinhan.fibri.ieum.main.question.repository.MyQuestionItemProjection;
 import shinhan.fibri.ieum.main.question.repository.QuestionDetailProjection;
+import shinhan.fibri.ieum.main.question.repository.QuestionDeletionState;
 import shinhan.fibri.ieum.main.question.repository.QuestionImageRepository;
 import shinhan.fibri.ieum.main.question.repository.QuestionRepository;
 import shinhan.fibri.ieum.main.notification.presence.QuestionCreatedEvent;
@@ -55,7 +58,7 @@ class QuestionServiceTest {
 	private final FileRepository fileRepository = mock(FileRepository.class);
 	private final UserRepository userRepository = mock(UserRepository.class);
 	private final PinWriter pinWriter = mock(PinWriter.class);
-	private final QuestionImageCleanupService imageCleanupService = mock(QuestionImageCleanupService.class);
+	private final QuestionAnswerTicketWriter questionAnswerTicketWriter = mock(QuestionAnswerTicketWriter.class);
 	private final ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
 	private final QuestionService service = new QuestionService(
 		questionRepository,
@@ -64,7 +67,7 @@ class QuestionServiceTest {
 		fileRepository,
 		userRepository,
 		pinWriter,
-		imageCleanupService,
+		questionAnswerTicketWriter,
 		eventPublisher
 	);
 
@@ -99,12 +102,22 @@ class QuestionServiceTest {
 		assertThat(response.author().profileImageUrl()).isEqualTo("/api/v1/files/%s".formatted(profileId));
 		assertThat(response.location()).isEqualTo(location);
 		assertThat(response.imageUrls()).containsExactly("/api/v1/files/%s?v=display".formatted(imageId));
-		verify(eventPublisher).publishEvent(new QuestionCreatedEvent(200L, 42L, "title", 37.4979, 127.0276));
-		InOrder inOrder = inOrder(fileRepository, pinWriter, questionRepository, questionImageRepository);
+		InOrder inOrder = inOrder(
+			fileRepository,
+			pinWriter,
+			questionRepository,
+			questionImageRepository,
+			questionAnswerTicketWriter,
+			eventPublisher
+		);
 		inOrder.verify(fileRepository).findByFileIdAndUploaderId(imageId, 42L);
 		inOrder.verify(pinWriter).create(42L, PinType.question, location);
 		inOrder.verify(questionRepository).save(any(Question.class));
 		inOrder.verify(questionImageRepository).saveAll(any());
+		inOrder.verify(questionAnswerTicketWriter).create(200L);
+		inOrder.verify(eventPublisher).publishEvent(
+			new QuestionCreatedEvent(200L, 42L, "title", 37.4979, 127.0276)
+		);
 	}
 
 	@Test
@@ -247,117 +260,84 @@ class QuestionServiceTest {
 	}
 
 	@Test
-	void updateRejectsNonAuthorBeforeChangingImages() {
-		Question question = Question.create(100L, 99L, "title", "content");
-		setId(question, 200L);
-		when(questionRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(question));
-
-		assertThatThrownBy(() -> service.update(
-			principal(),
-			200L,
-			new QuestionUpdateRequest("updated", null, List.of())
-		)).isInstanceOf(QuestionForbiddenException.class);
-
-		verify(questionImageRepository, never()).deleteByQuestionId(200L);
-	}
-
-	@Test
-	void updateRejectsBlankTitle() {
+	void deleteRequestsTicketCancellationBeforeLockingAndSoftDeletesQuestionAndPinAtSameTime() {
+		QuestionDeletionState state = deletionState(42L, null);
 		Question question = Question.create(100L, 42L, "title", "content");
 		setId(question, 200L);
+		when(questionRepository.findDeletionState(200L)).thenReturn(Optional.of(state));
 		when(questionRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(question));
 
-		assertThatThrownBy(() -> service.update(
-			principal(),
-			200L,
-			new QuestionUpdateRequest("   ", null, null)
-		)).isInstanceOf(InvalidQuestionRequestException.class)
-			.hasMessage("title must not be blank");
+		service.delete(principal(), 200L);
 
-		verify(questionImageRepository, never()).deleteByQuestionId(200L);
+		InOrder inOrder = inOrder(questionRepository, questionAnswerTicketWriter, pinWriter);
+		inOrder.verify(questionRepository).findDeletionState(200L);
+		inOrder.verify(questionAnswerTicketWriter).requestCancellation(200L);
+		inOrder.verify(questionRepository).findByIdForUpdate(200L);
+		ArgumentCaptor<OffsetDateTime> deletedAt = ArgumentCaptor.forClass(OffsetDateTime.class);
+		inOrder.verify(pinWriter).softDelete(eq(100L), deletedAt.capture());
+		assertThat(question.getDeletedAt()).isEqualTo(deletedAt.getValue());
 	}
 
 	@Test
-	void updateRejectsBlankContent() {
+	void deleteIsIdempotentForSameAuthorWhenQuestionIsAlreadyDeleted() {
+		Instant deletedAt = Instant.parse("2026-07-13T10:00:00Z");
+		QuestionDeletionState state = deletionState(42L, deletedAt);
+		when(questionRepository.findDeletionState(200L)).thenReturn(Optional.of(state));
+
+		service.delete(principal(), 200L);
+
+		verify(questionAnswerTicketWriter, never()).requestCancellation(any());
+		verify(questionRepository, never()).findByIdForUpdate(any());
+		verify(pinWriter, never()).softDelete(any(), any());
+	}
+
+	@Test
+	void deleteThrowsNotFoundWhenQuestionDoesNotExist() {
+		when(questionRepository.findDeletionState(999L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.delete(principal(), 999L))
+			.isInstanceOf(QuestionNotFoundException.class);
+
+		verify(questionAnswerTicketWriter, never()).requestCancellation(any());
+	}
+
+	@Test
+	void deleteRejectsNonAuthorBeforeRequestingCancellation() {
+		QuestionDeletionState state = deletionState(99L, null);
+		when(questionRepository.findDeletionState(200L)).thenReturn(Optional.of(state));
+
+		assertThatThrownBy(() -> service.delete(principal(), 200L))
+			.isInstanceOf(QuestionForbiddenException.class);
+
+		verify(questionAnswerTicketWriter, never()).requestCancellation(any());
+		verify(questionRepository, never()).findByIdForUpdate(any());
+	}
+
+	@Test
+	void deleteRechecksStateAfterLockAndAcceptsConcurrentSameAuthorDelete() {
 		Question question = Question.create(100L, 42L, "title", "content");
+		question.softDelete(OffsetDateTime.parse("2026-07-13T10:00:00Z"));
 		setId(question, 200L);
+		QuestionDeletionState state = deletionState(42L, null);
+		when(questionRepository.findDeletionState(200L)).thenReturn(Optional.of(state));
 		when(questionRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(question));
 
-		assertThatThrownBy(() -> service.update(
-			principal(),
-			200L,
-			new QuestionUpdateRequest(null, "", null)
-		)).isInstanceOf(InvalidQuestionRequestException.class)
-			.hasMessage("content must not be blank");
+		service.delete(principal(), 200L);
 
-		verify(questionImageRepository, never()).deleteByQuestionId(200L);
+		verify(questionAnswerTicketWriter).requestCancellation(200L);
+		verify(pinWriter, never()).softDelete(any(), any());
 	}
 
 	@Test
-	void updateReplacesImagesAndSchedulesRemovedImageCleanup() {
-		UUID oldImage = UUID.fromString("00000000-0000-0000-0000-000000000031");
-		UUID newImage = UUID.fromString("00000000-0000-0000-0000-000000000032");
-		UUID profileId = UUID.fromString("00000000-0000-0000-0000-000000000103");
-		Question question = Question.create(100L, 42L, "title", "content");
-		setId(question, 200L);
-		when(questionRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(question));
-		when(questionImageRepository.findByQuestionIdOrderBySortOrderAsc(200L))
-			.thenReturn(List.of(QuestionImage.link(200L, oldImage, 0)));
-		when(fileRepository.findByFileIdAndUploaderId(newImage, 42L)).thenReturn(Optional.of(uploadedFile(newImage, 42L)));
-		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user(profileId)));
-		when(questionRepository.findDetailByQuestionId(200L)).thenReturn(Optional.of(new DetailProjection(
-			200L, "updated", "changed", false, 42L, "nickname", profileId
-		)));
+	void deleteAcceptsQuestionBecomingInvisibleAfterPrecheckAsConcurrentDelete() {
+		QuestionDeletionState state = deletionState(42L, null);
+		when(questionRepository.findDeletionState(200L)).thenReturn(Optional.of(state));
+		when(questionRepository.findByIdForUpdate(200L)).thenReturn(Optional.empty());
 
-		TransactionSynchronizationManager.initSynchronization();
-		QuestionDetailResponse response;
-		try {
-			response = service.update(
-				principal(),
-				200L,
-				new QuestionUpdateRequest("updated", "changed", List.of(newImage))
-			);
+		service.delete(principal(), 200L);
 
-			verify(imageCleanupService, never()).cleanRemovedImagesAfterCommit(any());
-			TransactionSynchronizationManager.getSynchronizations()
-				.forEach(synchronization -> synchronization.afterCommit());
-		} finally {
-			TransactionSynchronizationManager.clearSynchronization();
-		}
-
-		assertThat(response.title()).isEqualTo("updated");
-		assertThat(response.content()).isEqualTo("changed");
-		assertThat(response.author().profileImageUrl()).isEqualTo("/api/v1/files/%s".formatted(profileId));
-		assertThat(response.location()).isEqualTo(new LocationSnapshot(
-			37.4979, 127.0276, "서울특별시 강남구", "", "강남역"
-		));
-		verify(questionImageRepository).deleteByQuestionId(200L);
-		verify(questionImageRepository).saveAll(any());
-		verify(imageCleanupService).cleanRemovedImagesAfterCommit(List.of(oldImage));
-	}
-
-	@Test
-	void updatePreservesContentWhenOnlyTitleIsProvided() {
-		UUID profileId = UUID.fromString("00000000-0000-0000-0000-000000000104");
-		Question question = Question.create(100L, 42L, "title", "original content");
-		setId(question, 200L);
-		when(questionRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(question));
-		when(questionImageRepository.findByQuestionIdOrderBySortOrderAsc(200L)).thenReturn(List.of());
-		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user(profileId)));
-		when(questionRepository.findDetailByQuestionId(200L)).thenReturn(Optional.of(new DetailProjection(
-			200L, "updated title", "original content", false, 42L, "nickname", profileId
-		)));
-
-		QuestionDetailResponse response = service.update(
-			principal(),
-			200L,
-			new QuestionUpdateRequest("updated title", null, null)
-		);
-
-		assertThat(response.title()).isEqualTo("updated title");
-		assertThat(response.content()).isEqualTo("original content");
-		verify(questionImageRepository, never()).deleteByQuestionId(any());
-		verify(imageCleanupService, never()).cleanRemovedImagesAfterCommit(any());
+		verify(questionAnswerTicketWriter).requestCancellation(200L);
+		verify(pinWriter, never()).softDelete(any(), any());
 	}
 
 	private AuthenticatedUser principal() {
@@ -388,6 +368,13 @@ class QuestionServiceTest {
 		File file = File.pending(fileId, uploaderId, "questions/%s".formatted(fileId), "image/jpeg", 1024L);
 		file.markUploaded(OffsetDateTime.now(), "image/jpeg", 1024L);
 		return file;
+	}
+
+	private QuestionDeletionState deletionState(Long authorId, Instant deletedAt) {
+		QuestionDeletionState state = mock(QuestionDeletionState.class);
+		when(state.getAuthorId()).thenReturn(authorId);
+		when(state.getDeletedAt()).thenReturn(deletedAt);
+		return state;
 	}
 
 	private void setId(Question question, Long id) {

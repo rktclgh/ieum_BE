@@ -62,4 +62,22 @@ class JwtAuthenticationFilterTest {
 		verify(validator, never()).validate("access-token");
 		verify(chain).doFilter(request, response);
 	}
+
+	@Test
+	void doFilterIgnoresBrowserCookiesOnTheInternalAiCompletionCallback() throws Exception {
+		SessionTokenValidator validator = mock(SessionTokenValidator.class);
+		JwtAuthenticationFilter filter = new JwtAuthenticationFilter(validator);
+		MockHttpServletRequest request = new MockHttpServletRequest(
+			"POST",
+			"/api/v1/internal/ai/question-answer-jobs/10/completed"
+		);
+		request.setCookies(new MockCookie("access_token", "access-token"));
+		MockHttpServletResponse response = new MockHttpServletResponse();
+		FilterChain chain = mock(FilterChain.class);
+
+		filter.doFilter(request, response, chain);
+
+		verify(validator, never()).validate("access-token");
+		verify(chain).doFilter(request, response);
+	}
 }

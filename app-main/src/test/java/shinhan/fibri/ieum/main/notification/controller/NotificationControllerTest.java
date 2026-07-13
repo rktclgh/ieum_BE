@@ -74,6 +74,7 @@ class NotificationControllerTest {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.items[0].notificationId", is(10)))
 			.andExpect(jsonPath("$.items[0].type", is("question")))
+			.andExpect(jsonPath("$.items[0].answerIsAi", is(true)))
 			.andExpect(jsonPath("$.items[0].isRead", is(false)))
 			.andExpect(jsonPath("$.nextCursor", is("next-cursor")))
 			.andExpect(jsonPath("$.unreadCount", is(3)));
@@ -150,6 +151,7 @@ class NotificationControllerTest {
 			"새 답변",
 			"질문에 답변이 달렸어요",
 			5L,
+			true,
 			false,
 			OffsetDateTime.parse("2026-07-10T12:00:00+09:00")
 		);

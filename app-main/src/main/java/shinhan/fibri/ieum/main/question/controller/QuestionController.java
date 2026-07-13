@@ -1,11 +1,12 @@
 package shinhan.fibri.ieum.main.question.controller;
 
 import jakarta.validation.Valid;
+import java.net.URI;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -17,10 +18,7 @@ import shinhan.fibri.ieum.main.question.dto.CursorPage;
 import shinhan.fibri.ieum.main.question.dto.MyQuestionItem;
 import shinhan.fibri.ieum.main.question.dto.QuestionCreateRequest;
 import shinhan.fibri.ieum.main.question.dto.QuestionDetailResponse;
-import shinhan.fibri.ieum.main.question.dto.QuestionUpdateRequest;
 import shinhan.fibri.ieum.main.question.service.QuestionService;
-
-import java.net.URI;
 
 @RestController
 @RequestMapping("/api/v1/questions")
@@ -53,12 +51,12 @@ public class QuestionController {
 		return ResponseEntity.ok(questionService.listMine(principal, cursor, size));
 	}
 
-	@PatchMapping("/{questionId}")
-	public ResponseEntity<QuestionDetailResponse> update(
+	@DeleteMapping("/{questionId}")
+	public ResponseEntity<Void> delete(
 		@AuthenticationPrincipal AuthenticatedUser principal,
-		@PathVariable Long questionId,
-		@Valid @RequestBody QuestionUpdateRequest request
+		@PathVariable Long questionId
 	) {
-		return ResponseEntity.ok(questionService.update(principal, questionId, request));
+		questionService.delete(principal, questionId);
+		return ResponseEntity.noContent().build();
 	}
 }

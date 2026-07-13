@@ -18,12 +18,14 @@ class NotificationSsePayloadTest {
 			"새 답변",
 			"질문에 답변이 달렸어요",
 			5L,
+			true,
 			createdAt
 		);
 
 		assertThat(payload.notificationId()).isEqualTo(10L);
 		assertThat(payload.persistent()).isTrue();
 		assertThat(payload.createdAt()).isEqualTo(createdAt);
+		assertThat(payload.answerIsAi()).isTrue();
 	}
 
 	@Test
@@ -38,5 +40,6 @@ class NotificationSsePayloadTest {
 
 		assertThat(payload.notificationId()).isNull();
 		assertThat(payload.persistent()).isFalse();
+		assertThat(payload.answerIsAi()).isNull();
 	}
 }

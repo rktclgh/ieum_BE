@@ -115,6 +115,23 @@ class BedrockReportReviewModelProviderTest {
 			);
 	}
 
+	@Test
+	void terminatesWhenTransportFailureCauseGraphContainsCycle() {
+		CyclicRuntimeException cyclicFailure = new CyclicRuntimeException();
+		BedrockReportReviewModelProvider failingProvider = new BedrockReportReviewModelProvider(
+			new FailingChatModel(cyclicFailure),
+			new ReportReviewModelPromptFactory(),
+			new ReportReviewModelOutputParser(),
+			properties()
+		);
+
+		assertThatThrownBy(() -> failingProvider.review(preparedReview(), policySnapshot()))
+			.isInstanceOfSatisfying(ReportReviewModelProviderException.class, exception ->
+				assertThat(exception.errorCode()).isEqualTo(ReportReviewProviderErrorCode.transport_error)
+			);
+		assertThat(cyclicFailure.causeReads).isEqualTo(1);
+	}
+
 	private ReportModelProperties properties() {
 		return new ReportModelProperties(
 			"test-gemini-key",
@@ -196,6 +213,20 @@ class BedrockReportReviewModelProviderTest {
 		@Override
 		public ChatResponse call(Prompt prompt) {
 			throw exception;
+		}
+	}
+
+	private static final class CyclicRuntimeException extends RuntimeException {
+
+		private int causeReads;
+
+		@Override
+		public synchronized Throwable getCause() {
+			causeReads++;
+			if (causeReads > 2) {
+				throw new IllegalStateException("cause cycle traversal did not terminate");
+			}
+			return this;
 		}
 	}
 }

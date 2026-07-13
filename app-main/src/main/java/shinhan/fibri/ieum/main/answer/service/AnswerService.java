@@ -45,9 +45,8 @@ public class AnswerService {
 
 	@Transactional(timeout = 30)
 	public CreateAnswerResponse create(AuthenticatedUser principal, Long questionId, CreateAnswerRequest request) {
-		if (!questionRepository.existsById(questionId)) {
-			throw new QuestionNotFoundException();
-		}
+		Question question = questionRepository.findActiveByIdForShare(questionId)
+			.orElseThrow(QuestionNotFoundException::new);
 		String content = requireContentOrImages(request);
 		List<UUID> imageFileIds = normalizeImageFileIds(request.imageFileIds());
 		List<File> files = validateImages(imageFileIds, principal.userId());
@@ -58,15 +57,16 @@ public class AnswerService {
 			images.add(AnswerImage.link(answer.getId(), files.get(index).getFileId(), index));
 		}
 		answerImageRepository.saveAll(images);
-		questionRepository.findById(questionId)
-			.filter(question -> !question.getAuthorId().equals(principal.userId()))
-			.ifPresent(question -> notificationPublisher.publishDurable(
+		if (!question.getAuthorId().equals(principal.userId())) {
+			notificationPublisher.publishDurable(
 				question.getAuthorId(),
 				NotificationType.question,
 				"새 답변",
 				"회원님의 질문에 답변이 달렸어요",
-				questionId
-			));
+				questionId,
+				false
+			);
+		}
 		return new CreateAnswerResponse(answer.getId());
 	}
 

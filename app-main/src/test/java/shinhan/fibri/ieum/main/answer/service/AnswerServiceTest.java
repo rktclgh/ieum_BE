@@ -65,8 +65,7 @@ class AnswerServiceTest {
 	void createPublishesDurableNotificationToQuestionAuthorButSkipsSelfAnswer() {
 		Question question = Question.create(100L, 99L, "title", "question");
 		setId(question, 200L);
-		when(questionRepository.existsById(200L)).thenReturn(true);
-		when(questionRepository.findById(200L)).thenReturn(Optional.of(question));
+		when(questionRepository.findActiveByIdForShare(200L)).thenReturn(Optional.of(question));
 		when(answerRepository.save(any(Answer.class))).thenAnswer(invocation -> {
 			Answer answer = invocation.getArgument(0);
 			setId(answer, 300L);
@@ -80,7 +79,8 @@ class AnswerServiceTest {
 			NotificationType.question,
 			"새 답변",
 			"회원님의 질문에 답변이 달렸어요",
-			200L
+			200L,
+			false
 		);
 	}
 
@@ -88,8 +88,7 @@ class AnswerServiceTest {
 	void createSkipsNotificationWhenQuestionAuthorAnswersOwnQuestion() {
 		Question question = Question.create(100L, 42L, "title", "question");
 		setId(question, 200L);
-		when(questionRepository.existsById(200L)).thenReturn(true);
-		when(questionRepository.findById(200L)).thenReturn(Optional.of(question));
+		when(questionRepository.findActiveByIdForShare(200L)).thenReturn(Optional.of(question));
 		when(answerRepository.save(any(Answer.class))).thenAnswer(invocation -> {
 			Answer answer = invocation.getArgument(0);
 			setId(answer, 300L);
@@ -107,7 +106,7 @@ class AnswerServiceTest {
 		UUID secondImageId = UUID.fromString("00000000-0000-0000-0000-000000000002");
 		Question question = Question.create(100L, 99L, "title", "question");
 		setId(question, 200L);
-		when(questionRepository.existsById(200L)).thenReturn(true);
+		when(questionRepository.findActiveByIdForShare(200L)).thenReturn(Optional.of(question));
 		when(fileRepository.findAllByFileIdInAndUploaderId(List.of(firstImageId, secondImageId), 42L))
 			.thenReturn(List.of(uploadedFile(firstImageId, 42L), uploadedFile(secondImageId, 42L)));
 		when(answerRepository.save(any(Answer.class))).thenAnswer(invocation -> {
@@ -142,7 +141,7 @@ class AnswerServiceTest {
 			);
 
 		InOrder inOrder = inOrder(questionRepository, fileRepository, answerRepository, answerImageRepository);
-		inOrder.verify(questionRepository).existsById(200L);
+		inOrder.verify(questionRepository).findActiveByIdForShare(200L);
 		inOrder.verify(fileRepository, times(1)).findAllByFileIdInAndUploaderId(List.of(firstImageId, secondImageId), 42L);
 		inOrder.verify(answerRepository).save(any(Answer.class));
 		inOrder.verify(answerImageRepository).saveAll(any());
@@ -152,7 +151,7 @@ class AnswerServiceTest {
 	@Test
 	void createRejectsMissingQuestionBeforeValidatingImages() {
 		UUID imageId = UUID.fromString("00000000-0000-0000-0000-000000000003");
-		when(questionRepository.existsById(999L)).thenReturn(false);
+		when(questionRepository.findActiveByIdForShare(999L)).thenReturn(Optional.empty());
 
 		assertThatThrownBy(() -> service.create(
 			principal(),
@@ -168,7 +167,7 @@ class AnswerServiceTest {
 	void createRejectsBlankContentWithNoImages() {
 		Question question = Question.create(100L, 99L, "title", "question");
 		setId(question, 200L);
-		when(questionRepository.existsById(200L)).thenReturn(true);
+		when(questionRepository.findActiveByIdForShare(200L)).thenReturn(Optional.of(question));
 
 		assertThatThrownBy(() -> service.create(
 			principal(),
@@ -185,7 +184,7 @@ class AnswerServiceTest {
 	void createRejectsNullContentWithNullImages() {
 		Question question = Question.create(100L, 99L, "title", "question");
 		setId(question, 200L);
-		when(questionRepository.existsById(200L)).thenReturn(true);
+		when(questionRepository.findActiveByIdForShare(200L)).thenReturn(Optional.of(question));
 
 		assertThatThrownBy(() -> service.create(
 			principal(),
@@ -202,7 +201,7 @@ class AnswerServiceTest {
 		UUID imageId = UUID.fromString("00000000-0000-0000-0000-000000000006");
 		Question question = Question.create(100L, 99L, "title", "question");
 		setId(question, 200L);
-		when(questionRepository.existsById(200L)).thenReturn(true);
+		when(questionRepository.findActiveByIdForShare(200L)).thenReturn(Optional.of(question));
 		when(fileRepository.findAllByFileIdInAndUploaderId(List.of(imageId), 42L))
 			.thenReturn(List.of(uploadedFile(imageId, 42L)));
 		when(answerRepository.save(any(Answer.class))).thenAnswer(invocation -> {
@@ -224,7 +223,7 @@ class AnswerServiceTest {
 		UUID imageId = UUID.fromString("00000000-0000-0000-0000-000000000004");
 		Question question = Question.create(100L, 99L, "title", "question");
 		setId(question, 200L);
-		when(questionRepository.existsById(200L)).thenReturn(true);
+		when(questionRepository.findActiveByIdForShare(200L)).thenReturn(Optional.of(question));
 
 		assertThatThrownBy(() -> service.create(
 			principal(),
@@ -241,7 +240,7 @@ class AnswerServiceTest {
 		UUID imageId = UUID.fromString("00000000-0000-0000-0000-000000000005");
 		Question question = Question.create(100L, 99L, "title", "question");
 		setId(question, 200L);
-		when(questionRepository.existsById(200L)).thenReturn(true);
+		when(questionRepository.findActiveByIdForShare(200L)).thenReturn(Optional.of(question));
 		when(fileRepository.findAllByFileIdInAndUploaderId(List.of(imageId), 42L)).thenReturn(List.of());
 
 		assertThatThrownBy(() -> service.create(

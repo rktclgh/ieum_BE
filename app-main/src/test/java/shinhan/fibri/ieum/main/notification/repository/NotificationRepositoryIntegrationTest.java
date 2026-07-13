@@ -68,6 +68,28 @@ class NotificationRepositoryIntegrationTest {
 			)
 			""");
 		jdbcTemplate.execute("""
+			CREATE TABLE IF NOT EXISTS pins (
+				pin_id BIGINT PRIMARY KEY,
+				author_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+				deleted_at TIMESTAMPTZ
+			)
+			""");
+		jdbcTemplate.execute("""
+			CREATE TABLE IF NOT EXISTS questions (
+				question_id BIGINT PRIMARY KEY,
+				pin_id BIGINT NOT NULL REFERENCES pins(pin_id) ON DELETE CASCADE,
+				author_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+				deleted_at TIMESTAMPTZ
+			)
+			""");
+		jdbcTemplate.execute("""
+			CREATE TABLE IF NOT EXISTS answers (
+				answer_id BIGINT PRIMARY KEY,
+				question_id BIGINT NOT NULL REFERENCES questions(question_id) ON DELETE CASCADE,
+				is_ai BOOLEAN NOT NULL
+			)
+			""");
+		jdbcTemplate.execute("""
 			CREATE TABLE IF NOT EXISTS notifications (
 				notification_id BIGSERIAL PRIMARY KEY,
 				user_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
@@ -75,12 +97,21 @@ class NotificationRepositoryIntegrationTest {
 				title VARCHAR(200) NOT NULL,
 				body TEXT,
 				ref_id BIGINT,
+				answer_is_ai BOOLEAN,
+				event_key VARCHAR(120),
 				is_read BOOLEAN NOT NULL DEFAULT FALSE,
-				created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+				created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+				CONSTRAINT ck_notifications_answer_is_ai
+					CHECK (answer_is_ai IS NULL OR type = 'question'::notification_type)
 			)
 			""");
 		jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, created_at DESC)");
-		jdbcTemplate.execute("TRUNCATE TABLE notifications, users RESTART IDENTITY CASCADE");
+		jdbcTemplate.execute("""
+			CREATE UNIQUE INDEX IF NOT EXISTS uidx_notifications_user_event_key
+			ON notifications(user_id, event_key)
+			WHERE event_key IS NOT NULL
+			""");
+		jdbcTemplate.execute("TRUNCATE TABLE notifications, answers, questions, pins, users RESTART IDENTITY CASCADE");
 		jdbcTemplate.update("INSERT INTO users (user_id) VALUES (1), (2)");
 	}
 
@@ -91,17 +122,19 @@ class NotificationRepositoryIntegrationTest {
 			NotificationType.question,
 			"새 답변",
 			"질문에 답변이 달렸어요",
-			50L
+			50L,
+			false
 		));
 
 		assertThat(notification.getId()).isNotNull();
 		assertThat(notification.getCreatedAt()).isNotNull();
 		assertThat(notification.isRead()).isFalse();
+		assertThat(notification.getAnswerIsAi()).isFalse();
 		assertThat(jdbcTemplate.queryForObject(
-			"SELECT type::text FROM notifications WHERE notification_id = ?",
-			String.class,
+			"SELECT answer_is_ai FROM notifications WHERE notification_id = ?",
+			Boolean.class,
 			notification.getId()
-		)).isEqualTo("question");
+		)).isFalse();
 	}
 
 	@Test
@@ -180,6 +213,40 @@ class NotificationRepositoryIntegrationTest {
 		assertThat(notificationRepository.deleteByIdAndUserId(otherUserNotificationId, 1L)).isZero();
 	}
 
+	@Test
+	void insertsOnlyOneNotificationForTheSameUserAndEventKey() {
+		NotificationEventRepository eventRepository = new NotificationEventRepository(jdbcTemplate);
+
+		var first = eventRepository.insertOnce(
+			1L,
+			NotificationType.question,
+			"새 답변",
+			"회원님의 질문에 답변이 달렸어요",
+			50L,
+			true,
+			"answer-created:300"
+		);
+		var duplicate = eventRepository.insertOnce(
+			1L,
+			NotificationType.question,
+			"새 답변",
+			"회원님의 질문에 답변이 달렸어요",
+			50L,
+			true,
+			"answer-created:300"
+		);
+
+		assertThat(first).isPresent();
+		assertThat(duplicate).isEmpty();
+		assertThat(jdbcTemplate.queryForObject(
+			"SELECT count(*) FROM notifications WHERE user_id = 1 AND event_key = 'answer-created:300'",
+			Long.class
+		)).isEqualTo(1L);
+		Notification stored = notificationRepository.findById(first.orElseThrow().notificationId()).orElseThrow();
+		assertThat(stored.getAnswerIsAi()).isTrue();
+		assertThat(stored.getEventKey()).isEqualTo("answer-created:300");
+	}
+
 	private long insertNotification(Long userId, String title, OffsetDateTime createdAt) {
 		return jdbcTemplate.queryForObject(
 			"""
@@ -193,4 +260,5 @@ class NotificationRepositoryIntegrationTest {
 			createdAt
 		);
 	}
+
 }

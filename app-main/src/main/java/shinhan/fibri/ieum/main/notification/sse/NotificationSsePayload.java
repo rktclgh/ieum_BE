@@ -10,6 +10,7 @@ public record NotificationSsePayload(
 	String title,
 	String body,
 	Long refId,
+	Boolean answerIsAi,
 	OffsetDateTime createdAt,
 	boolean persistent
 ) {
@@ -34,7 +35,28 @@ public record NotificationSsePayload(
 		Long refId,
 		OffsetDateTime createdAt
 	) {
-		return new NotificationSsePayload(notificationId, type, title, body, refId, createdAt, true);
+		return durable(notificationId, type, title, body, refId, null, createdAt);
+	}
+
+	public static NotificationSsePayload durable(
+		Long notificationId,
+		NotificationType type,
+		String title,
+		String body,
+		Long refId,
+		Boolean answerIsAi,
+		OffsetDateTime createdAt
+	) {
+		return new NotificationSsePayload(
+			notificationId,
+			type,
+			title,
+			body,
+			refId,
+			answerIsAi,
+			createdAt,
+			true
+		);
 	}
 
 	public static NotificationSsePayload ephemeral(
@@ -44,6 +66,6 @@ public record NotificationSsePayload(
 		Long refId,
 		OffsetDateTime createdAt
 	) {
-		return new NotificationSsePayload(null, type, title, body, refId, createdAt, false);
+		return new NotificationSsePayload(null, type, title, body, refId, null, createdAt, false);
 	}
 }

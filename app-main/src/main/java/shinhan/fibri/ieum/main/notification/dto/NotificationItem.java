@@ -10,6 +10,7 @@ public record NotificationItem(
 	String title,
 	String body,
 	Long refId,
+	Boolean answerIsAi,
 	boolean isRead,
 	OffsetDateTime createdAt
 ) {
@@ -21,6 +22,7 @@ public record NotificationItem(
 			notification.getTitle(),
 			notification.getBody(),
 			notification.getRefId(),
+			notification.getAnswerIsAi(),
 			notification.isRead(),
 			notification.getCreatedAt()
 		);

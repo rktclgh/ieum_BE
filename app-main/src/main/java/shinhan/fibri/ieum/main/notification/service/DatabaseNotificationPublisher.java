@@ -5,6 +5,7 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import shinhan.fibri.ieum.main.notification.domain.Notification;
 import shinhan.fibri.ieum.main.notification.domain.NotificationType;
+import shinhan.fibri.ieum.main.notification.repository.NotificationEventRepository;
 import shinhan.fibri.ieum.main.notification.repository.NotificationRepository;
 import shinhan.fibri.ieum.main.notification.sse.NotificationSsePayload;
 import shinhan.fibri.ieum.main.notification.sse.OutboundEvent;
@@ -15,13 +16,16 @@ import java.time.OffsetDateTime;
 public class DatabaseNotificationPublisher implements NotificationPublisher {
 
 	private final NotificationRepository notificationRepository;
+	private final NotificationEventRepository notificationEventRepository;
 	private final SseConnectionRegistry registry;
 
 	public DatabaseNotificationPublisher(
 		NotificationRepository notificationRepository,
+		NotificationEventRepository notificationEventRepository,
 		SseConnectionRegistry registry
 	) {
 		this.notificationRepository = notificationRepository;
+		this.notificationEventRepository = notificationEventRepository;
 		this.registry = registry;
 	}
 
@@ -36,16 +40,64 @@ public class DatabaseNotificationPublisher implements NotificationPublisher {
 
 	@Override
 	public void publishDurable(Long userId, NotificationType type, String title, String body, Long refId) {
-		Notification notification = notificationRepository.saveAndFlush(Notification.of(userId, type, title, body, refId));
+		publishDurable(userId, type, title, body, refId, null);
+	}
+
+	@Override
+	public void publishDurable(
+		Long userId,
+		NotificationType type,
+		String title,
+		String body,
+		Long refId,
+		Boolean answerIsAi
+	) {
+		Notification notification = notificationRepository.saveAndFlush(
+			Notification.of(userId, type, title, body, refId, answerIsAi)
+		);
 		OutboundEvent event = OutboundEvent.durable(NotificationSsePayload.durable(
 			notification.getId(),
 			notification.getType(),
 			notification.getTitle(),
 			notification.getBody(),
 			notification.getRefId(),
+			notification.getAnswerIsAi(),
 			notification.getCreatedAt()
 		));
 		pushAfterCommit(userId, event);
+	}
+
+	@Override
+	public boolean publishDurableOnce(
+		Long userId,
+		NotificationType type,
+		String title,
+		String body,
+		Long refId,
+		Boolean answerIsAi,
+		String eventKey
+	) {
+		return notificationEventRepository.insertOnce(
+			userId,
+			type,
+			title,
+			body,
+			refId,
+			answerIsAi,
+			eventKey
+		).map(inserted -> {
+			OutboundEvent event = OutboundEvent.durable(NotificationSsePayload.durable(
+				inserted.notificationId(),
+				type,
+				title,
+				body,
+				refId,
+				answerIsAi,
+				inserted.createdAt()
+			));
+			pushAfterCommit(userId, event);
+			return true;
+		}).orElse(false);
 	}
 
 	private void pushAfterCommit(Long userId, OutboundEvent event) {

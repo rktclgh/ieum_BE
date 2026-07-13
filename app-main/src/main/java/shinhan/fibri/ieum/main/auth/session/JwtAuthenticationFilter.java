@@ -15,12 +15,18 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
+import shinhan.fibri.ieum.main.notification.internal.InternalAiCallbackEndpoint;
 
 @Component
 @RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
 	private final SessionTokenValidator sessionTokenValidator;
+
+	@Override
+	protected boolean shouldNotFilter(HttpServletRequest request) {
+		return InternalAiCallbackEndpoint.matches(request);
+	}
 
 	@Override
 	protected void doFilterInternal(
