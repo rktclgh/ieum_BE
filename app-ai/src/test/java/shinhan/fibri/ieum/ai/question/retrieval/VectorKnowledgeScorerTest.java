@@ -107,6 +107,22 @@ class VectorKnowledgeScorerTest {
 	}
 
 	@Test
+	void preservesVectorOnlyRankTwoNumericBehaviorThroughCommonEvidenceContract() {
+		VectorKnowledgeEvidence evidence = scorer.score(
+			candidate(1L, GeoScope.general, "curated", "community", null, RegionContext.empty()),
+			2,
+			request(GeoScope.general, RegionContext.empty()),
+			retrievedAt
+		);
+
+		assertThat(evidence).isInstanceOf(KnowledgeEvidence.class);
+		assertThat(evidence.semanticScore()).isEqualByComparingTo("0.611290");
+		assertThat(evidence.geoScore()).isEqualByComparingTo("0.500000");
+		assertThat(evidence.finalScore()).isEqualByComparingTo("0.605726");
+		assertThat(evidence.relationId()).isNull();
+	}
+
+	@Test
 	void finalOrderingUsesRoundedScoreThenSourceAndChunkIds() {
 		VectorKnowledgeEvidence sourceTwo = evidence(2L, 1L, "0.500000");
 		VectorKnowledgeEvidence sourceOneChunkTwo = evidence(1L, 2L, "0.500000");

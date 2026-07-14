@@ -22,7 +22,7 @@ public record VectorKnowledgeEvidence(
 	BigDecimal finalScore,
 	BigDecimal distanceKm,
 	Instant retrievedAt
-) {
+) implements KnowledgeEvidence {
 
 	public VectorKnowledgeEvidence {
 		sourceId = VectorKnowledgeProvenance.positiveId(sourceId, "sourceId");
