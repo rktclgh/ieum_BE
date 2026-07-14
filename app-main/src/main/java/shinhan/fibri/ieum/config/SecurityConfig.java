@@ -51,7 +51,6 @@ public class SecurityConfig {
 					"/v3/api-docs/**",
 					"/actuator/health"
 				).permitAll()
-				.requestMatchers(HttpMethod.POST, "/api/v1/admin/login").permitAll()
 				.requestMatchers("/api/v1/admin/**").hasRole("admin")
 				.anyRequest().authenticated()
 			)

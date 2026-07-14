@@ -27,7 +27,6 @@ public class CsrfDoubleSubmitFilter extends OncePerRequestFilter {
 		"/api/v1/auth/nickname/check-duplicate",
 		"/api/v1/auth/signup",
 		"/api/v1/auth/login",
-		"/api/v1/admin/login",
 		"/api/v1/auth/social",
 		"/api/v1/auth/social/signup"
 	);

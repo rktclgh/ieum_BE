@@ -108,12 +108,22 @@ class ProtectedEndpointSecurityTest {
 	}
 
 	@Test
-	void adminLoginAllowsAnonymousRequestWithoutCsrfToken() throws Exception {
+	void adminLoginEndpointDoesNotExist() throws Exception {
+		when(sessionTokenValidator.validate("admin-token"))
+			.thenReturn(Optional.of(new AuthenticatedUser(
+				1L,
+				"admin@example.com",
+				UserRole.admin,
+				UserStatus.active
+			)));
+
 		mockMvc.perform(post("/api/v1/admin/login")
+				.cookie(new MockCookie("access_token", "admin-token"))
+				.cookie(new MockCookie("csrf_token", "csrf-token"))
+				.header("X-CSRF-Token", "csrf-token")
 				.contentType("application/json")
 				.content("{}"))
-			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")));
+			.andExpect(status().isNotFound());
 	}
 
 	@RestController
