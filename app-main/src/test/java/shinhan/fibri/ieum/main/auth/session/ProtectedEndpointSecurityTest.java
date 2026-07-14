@@ -63,6 +63,18 @@ class ProtectedEndpointSecurityTest {
 	}
 
 	@Test
+	void answerReportEndpointReturnsJsonUnauthorizedWhenAccessCookieIsMissing() throws Exception {
+		mockMvc.perform(post("/api/v1/answers/300/report")
+				.cookie(new MockCookie("csrf_token", "csrf-token"))
+				.header("X-CSRF-Token", "csrf-token")
+				.contentType("application/json")
+				.content("{\"reason\":\"spam\"}"))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.code", is("AUTHENTICATION_REQUIRED")))
+			.andExpect(jsonPath("$.message", is("Authentication is required")));
+	}
+
+	@Test
 	void adminEndpointReturnsJsonForbiddenForUserRole() throws Exception {
 		when(sessionTokenValidator.validate("user-token"))
 			.thenReturn(Optional.of(new AuthenticatedUser(

@@ -19,6 +19,7 @@ import org.hibernate.dialect.type.PostgreSQLEnumJdbcType;
 import org.hibernate.type.SqlTypes;
 import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.chat.domain.Message;
+import shinhan.fibri.ieum.main.answer.domain.Answer;
 
 @Entity
 @Table(name = "reports")
@@ -37,8 +38,17 @@ public class Report {
 	@JoinColumn(name = "message_id")
 	private Message message;
 
-	@ManyToOne(fetch = FetchType.LAZY, optional = false)
-	@JoinColumn(name = "reported_user_id", nullable = false)
+	@Enumerated(EnumType.STRING)
+	@JdbcType(PostgreSQLEnumJdbcType.class)
+	@Column(name = "target_type", nullable = false, columnDefinition = "report_target_type")
+	private ReportTargetType targetType;
+
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "answer_id")
+	private Answer answer;
+
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "reported_user_id")
 	private User reportedUser;
 
 	@Enumerated(EnumType.STRING)
@@ -58,6 +68,11 @@ public class Report {
 
 	@Enumerated(EnumType.STRING)
 	@JdbcType(PostgreSQLEnumJdbcType.class)
+	@Column(name = "ai_review_state", nullable = false, columnDefinition = "ai_job_status")
+	private ReportAiReviewState aiReviewState;
+
+	@Enumerated(EnumType.STRING)
+	@JdbcType(PostgreSQLEnumJdbcType.class)
 	@Column(name = "status", nullable = false, columnDefinition = "report_status")
 	private ReportStatus status;
 
@@ -69,19 +84,25 @@ public class Report {
 
 	private Report(
 		User reporter,
+		ReportTargetType targetType,
 		Message message,
+		Answer answer,
 		User reportedUser,
 		ReportReason reason,
 		String detail,
-		ReportContextSnapshot contextSnapshot
+		ReportContextSnapshot contextSnapshot,
+		ReportAiReviewState aiReviewState
 	) {
 		this.reporter = Objects.requireNonNull(reporter, "reporter must not be null");
-		this.message = Objects.requireNonNull(message, "message must not be null");
-		this.reportedUser = Objects.requireNonNull(reportedUser, "reportedUser must not be null");
+		this.targetType = Objects.requireNonNull(targetType, "targetType must not be null");
+		this.message = message;
+		this.answer = answer;
+		this.reportedUser = reportedUser;
 		this.reason = Objects.requireNonNull(reason, "reason must not be null");
 		this.detail = detail;
 		this.contextSnapshot = Objects.requireNonNull(contextSnapshot, "contextSnapshot must not be null").json();
 		this.contextHash = contextSnapshot.hash();
+		this.aiReviewState = Objects.requireNonNull(aiReviewState, "aiReviewState must not be null");
 		this.status = ReportStatus.pending;
 		this.createdAt = OffsetDateTime.now();
 	}
@@ -93,7 +114,54 @@ public class Report {
 		String detail,
 		ReportContextSnapshot contextSnapshot
 	) {
-		return new Report(reporter, message, message.getSender(), reason, detail, contextSnapshot);
+		Message target = Objects.requireNonNull(message, "message must not be null");
+		return new Report(
+			reporter,
+			ReportTargetType.message,
+			target,
+			null,
+			target.getSender(),
+			reason,
+			detail,
+			contextSnapshot,
+			ReportAiReviewState.pending
+		);
+	}
+
+	public static Report answerReport(
+		User reporter,
+		Answer answer,
+		User reportedUser,
+		ReportReason reason,
+		String detail,
+		ReportContextSnapshot contextSnapshot
+	) {
+		Answer target = Objects.requireNonNull(answer, "answer must not be null");
+		validateAnswerReportedUser(target, reportedUser);
+		return new Report(
+			reporter,
+			ReportTargetType.answer,
+			null,
+			target,
+			reportedUser,
+			reason,
+			detail,
+			contextSnapshot,
+			ReportAiReviewState.cancelled
+		);
+	}
+
+	private static void validateAnswerReportedUser(Answer answer, User reportedUser) {
+		if (answer.isAi()) {
+			if (reportedUser != null) {
+				throw new IllegalArgumentException("AI answer must not have a reportedUser");
+			}
+			return;
+		}
+		User author = Objects.requireNonNull(reportedUser, "reportedUser must not be null for a human answer");
+		if (!Objects.equals(answer.getAuthorId(), author.getId())) {
+			throw new IllegalArgumentException("reportedUser must match the answer author");
+		}
 	}
 
 	public Long getId() {
@@ -106,6 +174,14 @@ public class Report {
 
 	public Message getMessage() {
 		return message;
+	}
+
+	public ReportTargetType getTargetType() {
+		return targetType;
+	}
+
+	public Answer getAnswer() {
+		return answer;
 	}
 
 	public User getReportedUser() {
@@ -126,6 +202,10 @@ public class Report {
 
 	public String getContextHash() {
 		return contextHash;
+	}
+
+	public ReportAiReviewState getAiReviewState() {
+		return aiReviewState;
 	}
 
 	public ReportStatus getStatus() {

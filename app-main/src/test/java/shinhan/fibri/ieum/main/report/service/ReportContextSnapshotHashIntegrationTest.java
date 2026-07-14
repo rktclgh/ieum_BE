@@ -48,6 +48,7 @@ class ReportContextSnapshotHashIntegrationTest {
 
 		assertThat(snapshot.json()).isEqualTo(expected.json());
 		assertThat(snapshot.hash()).isEqualTo(expected.hash());
+		assertThat(snapshot.json()).doesNotContain("targetType");
 	}
 
 	private ChatRoom room(Long id) {
