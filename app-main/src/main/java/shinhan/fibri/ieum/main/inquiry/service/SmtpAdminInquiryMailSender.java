@@ -1,6 +1,5 @@
 package shinhan.fibri.ieum.main.inquiry.service;
 
-import java.util.concurrent.CompletableFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -8,7 +7,6 @@ import org.springframework.context.MessageSource;
 import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -34,8 +32,7 @@ public class SmtpAdminInquiryMailSender implements AdminInquiryMailSender {
 	}
 
 	@Override
-	@Async("mailTaskExecutor")
-	public CompletableFuture<Void> sendToAdmin(String requesterEmail, String title, String content) {
+	public void sendToAdmin(String requesterEmail, String title, String content) {
 		var locale = LocaleContextHolder.getLocale();
 		SimpleMailMessage message = new SimpleMailMessage();
 		message.setFrom(fromAddress);
@@ -47,12 +44,7 @@ public class SmtpAdminInquiryMailSender implements AdminInquiryMailSender {
 			new Object[]{requesterEmail, content},
 			locale
 		));
-		try {
-			mailSender.send(message);
-			log.info("SMTP suspended user inquiry mail sent: requesterEmail={}", requesterEmail);
-			return CompletableFuture.completedFuture(null);
-		} catch (RuntimeException exception) {
-			return CompletableFuture.failedFuture(exception);
-		}
+		mailSender.send(message);
+		log.info("SMTP suspended user inquiry mail sent: requesterEmail={}", requesterEmail);
 	}
 }

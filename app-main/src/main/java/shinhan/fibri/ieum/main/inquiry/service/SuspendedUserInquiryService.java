@@ -13,6 +13,6 @@ public class SuspendedUserInquiryService {
 	}
 
 	public void send(SuspendedUserInquiryRequest request) {
-		mailSender.sendToAdmin(request.email(), request.title(), request.content()).join();
+		mailSender.sendToAdmin(request.email(), request.title(), request.content());
 	}
 }

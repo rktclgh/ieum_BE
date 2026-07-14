@@ -1,16 +1,17 @@
 package shinhan.fibri.ieum.main.inquiry.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentCaptor.forClass;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
 import java.util.Locale;
-import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.context.support.StaticMessageSource;
+import org.springframework.mail.MailSendException;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.scheduling.annotation.Async;
@@ -29,7 +30,7 @@ class SmtpAdminInquiryMailSenderTest {
 
 		LocaleContextHolder.setLocale(Locale.KOREAN);
 		try {
-			mailSender.sendToAdmin("user@example.com", "제재 문의", "로그인이 안 됩니다.").join();
+			mailSender.sendToAdmin("user@example.com", "제재 문의", "로그인이 안 됩니다.");
 		} finally {
 			LocaleContextHolder.resetLocaleContext();
 		}
@@ -45,9 +46,9 @@ class SmtpAdminInquiryMailSenderTest {
 	}
 
 	@Test
-	void sendToAdminReturnsFailedFutureWhenSmtpFails() {
+	void sendToAdminThrowsWhenSmtpFails() {
 		JavaMailSender javaMailSender = mock(JavaMailSender.class);
-		doThrow(new RuntimeException("smtp down"))
+		doThrow(new MailSendException("smtp down"))
 			.when(javaMailSender)
 			.send(org.mockito.ArgumentMatchers.any(SimpleMailMessage.class));
 		SmtpAdminInquiryMailSender mailSender = new SmtpAdminInquiryMailSender(
@@ -59,22 +60,20 @@ class SmtpAdminInquiryMailSenderTest {
 
 		LocaleContextHolder.setLocale(Locale.KOREAN);
 		try {
-			CompletableFuture<Void> result = mailSender.sendToAdmin("user@example.com", "제재 문의", "내용");
-
-			assertThat(result).isCompletedExceptionally();
+			assertThatThrownBy(() -> mailSender.sendToAdmin("user@example.com", "제재 문의", "내용"))
+				.isInstanceOf(MailSendException.class);
 		} finally {
 			LocaleContextHolder.resetLocaleContext();
 		}
 	}
 
 	@Test
-	void sendToAdminRunsOnMailTaskExecutor() throws Exception {
+	void sendToAdminIsNotAsync() throws Exception {
 		Async async = SmtpAdminInquiryMailSender.class
 			.getMethod("sendToAdmin", String.class, String.class, String.class)
 			.getAnnotation(Async.class);
 
-		assertThat(async).isNotNull();
-		assertThat(async.value()).isEqualTo("mailTaskExecutor");
+		assertThat(async).isNull();
 	}
 
 	private StaticMessageSource messageSource() {

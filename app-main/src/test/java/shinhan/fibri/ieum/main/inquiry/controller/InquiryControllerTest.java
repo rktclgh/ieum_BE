@@ -216,6 +216,21 @@ class InquiryControllerTest {
 			.andExpect(jsonPath("$.code", is("INQUIRY_MAIL_DELIVERY_FAILED")));
 	}
 
+	@Test
+	void mapsSynchronousSuspendedUserInquiryMailFailureToBadGateway() throws Exception {
+		org.mockito.Mockito.doThrow(new MailSendException("smtp down"))
+			.when(suspendedUserInquiryService)
+			.send(any(SuspendedUserInquiryRequest.class));
+
+		mockMvc.perform(post("/api/v1/inquiries/suspended-users")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"email":"user@example.com","title":"제재 문의","content":"로그인이 안 됩니다."}
+					"""))
+			.andExpect(status().isBadGateway())
+			.andExpect(jsonPath("$.code", is("INQUIRY_MAIL_DELIVERY_FAILED")));
+	}
+
 	private static RequestPostProcessor authenticated() {
 		return request -> {
 			AuthenticatedUser principal = new AuthenticatedUser(
