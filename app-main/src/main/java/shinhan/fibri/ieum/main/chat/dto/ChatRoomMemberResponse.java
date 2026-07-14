@@ -6,14 +6,16 @@ import shinhan.fibri.ieum.common.auth.domain.User;
 public record ChatRoomMemberResponse(
 	Long userId,
 	String nickname,
-	String profileImageUrl
+	String profileImageUrl,
+	String nationality
 ) {
 
 	public static ChatRoomMemberResponse from(User user) {
 		return new ChatRoomMemberResponse(
 			user.getId(),
 			user.getNickname(),
-			profileImageUrl(user.getProfileFileId())
+			profileImageUrl(user.getProfileFileId()),
+			user.getNationality()
 		);
 	}
 

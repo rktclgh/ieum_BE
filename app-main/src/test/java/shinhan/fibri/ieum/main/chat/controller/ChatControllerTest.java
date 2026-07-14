@@ -131,13 +131,14 @@ class ChatControllerTest {
 				null,
 				false,
 				true,
-				List.of(new ChatRoomMemberResponse(77L, "friend", null))
+				List.of(new ChatRoomMemberResponse(77L, "friend", null, "US"))
 			));
 
 		mockMvc.perform(get("/api/v1/chat/rooms/{roomId}", 100L).with(authenticated()))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.roomId", is(100)))
-			.andExpect(jsonPath("$.members[0].userId", is(77)));
+			.andExpect(jsonPath("$.members[0].userId", is(77)))
+			.andExpect(jsonPath("$.members[0].nationality", is("US")));
 	}
 
 	@Test
