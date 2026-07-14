@@ -60,19 +60,6 @@ class CsrfDoubleSubmitFilterTest {
 	}
 
 	@Test
-	void doFilterSkipsAdminLoginBootstrapEndpoint() throws Exception {
-		CsrfDoubleSubmitFilter filter = new CsrfDoubleSubmitFilter();
-		MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/admin/login");
-		request.setServletPath("/api/v1/admin/login");
-		MockHttpServletResponse response = new MockHttpServletResponse();
-		FilterChain chain = mock(FilterChain.class);
-
-		filter.doFilter(request, response, chain);
-
-		verify(chain).doFilter(request, response);
-	}
-
-	@Test
 	void doFilterSkipsSocialAuthBootstrapEndpoint() throws Exception {
 		CsrfDoubleSubmitFilter filter = new CsrfDoubleSubmitFilter();
 		MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/auth/social");

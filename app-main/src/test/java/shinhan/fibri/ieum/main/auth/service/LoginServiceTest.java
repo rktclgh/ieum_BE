@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 import java.time.LocalDate;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 import shinhan.fibri.ieum.common.auth.domain.AuthProvider;
 import shinhan.fibri.ieum.common.auth.domain.GenderType;
@@ -24,8 +25,13 @@ import shinhan.fibri.ieum.main.auth.exception.EmailNotVerifiedException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidCredentialsException;
 import shinhan.fibri.ieum.main.auth.exception.SuspendedUserException;
 import shinhan.fibri.ieum.main.auth.repository.LoginLogRepository;
+import shinhan.fibri.ieum.main.auth.session.AccessTokenIssuer;
+import shinhan.fibri.ieum.main.auth.session.AuthSession;
 import shinhan.fibri.ieum.main.auth.session.IssuedAuthSession;
+import shinhan.fibri.ieum.main.auth.session.OpaqueTokenGenerator;
+import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
 import shinhan.fibri.ieum.main.auth.session.SessionIssuer;
+import shinhan.fibri.ieum.main.auth.session.Sha256TokenHasher;
 
 class LoginServiceTest {
 
@@ -114,6 +120,39 @@ class LoginServiceTest {
 		assertThat(result.csrfToken()).isEqualTo("csrf-token");
 		verify(loginLogRepository).save(any());
 		verify(sessionIssuer).issue(user);
+	}
+
+	@Test
+	void loginAdminUserReturnsAdminRoleAndIssuesAdminSession() {
+		User admin = user();
+		admin.changeRole(UserRole.admin);
+		UserRepository userRepository = mock(UserRepository.class);
+		PasswordHasher passwordHasher = mock(PasswordHasher.class);
+		LoginLogRepository loginLogRepository = mock(LoginLogRepository.class);
+		OpaqueTokenGenerator tokenGenerator = mock(OpaqueTokenGenerator.class);
+		Sha256TokenHasher tokenHasher = mock(Sha256TokenHasher.class);
+		AccessTokenIssuer accessTokenIssuer = mock(AccessTokenIssuer.class);
+		RedisAuthSessionStore sessionStore = mock(RedisAuthSessionStore.class);
+		SessionIssuer sessionIssuer = new SessionIssuer(tokenGenerator, tokenHasher, accessTokenIssuer, sessionStore);
+		LoginService service = new LoginService(
+			userRepository,
+			passwordHasher,
+			loginLogRepository,
+			sessionIssuer
+		);
+		when(userRepository.findByEmailAndProviderAndDeletedAtIsNull("user@example.com", AuthProvider.email))
+			.thenReturn(Optional.of(admin));
+		when(passwordHasher.matches("Passw@rd123", "hashed-password")).thenReturn(true);
+		when(tokenGenerator.generate()).thenReturn("sid-1", "refresh-token", "csrf-token");
+		when(tokenHasher.hash("refresh-token")).thenReturn("refresh-hash");
+		when(accessTokenIssuer.issue(42L, "sid-1", "user@example.com", UserRole.admin)).thenReturn("access-token");
+
+		LoginResult result = service.login(new LoginRequest("user@example.com", "Passw@rd123"));
+
+		assertThat(result.response().role()).isEqualTo(UserRole.admin);
+		ArgumentCaptor<AuthSession> sessionCaptor = ArgumentCaptor.forClass(AuthSession.class);
+		verify(sessionStore).create(sessionCaptor.capture());
+		assertThat(sessionCaptor.getValue().role()).isEqualTo(UserRole.admin);
 	}
 
 	private LoginService service(UserRepository userRepository) {

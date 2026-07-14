@@ -194,6 +194,10 @@ public class User {
 		this.status = UserStatus.active;
 	}
 
+	public void changeRole(UserRole role) {
+		this.role = Objects.requireNonNull(role, "role must not be null");
+	}
+
 	public Long getId() {
 		return id;
 	}

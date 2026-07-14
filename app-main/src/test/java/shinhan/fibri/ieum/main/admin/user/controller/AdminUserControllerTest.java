@@ -2,11 +2,13 @@ package shinhan.fibri.ieum.main.admin.user.controller;
 
 import static org.hamcrest.Matchers.is;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -46,6 +48,7 @@ import shinhan.fibri.ieum.main.admin.user.dto.CreateSanctionResponse;
 import shinhan.fibri.ieum.main.admin.user.dto.CursorPage;
 import shinhan.fibri.ieum.main.admin.user.exception.InvalidAdminCursorException;
 import shinhan.fibri.ieum.main.admin.user.service.AdminSanctionService;
+import shinhan.fibri.ieum.main.admin.user.service.AdminUserRoleService;
 import shinhan.fibri.ieum.main.admin.user.service.AdminUserQueryService;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
 
@@ -62,10 +65,13 @@ class AdminUserControllerTest {
 	@Autowired
 	private AdminSanctionService sanctionService;
 
+	@Autowired
+	private AdminUserRoleService roleService;
+
 	@AfterEach
 	void clearSecurityContext() {
 		SecurityContextHolder.clearContext();
-		reset(queryService, sanctionService);
+		reset(queryService, sanctionService, roleService);
 	}
 
 	@Test
@@ -117,6 +123,20 @@ class AdminUserControllerTest {
 			.andExpect(content().string(""));
 
 		verify(sanctionService).activate(any(), any());
+	}
+
+	@Test
+	void changeRoleReturnsNoContent() throws Exception {
+		mockMvc.perform(patch("/api/v1/admin/users/10/role")
+				.with(admin())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"role":"user"}
+					"""))
+			.andExpect(status().isNoContent())
+			.andExpect(content().string(""));
+
+		verify(roleService).changeRole(any(AuthenticatedUser.class), eq(10L), eq(UserRole.user));
 	}
 
 	@Test
@@ -193,6 +213,12 @@ class AdminUserControllerTest {
 		@Primary
 		AdminSanctionService adminSanctionService() {
 			return mock(AdminSanctionService.class);
+		}
+
+		@Bean
+		@Primary
+		AdminUserRoleService adminUserRoleService() {
+			return mock(AdminUserRoleService.class);
 		}
 
 		@Bean

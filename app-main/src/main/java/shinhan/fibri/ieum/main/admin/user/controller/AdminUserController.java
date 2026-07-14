@@ -7,6 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -16,11 +17,13 @@ import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.main.admin.user.dto.AdminUserDetailResponse;
 import shinhan.fibri.ieum.main.admin.user.dto.AdminUserItem;
 import shinhan.fibri.ieum.main.admin.user.dto.AdminUserListRequest;
+import shinhan.fibri.ieum.main.admin.user.dto.ChangeUserRoleRequest;
 import shinhan.fibri.ieum.main.admin.user.dto.CreateSanctionRequest;
 import shinhan.fibri.ieum.main.admin.user.dto.CreateSanctionResponse;
 import shinhan.fibri.ieum.main.admin.user.dto.CursorPage;
 import shinhan.fibri.ieum.main.admin.user.service.AdminSanctionService;
 import shinhan.fibri.ieum.main.admin.user.service.AdminUserQueryService;
+import shinhan.fibri.ieum.main.admin.user.service.AdminUserRoleService;
 
 @RestController
 @RequestMapping("/api/v1/admin/users")
@@ -29,6 +32,7 @@ public class AdminUserController {
 
 	private final AdminUserQueryService adminUserQueryService;
 	private final AdminSanctionService adminSanctionService;
+	private final AdminUserRoleService adminUserRoleService;
 
 	@GetMapping
 	public ResponseEntity<CursorPage<AdminUserItem>> getUsers(
@@ -58,6 +62,16 @@ public class AdminUserController {
 		@PathVariable Long userId
 	) {
 		adminSanctionService.activate(principal, userId);
+		return ResponseEntity.noContent().build();
+	}
+
+	@PatchMapping("/{userId}/role")
+	public ResponseEntity<Void> changeRole(
+		@AuthenticationPrincipal AuthenticatedUser principal,
+		@PathVariable Long userId,
+		@Valid @RequestBody ChangeUserRoleRequest request
+	) {
+		adminUserRoleService.changeRole(principal, userId, request.role());
 		return ResponseEntity.noContent().build();
 	}
 }
