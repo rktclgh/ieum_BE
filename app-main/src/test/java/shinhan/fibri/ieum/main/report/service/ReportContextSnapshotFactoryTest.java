@@ -15,6 +15,8 @@ import shinhan.fibri.ieum.common.auth.domain.GenderType;
 import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.chat.domain.ChatRoom;
 import shinhan.fibri.ieum.common.chat.domain.Message;
+import shinhan.fibri.ieum.main.answer.domain.Answer;
+import shinhan.fibri.ieum.main.answer.domain.AnswerImage;
 import shinhan.fibri.ieum.main.report.domain.ReportContextSnapshot;
 import shinhan.fibri.ieum.testsupport.CanonicalPostgresContainer;
 import shinhan.fibri.ieum.testsupport.SqlScriptRunner;
@@ -40,7 +42,7 @@ class ReportContextSnapshotFactoryTest {
 	}
 
 	@Test
-	void createsStableSchemaV1SnapshotAndHashWithoutNickname() throws Exception {
+	void createsStableMessageSnapshotWithTargetDiscriminator() throws Exception {
 		ChatRoom room = room(100L);
 		User sender = user(42L, "sender");
 		Message before = message(499L, room, sender, "before", "2026-07-11T09:59:00+09:00");
@@ -54,12 +56,57 @@ class ReportContextSnapshotFactoryTest {
 		assertThat(first.hash()).isEqualTo(second.hash());
 		assertThat(first.hash()).matches("[0-9a-f]{64}");
 		var payload = objectMapper.readTree(first.json());
-		assertThat(payload.path("schemaVersion").asInt()).isEqualTo(1);
+		assertThat(payload.path("schemaVersion").asInt()).isEqualTo(2);
+		assertThat(payload.path("targetType").asText()).isEqualTo("message");
 		assertThat(payload.path("reported").has("senderNickname")).isFalse();
 		assertThat(payload.path("roomId").asLong()).isEqualTo(100L);
 		assertThat(payload.path("reported").path("messageId").asLong()).isEqualTo(500L);
 		assertThat(payload.path("before").get(0).path("senderId").asLong()).isEqualTo(42L);
 		assertThat(payload.path("reported").has("imageFileId")).isTrue();
+	}
+
+	@Test
+	void createsStableHumanAnswerSnapshotWithOrderedImages() throws Exception {
+		Answer answer = answer(500L, Answer.createHuman(10L, 77L, "human answer"), "2026-07-11T10:00:00+09:00");
+		AnswerImage first = AnswerImage.link(
+			500L,
+			UUID.fromString("11111111-1111-1111-1111-111111111111"),
+			0
+		);
+		AnswerImage second = AnswerImage.link(
+			500L,
+			UUID.fromString("22222222-2222-2222-2222-222222222222"),
+			1
+		);
+
+		ReportContextSnapshot snapshot = factory.createAnswer(answer, List.of(first, second));
+		var payload = objectMapper.readTree(snapshot.json());
+
+		assertThat(payload.path("schemaVersion").asInt()).isEqualTo(2);
+		assertThat(payload.path("targetType").asText()).isEqualTo("answer");
+		assertThat(payload.path("questionId").asLong()).isEqualTo(10L);
+		assertThat(payload.at("/reported/answerId").asLong()).isEqualTo(500L);
+		assertThat(payload.at("/reported/authorId").asLong()).isEqualTo(77L);
+		assertThat(payload.at("/reported/isAi").asBoolean()).isFalse();
+		assertThat(payload.at("/reported/content").asText()).isEqualTo("human answer");
+		assertThat(payload.at("/reported/imageFileIds/0").asText())
+			.isEqualTo("11111111-1111-1111-1111-111111111111");
+		assertThat(payload.at("/reported/imageFileIds/1").asText())
+			.isEqualTo("22222222-2222-2222-2222-222222222222");
+		assertThat(snapshot.hash()).matches("[0-9a-f]{64}");
+		assertThat(factory.createAnswer(answer, List.of(first, second))).isEqualTo(snapshot);
+	}
+
+	@Test
+	void createsAiAnswerSnapshotWithExplicitNullAuthor() throws Exception {
+		Answer answer = answer(501L, Answer.createAi(10L, "AI answer"), "2026-07-11T10:00:00+09:00");
+
+		var payload = objectMapper.readTree(factory.createAnswer(answer, List.of()).json());
+
+		assertThat(payload.at("/reported/isAi").asBoolean()).isTrue();
+		assertThat(payload.at("/reported/authorId").isNull()).isTrue();
+		assertThat(payload.at("/reported/imageFileIds").isArray()).isTrue();
+		assertThat(payload.at("/reported/imageFileIds").size()).isZero();
 	}
 
 	@Test
@@ -137,6 +184,12 @@ class ReportContextSnapshotFactoryTest {
 		Message message = Message.image(room, sender, fileId, OffsetDateTime.parse("2026-07-11T10:00:00+09:00"));
 		setField(message, "id", id);
 		return message;
+	}
+
+	private Answer answer(Long id, Answer answer, String createdAt) {
+		setField(answer, "id", id);
+		setField(answer, "createdAt", OffsetDateTime.parse(createdAt));
+		return answer;
 	}
 
 	private void setField(Object target, String fieldName, Object value) {
