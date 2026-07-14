@@ -53,6 +53,9 @@ public class AnswerService {
 	public CreateAnswerResponse create(AuthenticatedUser principal, Long questionId, CreateAnswerRequest request) {
 		Question question = questionRepository.findActiveByIdForShare(questionId)
 			.orElseThrow(QuestionNotFoundException::new);
+		if (question.isResolved()) {
+			throw new AnswerSelectionFinalizedException();
+		}
 		String content = requireContentOrImages(request);
 		List<UUID> imageFileIds = normalizeImageFileIds(request.imageFileIds());
 		List<File> files = validateImages(imageFileIds, principal.userId());

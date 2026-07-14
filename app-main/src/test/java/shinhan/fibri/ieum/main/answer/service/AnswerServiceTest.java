@@ -170,6 +170,28 @@ class AnswerServiceTest {
 	}
 
 	@Test
+	void createRejectsResolvedQuestionBeforeContentAndImageValidationOrSideEffects() {
+		UUID imageId = UUID.fromString("00000000-0000-0000-0000-000000000007");
+		Question question = Question.create(100L, 99L, "title", "question");
+		setId(question, 200L);
+		question.markResolved();
+		when(questionRepository.findActiveByIdForShare(200L)).thenReturn(Optional.of(question));
+
+		assertThatThrownBy(() -> service.create(
+			principal(),
+			200L,
+			new CreateAnswerRequest("   ", List.of(imageId, imageId))
+		)).isInstanceOf(AnswerSelectionFinalizedException.class);
+
+		InOrder inOrder = inOrder(questionRepository, fileRepository, answerRepository, answerImageRepository, notificationPublisher);
+		inOrder.verify(questionRepository).findActiveByIdForShare(200L);
+		verify(fileRepository, never()).findAllByFileIdInAndUploaderId(any(), any());
+		verify(answerRepository, never()).save(any());
+		verify(answerImageRepository, never()).saveAll(any());
+		verify(notificationPublisher, never()).publishDurable(any(), any(), any(), any(), any(), any());
+	}
+
+	@Test
 	void createRejectsBlankContentWithNoImages() {
 		Question question = Question.create(100L, 99L, "title", "question");
 		setId(question, 200L);

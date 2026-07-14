@@ -169,6 +169,23 @@ class AnswerControllerTest {
 	}
 
 	@Test
+	void createAfterFinalizationMapsToAnswerSelectionFinalized() throws Exception {
+		when(answerService.create(any(AuthenticatedUser.class), eq(5L), any(CreateAnswerRequest.class)))
+			.thenThrow(new AnswerSelectionFinalizedException());
+
+		mockMvc.perform(post("/api/v1/questions/5/answer")
+				.with(authenticated())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "content": "late answer"
+					}
+					"""))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code", is("ANSWER_SELECTION_FINALIZED")));
+	}
+
+	@Test
 	void legacySingleAcceptEndpointIsNotExposed() throws Exception {
 		mockMvc.perform(post("/api/v1/answers/300/accept").with(authenticated()))
 			.andExpect(status().isNotFound());
