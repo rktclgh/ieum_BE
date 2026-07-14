@@ -72,7 +72,7 @@ public class QuestionService {
 			PinType.question,
 			request.location()
 		);
-		Question question = questionRepository.save(Question.create(
+		Question question = questionRepository.saveAndFlush(Question.create(
 			pinId,
 			principal.userId(),
 			request.title(),
