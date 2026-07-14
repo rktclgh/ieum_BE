@@ -14,6 +14,7 @@ on:
       - "deploy/env/app-main.env.example"
       - "deploy/nginx/**"
       - "deploy/scripts/**"
+      - "deploy/tests/**"
       - ".dockerignore"
       - ".github/workflows/deploy-app-main.yml"
   repository_dispatch:
@@ -89,11 +90,13 @@ jobs:
           test -n "$NEXT_PUBLIC_GOOGLE_CLIENT_ID"
           test -n "$NEXT_PUBLIC_KAKAO_REST_API_KEY"
           pnpm install --frozen-lockfile
-          pnpm lint
-          pnpm build
+          pnpm verify
           test -s out/index.html
           test -s out/index.txt
           test -s out/404.html
+
+      - name: Verify static frontend export
+        run: deploy/tests/verify-static-frontend-package.sh frontend/out
 
       - name: Package frontend into app-main
         run: |
@@ -102,6 +105,8 @@ jobs:
           mkdir -p "$static_dir/error"
           cp -a frontend/out/. "$static_dir/"
           cp frontend/out/404.html "$static_dir/error/404.html"
+          test ! -e "$static_dir/out"
+          test ! -e "$static_dir/.next"
           test -s "$static_dir/index.html"
           test -s "$static_dir/index.txt"
 
@@ -114,6 +119,9 @@ jobs:
 
       - name: Test and build app-main
         run: ./gradlew :app-main:test :app-main:bootJar --no-daemon
+
+      - name: Verify packaged static frontend
+        run: deploy/tests/verify-static-frontend-package.sh app-main/src/main/resources/static app-main/build/libs/app-main.jar
 
       - name: Refuse stale deployment
         env:

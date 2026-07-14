@@ -38,6 +38,8 @@ required_files=(
   deploy/scripts/bootstrap-docker.sh
   deploy/scripts/configure-nginx.sh
   deploy/scripts/deploy-compose.sh
+  deploy/tests/verify-static-frontend-package.sh
+  deploy/tests/verify-static-frontend-package-test.sh
   deploy/GITHUB-CONFIG.md
 )
 
@@ -45,7 +47,8 @@ for file in "${required_files[@]}"; do
   test -s "$file" || { echo "missing: $file" >&2; exit 1; }
 done
 
-bash -n deploy/scripts/bootstrap-docker.sh deploy/scripts/configure-nginx.sh deploy/scripts/deploy-compose.sh
+bash -n deploy/scripts/bootstrap-docker.sh deploy/scripts/configure-nginx.sh deploy/scripts/deploy-compose.sh deploy/tests/verify-static-frontend-package.sh deploy/tests/verify-static-frontend-package-test.sh
+bash deploy/tests/verify-static-frontend-package-test.sh
 
 main_workflow=.github/workflows/deploy-app-main.yml
 ai_workflow=.github/workflows/deploy-app-ai.yml
@@ -60,6 +63,11 @@ grep -Fq 'cancel-in-progress: false' "$main_workflow"
 forbid_literal 'frontend_ref:' "$main_workflow"
 grep -Fq 'test -s out/index.html' "$main_workflow"
 grep -Fq 'test -s out/index.txt' "$main_workflow"
+grep -Fq 'pnpm verify' "$main_workflow"
+grep -Fq 'deploy/tests/verify-static-frontend-package.sh frontend/out' "$main_workflow"
+grep -Fq 'deploy/tests/verify-static-frontend-package.sh app-main/src/main/resources/static app-main/build/libs/app-main.jar' "$main_workflow"
+grep -Fq 'test ! -e "$static_dir/out"' "$main_workflow"
+grep -Fq 'test ! -e "$static_dir/.next"' "$main_workflow"
 grep -Fq ':app-main:test :app-main:bootJar' "$main_workflow"
 grep -Fq 'docker.io/${DOCKERHUB_USERNAME}/ieum-app-main:' "$main_workflow"
 grep -Fq 'deploy/nginx/' "$main_workflow"
@@ -123,6 +131,7 @@ grep -Fq 'location ^~ /actuator/' deploy/nginx/ieum.rktclgh.site.conf
 grep -Fq 'location = /actuator' deploy/nginx/ieum.rktclgh.site.conf
 grep -Fq 'location = /swagger-ui.html' deploy/nginx/ieum.rktclgh.site.conf
 grep -Fq 'location = /v3/api-docs' deploy/nginx/ieum.rktclgh.site.conf
+grep -Fq 'location = /v3/api-docs.yaml' deploy/nginx/ieum.rktclgh.site.conf
 grep -Fq 'ssl_certificate /etc/letsencrypt/live/ieum.rktclgh.site/fullchain.pem' deploy/nginx/ieum.rktclgh.site.conf
 grep -Fq 'certbot certonly' deploy/scripts/configure-nginx.sh
 grep -Fq 'nginx -t' deploy/scripts/configure-nginx.sh

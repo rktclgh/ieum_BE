@@ -65,3 +65,6 @@ out/
 **/user-api-design-summary.md
 /.superpowers/
 /app-main/file-refactor-plan.md
+
+### Generated frontend package ###
+/app-main/src/main/resources/static/
