@@ -288,7 +288,7 @@ CREATE TABLE answers (
 );
 CREATE INDEX idx_answers_question ON answers(question_id);
 CREATE INDEX idx_answers_author ON answers(author_id);
-CREATE UNIQUE INDEX uidx_accepted_answer ON answers(question_id) WHERE is_accepted;
+CREATE INDEX idx_answers_accepted_question ON answers(question_id) WHERE is_accepted;
 CREATE UNIQUE INDEX uidx_one_ai_answer_per_question ON answers(question_id) WHERE is_ai;
 
 -- accepted-answer knowledge final persist TX에서 호출한다.
