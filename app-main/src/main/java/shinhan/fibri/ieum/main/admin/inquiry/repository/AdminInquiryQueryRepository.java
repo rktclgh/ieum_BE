@@ -30,7 +30,7 @@ public interface AdminInquiryQueryRepository extends Repository<Inquiry, Long> {
 		select new shinhan.fibri.ieum.main.admin.inquiry.dto.AdminInquiryItem(
 			i.id, i.userId, u.email, i.title, i.content, i.status,
 			i.answer, i.answeredBy, i.answeredAt, i.createdAt)
-		from Inquiry i join User u on u.id = i.userId
+		from Inquiry i left join User u on u.id = i.userId
 		where i.status = :status
 		order by i.id desc
 		""")
@@ -40,7 +40,7 @@ public interface AdminInquiryQueryRepository extends Repository<Inquiry, Long> {
 		select new shinhan.fibri.ieum.main.admin.inquiry.dto.AdminInquiryItem(
 			i.id, i.userId, u.email, i.title, i.content, i.status,
 			i.answer, i.answeredBy, i.answeredAt, i.createdAt)
-		from Inquiry i join User u on u.id = i.userId
+		from Inquiry i left join User u on u.id = i.userId
 		where i.status = :status and i.id < :cursorId
 		order by i.id desc
 		""")
@@ -54,7 +54,7 @@ public interface AdminInquiryQueryRepository extends Repository<Inquiry, Long> {
 		select new shinhan.fibri.ieum.main.admin.inquiry.dto.AdminInquiryItem(
 			i.id, i.userId, u.email, i.title, i.content, i.status,
 			i.answer, i.answeredBy, i.answeredAt, i.createdAt)
-		from Inquiry i join User u on u.id = i.userId
+		from Inquiry i left join User u on u.id = i.userId
 		order by i.id desc
 		""")
 	List<AdminInquiryItem> findAllAdminItems(Pageable pageable);
@@ -63,7 +63,7 @@ public interface AdminInquiryQueryRepository extends Repository<Inquiry, Long> {
 		select new shinhan.fibri.ieum.main.admin.inquiry.dto.AdminInquiryItem(
 			i.id, i.userId, u.email, i.title, i.content, i.status,
 			i.answer, i.answeredBy, i.answeredAt, i.createdAt)
-		from Inquiry i join User u on u.id = i.userId
+		from Inquiry i left join User u on u.id = i.userId
 		where i.id < :cursorId
 		order by i.id desc
 		""")

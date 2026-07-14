@@ -105,6 +105,21 @@ class AdminInquiryQueryRepositoryIntegrationTest {
 		assertThat(items.getFirst().inquiryId()).isEqualTo(90L);
 	}
 
+	@Test
+	void findAdminItemsKeepsInquiryWhenUserRowIsMissing() {
+		insertInquiry(92L, 404L, "pending", null, null, null, "2026-07-13T12:00:00+09:00");
+
+		List<AdminInquiryItem> items = repository.findAdminItems(InquiryStatus.pending, null, 20);
+
+		assertThat(items).extracting(AdminInquiryItem::inquiryId).contains(92L);
+		AdminInquiryItem orphan = items.stream()
+			.filter(item -> item.inquiryId().equals(92L))
+			.findFirst()
+			.orElseThrow();
+		assertThat(orphan.userId()).isEqualTo(404L);
+		assertThat(orphan.userEmail()).isNull();
+	}
+
 	private void createSchema() {
 		jdbcTemplate.execute("""
 			DO $$
@@ -125,12 +140,12 @@ class AdminInquiryQueryRepositoryIntegrationTest {
 		jdbcTemplate.execute("""
 			CREATE TABLE IF NOT EXISTS inquiries (
 				inquiry_id  bigserial PRIMARY KEY,
-				user_id     bigint         NOT NULL REFERENCES users (user_id) ON DELETE CASCADE,
+				user_id     bigint         NOT NULL,
 				title       varchar(200)   NOT NULL,
 				content     text           NOT NULL,
 				status      inquiry_status NOT NULL DEFAULT 'pending',
 				answer      text,
-				answered_by bigint         REFERENCES users (user_id),
+				answered_by bigint,
 				created_at  timestamptz    NOT NULL DEFAULT now(),
 				answered_at timestamptz
 			)
