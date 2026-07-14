@@ -1,5 +1,6 @@
 plugins {
 	`java-library`
+	`java-test-fixtures`
 	id("org.springframework.boot")
 	id("io.spring.dependency-management")
 }
@@ -18,16 +19,27 @@ dependencies {
 	// api 로 노출해야 app-main / app-ai 가 전이 의존으로 함께 받는다.
 	api("org.springframework.boot:spring-boot-starter-data-jpa")
 	api("org.springframework.boot:spring-boot-starter-validation")
+	api("com.fasterxml.jackson.core:jackson-databind")
 
 	compileOnly("org.projectlombok:lombok")
 	annotationProcessor("org.projectlombok:lombok")
 
 	testImplementation("org.springframework.boot:spring-boot-starter-data-jpa-test")
+	testFixturesImplementation("org.springframework.boot:spring-boot-starter-jdbc")
+	testFixturesImplementation("org.testcontainers:testcontainers-postgresql:2.0.5")
+	testFixturesImplementation("org.postgresql:postgresql")
 	runtimeOnly("org.postgresql:postgresql")
 	testRuntimeOnly("com.h2database:h2")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 	testCompileOnly("org.projectlombok:lombok")
 	testAnnotationProcessor("org.projectlombok:lombok")
+}
+
+tasks.named<org.gradle.language.jvm.tasks.ProcessResources>("processTestFixturesResources") {
+	from(rootProject.layout.projectDirectory.dir("db")) {
+		into("canonical-db")
+		include("**/*.sql", "test-support/postgres-ai/Dockerfile")
+	}
 }
 
 tasks.withType<Test> {

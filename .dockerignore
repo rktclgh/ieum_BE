@@ -1,0 +1,10 @@
+.git
+.github
+frontend
+**/.env
+**/.env.*
+!**/.env.example
+**/*.pem
+**/*.key
+**/node_modules
+**/.gradle

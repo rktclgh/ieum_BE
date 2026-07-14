@@ -1,0 +1,15 @@
+services:
+  app-ai:
+    image: ${APP_AI_IMAGE:?APP_AI_IMAGE is required}
+    env_file:
+      - .env.runtime
+    ports:
+      - "127.0.0.1:8081:8081"
+      - "${APP_AI_BIND_ADDRESS:?APP_AI_BIND_ADDRESS is required}:8081:8081"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8081/actuator/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 30s

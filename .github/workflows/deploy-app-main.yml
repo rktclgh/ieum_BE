@@ -1,0 +1,217 @@
+name: Deploy app-main
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "app-main/**"
+      - "common/**"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "gradle/**"
+      - "gradlew"
+      - "deploy/app-main/**"
+      - "deploy/env/app-main.env.example"
+      - "deploy/nginx/**"
+      - "deploy/scripts/**"
+      - "deploy/tests/**"
+      - ".dockerignore"
+      - ".github/workflows/deploy-app-main.yml"
+  repository_dispatch:
+    types: ["frontend-updated"]
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: deploy-app-main-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: app-main-production
+    env:
+      NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${{ vars.NEXT_PUBLIC_GOOGLE_CLIENT_ID }}
+      NEXT_PUBLIC_KAKAO_REST_API_KEY: ${{ vars.NEXT_PUBLIC_KAKAO_REST_API_KEY }}
+
+    steps:
+      - name: Check out backend
+        uses: actions/checkout@v4
+
+      - name: Validate deployment source
+        run: |
+          [[ "$GITHUB_REF" == "refs/heads/main" ]]
+
+      - name: Check out frontend
+        uses: actions/checkout@v4
+        with:
+          repository: rktclgh/ieum_FE
+          ref: main
+          path: frontend
+          token: ${{ secrets.CI_GITHUB_TOKEN }}
+          persist-credentials: false
+
+      - name: Capture frontend SHA
+        id: frontend-sha
+        run: echo "sha=$(git -C frontend rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Validate frontend dispatch
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_SHA: ${{ github.event.client_payload.fe_sha }}
+          DISPATCH_REF: ${{ github.event.client_payload.fe_ref }}
+          DISPATCH_REPO: ${{ github.event.client_payload.fe_repo }}
+          FRONTEND_SHA: ${{ steps.frontend-sha.outputs.sha }}
+        run: |
+          if [[ "$EVENT_NAME" == "repository_dispatch" ]]; then
+            [[ "$DISPATCH_REPO" == "rktclgh/ieum_FE" ]]
+            [[ "$DISPATCH_REF" == "refs/heads/main" ]]
+            [[ "$DISPATCH_SHA" == "$FRONTEND_SHA" ]]
+          fi
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.17.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Build static frontend
+        working-directory: frontend
+        run: |
+          test -n "$NEXT_PUBLIC_GOOGLE_CLIENT_ID"
+          test -n "$NEXT_PUBLIC_KAKAO_REST_API_KEY"
+          pnpm install --frozen-lockfile
+          pnpm verify
+          test -s out/index.html
+          test -s out/index.txt
+          test -s out/404.html
+
+      - name: Verify static frontend export
+        run: deploy/tests/verify-static-frontend-package.sh frontend/out
+
+      - name: Package frontend into app-main
+        run: |
+          static_dir="app-main/src/main/resources/static"
+          rm -rf "$static_dir"
+          mkdir -p "$static_dir/error"
+          cp -a frontend/out/. "$static_dir/"
+          cp frontend/out/404.html "$static_dir/error/404.html"
+          test ! -e "$static_dir/out"
+          test ! -e "$static_dir/.next"
+          test -s "$static_dir/index.html"
+          test -s "$static_dir/index.txt"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Test and build app-main
+        run: ./gradlew :app-main:test :app-main:bootJar --no-daemon
+
+      - name: Verify packaged static frontend
+        run: deploy/tests/verify-static-frontend-package.sh app-main/src/main/resources/static app-main/build/libs/app-main.jar
+
+      - name: Refuse stale deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_GITHUB_TOKEN: ${{ secrets.CI_GITHUB_TOKEN }}
+          FRONTEND_SHA: ${{ steps.frontend-sha.outputs.sha }}
+        run: |
+          latest_run_id="$(curl --fail-with-body --silent --show-error \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/workflows/deploy-app-main.yml/runs?branch=main&per_page=1" \
+            | jq -r '.workflow_runs[0].id')"
+          [[ "$latest_run_id" == "$GITHUB_RUN_ID" ]]
+
+          latest_frontend_sha="$(curl --fail-with-body --silent --show-error \
+            --header "Authorization: Bearer $CI_GITHUB_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/rktclgh/ieum_FE/commits/main \
+            | jq -r '.sha')"
+          [[ "$latest_frontend_sha" == "$FRONTEND_SHA" ]]
+
+      - name: Build and push image
+        id: image
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          FRONTEND_SHA: ${{ steps.frontend-sha.outputs.sha }}
+        run: |
+          test -n "$DOCKERHUB_USERNAME"
+          test -n "$DOCKERHUB_TOKEN"
+          image="docker.io/${DOCKERHUB_USERNAME}/ieum-app-main:${GITHUB_SHA}-fe-${FRONTEND_SHA}"
+          printf '%s' "$DOCKERHUB_TOKEN" | docker login --username "$DOCKERHUB_USERNAME" --password-stdin
+          docker build --file deploy/app-main/Dockerfile --tag "$image" .
+          docker push "$image"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy over SSH
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+          SSH_HOST: ${{ vars.SSH_HOST }}
+          SSH_USER: ${{ vars.SSH_USER }}
+          SSH_PORT: ${{ vars.SSH_PORT }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          APP_MAIN_PRIVATE_BIND_ADDRESS: ${{ vars.APP_MAIN_PRIVATE_BIND_ADDRESS }}
+          LETSENCRYPT_EMAIL: ${{ vars.LETSENCRYPT_EMAIL }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          APP_MAIN_ENV_FILE: ${{ secrets.APP_MAIN_ENV_FILE }}
+        run: |
+          test -n "$IMAGE"
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          test -n "$DOCKERHUB_USERNAME"
+          test -n "$DOCKERHUB_TOKEN"
+          test -n "$APP_MAIN_ENV_FILE"
+          [[ "$SSH_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
+          [[ "$SSH_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          [[ "$SSH_PORT" =~ ^[0-9]+$ ]]
+          [[ "$DEPLOY_PATH" =~ ^/home/[A-Za-z0-9._/-]+$ ]]
+          [[ "$APP_MAIN_PRIVATE_BIND_ADDRESS" =~ ^[0-9.]+$ ]]
+          [[ "$APP_MAIN_PRIVATE_BIND_ADDRESS" != "0.0.0.0" ]]
+          [[ "$LETSENCRYPT_EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]
+
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/deploy_key"
+          chmod 600 "$HOME/.ssh/deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+          ssh_opts=(-i "$HOME/.ssh/deploy_key" -p "$SSH_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts")
+          scp_opts=(-i "$HOME/.ssh/deploy_key" -P "$SSH_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts")
+          remote="$SSH_USER@$SSH_HOST"
+
+          ssh "${ssh_opts[@]}" "$remote" "install -d -m 700 '$DEPLOY_PATH' '$DEPLOY_PATH/nginx'"
+          scp "${scp_opts[@]}" deploy/app-main/compose.yml "$remote:$DEPLOY_PATH/compose.yml"
+          scp "${scp_opts[@]}" deploy/nginx/* "$remote:$DEPLOY_PATH/nginx/"
+          scp "${scp_opts[@]}" deploy/scripts/bootstrap-docker.sh deploy/scripts/configure-nginx.sh deploy/scripts/deploy-compose.sh "$remote:$DEPLOY_PATH/"
+
+          runtime_file="$RUNNER_TEMP/app-main.env.runtime"
+          umask 077
+          printf '%s\n' "$APP_MAIN_ENV_FILE" > "$runtime_file"
+          scp "${scp_opts[@]}" "$runtime_file" "$remote:$DEPLOY_PATH/.env.runtime.next"
+          ssh "${ssh_opts[@]}" "$remote" "mv '$DEPLOY_PATH/.env.runtime.next' '$DEPLOY_PATH/.env.runtime' && chmod 600 '$DEPLOY_PATH/.env.runtime'"
+          ssh "${ssh_opts[@]}" "$remote" "bash '$DEPLOY_PATH/bootstrap-docker.sh'"
+          printf '%s\n' "$DOCKERHUB_TOKEN" | ssh "${ssh_opts[@]}" "$remote" \
+            "sudo env APP_MAIN_PRIVATE_BIND_ADDRESS='$APP_MAIN_PRIVATE_BIND_ADDRESS' bash '$DEPLOY_PATH/deploy-compose.sh' app-main '$IMAGE' '$DEPLOY_PATH' 'http://127.0.0.1:8080/actuator/health' '$DOCKERHUB_USERNAME'"
+          ssh "${ssh_opts[@]}" "$remote" \
+            "sudo bash '$DEPLOY_PATH/configure-nginx.sh' '$DEPLOY_PATH/nginx' '$LETSENCRYPT_EMAIL'"
+
+          status="$(curl --location --silent --show-error --output /dev/null --write-out '%{http_code}' --retry 5 --retry-delay 3 https://ieum.rktclgh.site/)"
+          [[ "$status" == "200" ]]

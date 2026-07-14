@@ -53,3 +53,18 @@ out/
 
 ### Tooling junk ###
 .omc/
+/.omx/
+/caches/
+/daemon/
+/native/
+/wrapper/
+
+### Agent local specs and memory ###
+**/spec.md
+**/memory.md
+**/user-api-design-summary.md
+/.superpowers/
+/app-main/file-refactor-plan.md
+
+### Generated frontend package ###
+/app-main/src/main/resources/static/
