@@ -1,5 +1,6 @@
 package shinhan.fibri.ieum.ai.question.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -12,10 +13,14 @@ import java.time.OffsetDateTime;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeoutException;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.slf4j.LoggerFactory;
 import shinhan.fibri.ieum.ai.question.checkpoint.StaleQuestionCheckpointException;
 import shinhan.fibri.ieum.ai.question.finalization.StaleQuestionTaskFinalizationException;
 import shinhan.fibri.ieum.ai.question.generation.LocalAnswerProviderFailureCode;
@@ -55,6 +60,56 @@ class QuestionAnswerTaskProcessorTest {
 
 		verify(repository).claimByQuestionId(42L, "worker-1", Duration.ofMinutes(2), 5);
 		verify(orchestrator).process(claim);
+	}
+
+	@Test
+	void logsClaimAndCompletionWithoutQuestionOrProviderPayloads() {
+		ClaimedQuestionTask claim = new ClaimedQuestionTask(
+			42L,
+			"worker-1",
+			UUID.fromString("11111111-1111-1111-1111-111111111111"),
+			OffsetDateTime.now().plusMinutes(2),
+			1
+		);
+		when(repository.claimByQuestionId(42L, "worker-1", Duration.ofMinutes(2), 5))
+			.thenReturn(Optional.of(claim));
+		ListAppender<ILoggingEvent> logs = captureLogs();
+
+		processor.process(42L);
+
+		assertThat(messages(logs))
+			.anyMatch(message -> message.contains(
+				"event=question_answer_claimed questionId=42 workerId=worker-1 attempts=1"
+			))
+			.anyMatch(message -> message.contains(
+				"event=question_answer_completed questionId=42 workerId=worker-1 attempts=1"
+			))
+			.noneMatch(message -> message.contains("question content") || message.contains("provider response"));
+	}
+
+	@Test
+	void logsOnlyTheAllowlistedFailureWhenRetryIsScheduled() {
+		ClaimedQuestionTask claim = claim(1);
+		when(repository.claimByQuestionId(42L, "worker-1", Duration.ofMinutes(2), 5))
+			.thenReturn(Optional.of(claim));
+		doThrow(new RuntimeException("raw provider response secret"))
+			.when(orchestrator).process(claim);
+		when(repository.markRetry(
+			42L,
+			"worker-1",
+			claim.leaseToken(),
+			Duration.ofSeconds(10),
+			QuestionTaskFailure.UNEXPECTED_TRANSIENT
+		)).thenReturn(true);
+		ListAppender<ILoggingEvent> logs = captureLogs();
+
+		processor.process(42L);
+
+		assertThat(messages(logs))
+			.anyMatch(message -> message.contains(
+				"event=question_answer_retry_scheduled questionId=42 workerId=worker-1 attempts=1 failure=UNEXPECTED_TRANSIENT retryDelayMs=10000"
+			))
+			.noneMatch(message -> message.contains("raw provider response secret"));
 	}
 
 	@Test
@@ -504,6 +559,19 @@ class QuestionAnswerTaskProcessorTest {
 			OffsetDateTime.now().plusMinutes(2),
 			attempts
 		);
+	}
+
+	private ListAppender<ILoggingEvent> captureLogs() {
+		Logger logger = (Logger) LoggerFactory.getLogger(QuestionAnswerTaskProcessor.class);
+		logger.detachAndStopAllAppenders();
+		ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		appender.start();
+		logger.addAppender(appender);
+		return appender;
+	}
+
+	private java.util.List<String> messages(ListAppender<ILoggingEvent> appender) {
+		return appender.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
 	}
 
 	private void assertTransientClassification(RuntimeException exception, QuestionTaskFailure failure) {

@@ -6,6 +6,8 @@ import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Set;
 import java.util.concurrent.TimeoutException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import shinhan.fibri.ieum.ai.question.checkpoint.StaleQuestionCheckpointException;
 import shinhan.fibri.ieum.ai.question.finalization.StaleQuestionTaskFinalizationException;
 import shinhan.fibri.ieum.ai.question.generation.LocalAnswerProviderFailureCode;
@@ -18,6 +20,8 @@ import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.core.exception.SdkServiceException;
 
 public class QuestionAnswerTaskProcessor {
+
+	private static final Logger log = LoggerFactory.getLogger(QuestionAnswerTaskProcessor.class);
 
 	private final QuestionTaskWorkRepository repository;
 	private final QuestionAnswerOrchestrator orchestrator;
@@ -45,32 +49,80 @@ public class QuestionAnswerTaskProcessor {
 	}
 
 	private void processClaim(ClaimedQuestionTask claim) {
+		long startedAt = System.nanoTime();
+		log.info(
+			"event=question_answer_claimed questionId={} workerId={} attempts={}",
+			claim.questionId(), claim.workerId(), claim.attempts()
+		);
 		try {
 			orchestrator.process(claim);
+			log.info(
+				"event=question_answer_completed questionId={} workerId={} attempts={} durationMs={}",
+				claim.questionId(), claim.workerId(), claim.attempts(), elapsedMs(startedAt)
+			);
 		}
 		catch (RuntimeException exception) {
 			QuestionTaskFailure failure = classify(exception);
 			if (failure.disposition() == QuestionTaskFailureDisposition.DISCARD) {
+				log.warn(
+					"event=question_answer_stale_discarded questionId={} workerId={} attempts={} failure={} durationMs={}",
+					claim.questionId(), claim.workerId(), claim.attempts(), failure, elapsedMs(startedAt)
+				);
 				return;
 			}
 			if (failure.disposition() == QuestionTaskFailureDisposition.DEAD
 				|| claim.attempts() >= maxAttempts) {
-				repository.markDead(
+				boolean transitioned = repository.markDead(
 					claim.questionId(),
 					claim.workerId(),
 					claim.leaseToken(),
 					failure
 				);
+				logFailureTransition(claim, failure, transitioned, true, null, startedAt);
 				return;
 			}
-			repository.markRetry(
+			Duration retryDelay = retryDelay(claim.attempts());
+			boolean transitioned = repository.markRetry(
 				claim.questionId(),
 				claim.workerId(),
 				claim.leaseToken(),
-				retryDelay(claim.attempts()),
+				retryDelay,
 				failure
 			);
+			logFailureTransition(claim, failure, transitioned, false, retryDelay, startedAt);
 		}
+	}
+
+	private void logFailureTransition(
+		ClaimedQuestionTask claim,
+		QuestionTaskFailure failure,
+		boolean transitioned,
+		boolean dead,
+		Duration retryDelay,
+		long startedAt
+	) {
+		if (!transitioned) {
+			log.warn(
+				"event=question_answer_stale_discarded questionId={} workerId={} attempts={} failure={} durationMs={}",
+				claim.questionId(), claim.workerId(), claim.attempts(), failure, elapsedMs(startedAt)
+			);
+			return;
+		}
+		if (dead) {
+			log.error(
+				"event=question_answer_dead questionId={} workerId={} attempts={} failure={} durationMs={}",
+				claim.questionId(), claim.workerId(), claim.attempts(), failure, elapsedMs(startedAt)
+			);
+			return;
+		}
+		log.warn(
+			"event=question_answer_retry_scheduled questionId={} workerId={} attempts={} failure={} retryDelayMs={} durationMs={}",
+			claim.questionId(), claim.workerId(), claim.attempts(), failure, retryDelay.toMillis(), elapsedMs(startedAt)
+		);
+	}
+
+	private long elapsedMs(long startedAt) {
+		return Math.max(0L, (System.nanoTime() - startedAt) / 1_000_000L);
 	}
 
 	private QuestionTaskFailure classify(RuntimeException exception) {
