@@ -1,9 +1,9 @@
 package shinhan.fibri.ieum.main.admin.report.dto;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import shinhan.fibri.ieum.main.report.domain.ReportAiReviewState;
+import tools.jackson.databind.JsonNode;
 
 public record AdminReportAiDetail(
 	ReportAiReviewState reviewState,

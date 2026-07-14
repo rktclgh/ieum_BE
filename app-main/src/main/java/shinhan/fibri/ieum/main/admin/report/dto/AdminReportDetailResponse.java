@@ -1,10 +1,10 @@
 package shinhan.fibri.ieum.main.admin.report.dto;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import java.time.OffsetDateTime;
 import java.util.List;
 import shinhan.fibri.ieum.main.report.domain.ReportReason;
 import shinhan.fibri.ieum.main.report.domain.ReportStatus;
+import tools.jackson.databind.JsonNode;
 
 public record AdminReportDetailResponse(
 	Long reportId,

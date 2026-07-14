@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -18,6 +17,7 @@ import shinhan.fibri.ieum.main.admin.report.exception.AdminReportNotFoundExcepti
 import shinhan.fibri.ieum.main.admin.report.repository.AdminReportRepository;
 import shinhan.fibri.ieum.main.admin.report.repository.AdminReportRepository.AdminReportDetailRow;
 import shinhan.fibri.ieum.main.admin.report.repository.AdminReportRepository.AdminReportSanctionRow;
+import tools.jackson.databind.ObjectMapper;
 
 @ExtendWith(MockitoExtension.class)
 class AdminReportDetailServiceTest {
@@ -51,7 +51,7 @@ class AdminReportDetailServiceTest {
 		assertThat(detail.target().deleted()).isTrue();
 		assertThat(detail.contextSnapshot().at("/reported/messageId").asLong()).isEqualTo(1010L);
 		assertThat(detail.contextSnapshot().toString()).doesNotContain("privateSnapshotField");
-		assertThat(detail.ai().result().fieldNames()).toIterable().containsExactlyInAnyOrder("category", "severity");
+		assertThat(detail.ai().result().propertyNames()).containsExactlyInAnyOrder("category", "severity");
 		assertThat(detail.ai().result().toString()).doesNotContain("providerAttempts", "chainOfThought", "SECRET");
 		assertThat(detail.ai().lastErrorCode()).isEqualTo("SAFE_CODE");
 		assertThat(detail.resolution().resolvedBy().nickname()).isEqualTo("resolver");

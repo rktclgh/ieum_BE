@@ -2,9 +2,9 @@ package shinhan.fibri.ieum.main.admin.report.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import shinhan.fibri.ieum.main.report.domain.ReportTargetType;
+import tools.jackson.databind.ObjectMapper;
 
 class AdminReportJsonSanitizerTest {
 
@@ -59,7 +59,7 @@ class AdminReportJsonSanitizerTest {
 			 "fallbackUsed":false,"providerAttempts":[{"raw":"secret"}],"chainOfThought":"secret","raw":"secret"}
 			""");
 
-		assertThat(result.fieldNames()).toIterable().containsExactlyInAnyOrder(
+		assertThat(result.propertyNames()).containsExactlyInAnyOrder(
 			"category", "severity", "evidence", "matchedRules", "policySnapshot",
 			"modelVersion", "promptVersion", "fallbackUsed"
 		);
