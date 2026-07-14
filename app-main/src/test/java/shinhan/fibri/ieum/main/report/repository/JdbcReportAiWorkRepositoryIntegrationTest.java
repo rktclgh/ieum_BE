@@ -70,6 +70,20 @@ class JdbcReportAiWorkRepositoryIntegrationTest {
 	}
 
 	@Test
+	void claimsMessageWorkWhileManualAnswerReportRemainsCancelled() {
+		long answerId = seedQuestionAndAiAnswer();
+		long answerReportId = insertCancelledAnswerReport(answerId);
+		long messageReportId = insertDueReport(100L, OffsetDateTime.parse("2026-07-11T00:00:00Z"));
+
+		ClaimedReport claimed = repository.claimNext("worker-a", Duration.ofMinutes(2), MAX_ATTEMPTS)
+			.orElseThrow();
+
+		assertThat(claimed.reportId()).isEqualTo(messageReportId);
+		assertThat(workState(answerReportId)).isEqualTo("cancelled");
+		assertThat(repository.claimNext("worker-b", Duration.ofMinutes(2), MAX_ATTEMPTS)).isEmpty();
+	}
+
+	@Test
 	void doesNotClaimTheSameDueReportForTwoConcurrentWorkers() throws Exception {
 		insertDueReport(100L, OffsetDateTime.parse("2026-07-11T00:00:00Z"));
 		CountDownLatch ready = new CountDownLatch(2);
@@ -200,6 +214,42 @@ class JdbcReportAiWorkRepositoryIntegrationTest {
 			.param("contextHash", "a".repeat(64))
 			.param("dueAt", createdAt.minusMinutes(1))
 			.param("createdAt", createdAt)
+			.query(Long.class)
+			.single();
+	}
+
+	private long seedQuestionAndAiAnswer() {
+		long pinId = jdbc.sql("""
+			INSERT INTO pins (author_id, pin_type, location, address)
+			VALUES (1, 'question', ST_SetSRID(ST_MakePoint(127.0, 37.5), 4326)::geography, '서울')
+			RETURNING pin_id
+			""").query(Long.class).single();
+		long questionId = jdbc.sql("""
+			INSERT INTO questions (pin_id, author_id, title, content)
+			VALUES (:pinId, 1, 'question', 'question content')
+			RETURNING question_id
+			""").param("pinId", pinId).query(Long.class).single();
+		return jdbc.sql("""
+			INSERT INTO answers (question_id, author_id, is_ai, content)
+			VALUES (:questionId, NULL, TRUE, 'AI answer')
+			RETURNING answer_id
+			""").param("questionId", questionId).query(Long.class).single();
+	}
+
+	private long insertCancelledAnswerReport(long answerId) {
+		return jdbc.sql("""
+			INSERT INTO reports (
+			    reporter_id, target_type, answer_id, reported_user_id, reason, context_snapshot, context_hash,
+			    status, ai_review_state, ai_attempts, ai_next_attempt_at
+			)
+			VALUES (
+			    1, 'answer', :answerId, NULL, 'abuse', '{"targetType":"answer"}'::jsonb, :contextHash,
+			    'pending', 'cancelled', 0, NULL
+			)
+			RETURNING report_id
+			""")
+			.param("answerId", answerId)
+			.param("contextHash", "b".repeat(64))
 			.query(Long.class)
 			.single();
 	}
