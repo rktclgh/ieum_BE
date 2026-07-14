@@ -232,6 +232,11 @@ class FileServiceTest {
 		}
 
 		@Override
+		public URI createPresignedGetUrl(String key, Duration ttl) {
+			return URI.create("https://storage.example/" + key);
+		}
+
+		@Override
 		public FileObjectMetadata head(String key) {
 			headKeys.add(key);
 			events.add("head:" + key);
