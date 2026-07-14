@@ -52,9 +52,31 @@ class ReportCanonicalSchemaIntegrationTest {
 			"ck_reports_message_reported_user",
 			"ck_reports_answer_manual_only"
 		);
+		assertThat(foreignKeyNames(jdbc, "reports")).contains("fk_reports_answer");
+		assertThat(reportTargetFunctionDefinition(jdbc))
+			.contains("ck_reports_target_xor")
+			.doesNotContain("ck_reports_target_required");
 		assertThat(indexNames(jdbc, "reports")).contains("idx_reports_answer");
 		assertThat(triggerNames(jdbc, "reports")).contains("trg_reports_target_integrity");
 		assertThat(tableExists(jdbc, "user_sanctions")).isTrue();
+	}
+
+	private static String reportTargetFunctionDefinition(JdbcClient jdbc) {
+		return jdbc.sql("""
+			SELECT pg_get_functiondef('public.enforce_report_target_integrity()'::regprocedure)
+			""").query(String.class).single();
+	}
+
+	private static java.util.List<String> foreignKeyNames(JdbcClient jdbc, String tableName) {
+		return jdbc.sql("""
+			SELECT conname
+			FROM pg_constraint
+			WHERE conrelid = (:tableName)::regclass AND contype = 'f'
+			ORDER BY conname
+			""")
+			.param("tableName", tableName)
+			.query(String.class)
+			.list();
 	}
 
 	private static java.util.List<String> triggerNames(JdbcClient jdbc, String tableName) {

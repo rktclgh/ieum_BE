@@ -1,5 +1,9 @@
 -- ============================================================
--- FiBri Schema v20
+-- FiBri Schema v21
+-- v20 대비 변경:
+--   [21] 답변 신고 리뷰 후속:
+--        reports.answer_id FK 이름과 신고 대상 무결성 트리거 진단명을 정본과 일치시킨다.
+--        기존 DB 증분: db/migrations/v21_report_target_review_followup.sql
 -- v18 대비 변경:
 --   [20] 답변 신고 대상:
 --        reports를 message/answer tagged union으로 확장하고 AI 답변의 nullable 신고 대상 사용자를 허용한다.
@@ -736,7 +740,7 @@ CREATE TABLE reports (
     reporter_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     target_type report_target_type NOT NULL DEFAULT 'message',
     message_id BIGINT REFERENCES messages(message_id) ON DELETE SET NULL,
-    answer_id BIGINT REFERENCES answers(answer_id) ON DELETE SET NULL,
+    answer_id BIGINT,
     reported_user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
     reason report_reason NOT NULL,
     detail TEXT,
@@ -764,6 +768,8 @@ CREATE TABLE reports (
     resolved_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CHECK (status NOT IN ('confirmed', 'dismissed') OR resolved_by IS NOT NULL),
+    CONSTRAINT fk_reports_answer
+        FOREIGN KEY (answer_id) REFERENCES answers(answer_id) ON DELETE SET NULL,
     CONSTRAINT ck_reports_target_xor CHECK (
         (target_type = 'message' AND answer_id IS NULL)
         OR (target_type = 'answer' AND message_id IS NULL)
@@ -802,7 +808,7 @@ BEGIN
     IF TG_OP = 'UPDATE' THEN
         IF NEW.target_type IS DISTINCT FROM OLD.target_type THEN
             RAISE EXCEPTION 'report target type is immutable'
-                USING ERRCODE = '23514', CONSTRAINT = 'ck_reports_target_required';
+                USING ERRCODE = '23514', CONSTRAINT = 'ck_reports_target_xor';
         END IF;
 
         IF NEW.message_id IS DISTINCT FROM OLD.message_id THEN
@@ -815,7 +821,7 @@ BEGIN
                 );
             IF NOT v_allowed_target_delete THEN
                 RAISE EXCEPTION 'report message target may only be cleared by target deletion'
-                    USING ERRCODE = '23514', CONSTRAINT = 'ck_reports_target_required';
+                    USING ERRCODE = '23514', CONSTRAINT = 'ck_reports_target_xor';
             END IF;
         END IF;
 
@@ -829,7 +835,7 @@ BEGIN
                 );
             IF NOT v_allowed_target_delete THEN
                 RAISE EXCEPTION 'report answer target may only be cleared by target deletion'
-                    USING ERRCODE = '23514', CONSTRAINT = 'ck_reports_target_required';
+                    USING ERRCODE = '23514', CONSTRAINT = 'ck_reports_target_xor';
             END IF;
         END IF;
     END IF;
@@ -839,7 +845,7 @@ BEGIN
         OR (NEW.target_type = 'answer' AND NEW.answer_id IS NULL)
     ) THEN
         RAISE EXCEPTION 'report selected target is required at creation'
-            USING ERRCODE = '23514', CONSTRAINT = 'ck_reports_target_required';
+            USING ERRCODE = '23514', CONSTRAINT = 'ck_reports_target_xor';
     END IF;
 
     IF NEW.target_type = 'answer' AND NEW.answer_id IS NOT NULL THEN

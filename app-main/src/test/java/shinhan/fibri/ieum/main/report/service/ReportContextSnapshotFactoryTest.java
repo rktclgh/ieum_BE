@@ -77,7 +77,7 @@ class ReportContextSnapshotFactoryTest {
 	}
 
 	@Test
-	void createsStableHumanAnswerSnapshotWithOrderedImages() throws Exception {
+	void createsStableHumanAnswerSnapshotBySortingImages() throws Exception {
 		Answer answer = answer(500L, Answer.createHuman(10L, 77L, "human answer"), "2026-07-11T10:00:00+09:00");
 		AnswerImage first = AnswerImage.link(
 			500L,
@@ -90,7 +90,8 @@ class ReportContextSnapshotFactoryTest {
 			1
 		);
 
-		ReportContextSnapshot snapshot = factory.createAnswer(answer, List.of(first, second));
+		ReportContextSnapshot snapshot = factory.createAnswer(answer, List.of(second, first));
+		ReportContextSnapshot orderedSnapshot = factory.createAnswer(answer, List.of(first, second));
 		var payload = objectMapper.readTree(snapshot.json());
 
 		assertThat(payload.path("schemaVersion").asInt()).isEqualTo(1);
@@ -105,7 +106,7 @@ class ReportContextSnapshotFactoryTest {
 		assertThat(payload.at("/reported/imageFileIds/1").asText())
 			.isEqualTo("22222222-2222-2222-2222-222222222222");
 		assertThat(snapshot.hash()).matches("[0-9a-f]{64}");
-		assertThat(factory.createAnswer(answer, List.of(first, second))).isEqualTo(snapshot);
+		assertThat(orderedSnapshot).isEqualTo(snapshot);
 	}
 
 	@Test

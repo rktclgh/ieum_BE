@@ -3,7 +3,11 @@ package shinhan.fibri.ieum.main.report.db;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.Objects;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataAccessException;
@@ -37,10 +41,10 @@ class ReportAnswerTargetMigrationIntegrationTest {
 	}
 
 	@Test
-	void v20BackfillsLegacyMessageTargetsWithoutRewritingEvidenceOrAiWork() {
+	void v20ThenV21BackfillsLegacyMessageTargetsWithoutRewritingEvidenceOrAiWork() {
 		Map<String, Object> before = legacyReportRow(1000L);
 
-		SqlScriptRunner.run(DATABASE, "migrations/v20_answer_report_target.sql");
+		runReportTargetMigrations();
 
 		Map<String, Object> after = reportRow(1000L);
 		assertThat(after.get("target_type")).isEqualTo("message");
@@ -53,8 +57,38 @@ class ReportAnswerTargetMigrationIntegrationTest {
 	}
 
 	@Test
-	void v20AllowsManualAiAnswerReportAndKeepsTypeAfterAnswerDeletion() {
+	void mergedV20RemainsImmutable() throws IOException {
+		String migration = readSqlResource("migrations/v20_answer_report_target.sql");
+
+		assertThat(migration)
+			.contains("ADD COLUMN answer_id BIGINT REFERENCES answers(answer_id) ON DELETE SET NULL")
+			.contains("CREATE INDEX idx_reports_answer")
+			.contains("CONSTRAINT = 'ck_reports_target_required'")
+			.doesNotContain("CREATE INDEX CONCURRENTLY")
+			.doesNotContain("fk_reports_answer");
+	}
+
+	@Test
+	void v21NormalizesMergedV20MetadataAndIsRerunnable() {
 		SqlScriptRunner.run(DATABASE, "migrations/v20_answer_report_target.sql");
+
+		assertThat(foreignKeyNames()).contains("reports_answer_id_fkey").doesNotContain("fk_reports_answer");
+		assertThat(reportTargetFunctionDefinition()).contains("ck_reports_target_required");
+
+		SqlScriptRunner.run(DATABASE, "migrations/v21_report_target_review_followup.sql");
+
+		assertThat(foreignKeyNames()).contains("fk_reports_answer").doesNotContain("reports_answer_id_fkey");
+		assertThat(reportTargetFunctionDefinition())
+			.contains("ck_reports_target_xor")
+			.doesNotContain("ck_reports_target_required");
+
+		SqlScriptRunner.run(DATABASE, "migrations/v21_report_target_review_followup.sql");
+		assertThat(foreignKeyNames()).contains("fk_reports_answer").doesNotContain("reports_answer_id_fkey");
+	}
+
+	@Test
+	void v20ThenV21AllowsManualAiAnswerReportAndKeepsTypeAfterAnswerDeletion() {
+		runReportTargetMigrations();
 		long answerId = seedQuestionAndAiAnswer();
 		long reportId = insertAnswerReport(answerId, null, "cancelled");
 
@@ -70,8 +104,8 @@ class ReportAnswerTargetMigrationIntegrationTest {
 	}
 
 	@Test
-	void v20RejectsCrossTargetIdsMissingMessageUserAndPendingAnswerWork() {
-		SqlScriptRunner.run(DATABASE, "migrations/v20_answer_report_target.sql");
+	void v20ThenV21RejectsCrossTargetIdsMissingMessageUserAndPendingAnswerWork() {
+		runReportTargetMigrations();
 		long answerId = seedQuestionAndAiAnswer();
 
 		assertThatThrownBy(() -> jdbc.sql("""
@@ -104,8 +138,8 @@ class ReportAnswerTargetMigrationIntegrationTest {
 	}
 
 	@Test
-	void v20RejectsMissingSelectedTargetAndInvalidAnswerAttributionAtCreation() {
-		SqlScriptRunner.run(DATABASE, "migrations/v20_answer_report_target.sql");
+	void v20ThenV21RejectsMissingSelectedTargetAndInvalidAnswerAttributionAtCreation() {
+		runReportTargetMigrations();
 
 		assertThatThrownBy(() -> jdbc.sql("""
 			INSERT INTO reports (
@@ -131,8 +165,8 @@ class ReportAnswerTargetMigrationIntegrationTest {
 	}
 
 	@Test
-	void v20RejectsManualTargetNullingWhileTargetStillExists() {
-		SqlScriptRunner.run(DATABASE, "migrations/v20_answer_report_target.sql");
+	void v20ThenV21RejectsManualTargetNullingWhileTargetStillExists() {
+		runReportTargetMigrations();
 		long answerId = seedQuestionAndAiAnswer();
 		long reportId = insertAnswerReport(answerId, null, "cancelled");
 
@@ -141,6 +175,38 @@ class ReportAnswerTargetMigrationIntegrationTest {
 			.update())
 			.isInstanceOf(DataAccessException.class)
 			.hasMessageContaining("report answer target may only be cleared by target deletion");
+	}
+
+	private void runReportTargetMigrations() {
+		SqlScriptRunner.run(
+			DATABASE,
+			"migrations/v20_answer_report_target.sql",
+			"migrations/v21_report_target_review_followup.sql"
+		);
+	}
+
+	private java.util.List<String> foreignKeyNames() {
+		return jdbc.sql("""
+			SELECT conname
+			FROM pg_constraint
+			WHERE conrelid = 'reports'::regclass AND contype = 'f'
+			ORDER BY conname
+			""").query(String.class).list();
+	}
+
+	private String reportTargetFunctionDefinition() {
+		return jdbc.sql("""
+			SELECT pg_get_functiondef('public.enforce_report_target_integrity()'::regprocedure)
+			""").query(String.class).single();
+	}
+
+	private String readSqlResource(String resourceName) throws IOException {
+		try (InputStream input = Objects.requireNonNull(
+			getClass().getClassLoader().getResourceAsStream("canonical-db/" + resourceName),
+			"Missing SQL resource: " + resourceName
+		)) {
+			return new String(input.readAllBytes(), StandardCharsets.UTF_8);
+		}
 	}
 
 	private void seedLegacyMessageReport() {
