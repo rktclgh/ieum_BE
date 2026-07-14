@@ -16,6 +16,8 @@ import shinhan.fibri.ieum.main.chat.exception.NotFriendsException;
 import shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException;
 import shinhan.fibri.ieum.main.chat.exception.SelfChatRoomException;
 import shinhan.fibri.ieum.main.meeting.exception.NotHostException;
+import shinhan.fibri.ieum.main.question.exception.QuestionForbiddenException;
+import shinhan.fibri.ieum.main.question.exception.QuestionNotFoundException;
 import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
 
 @RestControllerAdvice(assignableTypes = ChatController.class)
@@ -51,6 +53,12 @@ public class ChatExceptionHandler {
 			.body(new AuthErrorResponse("BLOCKED", exception.getMessage()));
 	}
 
+	@ExceptionHandler(QuestionForbiddenException.class)
+	public ResponseEntity<AuthErrorResponse> handleQuestionForbidden(QuestionForbiddenException exception) {
+		return ResponseEntity.status(HttpStatus.FORBIDDEN)
+			.body(new AuthErrorResponse("FORBIDDEN", exception.getMessage()));
+	}
+
 	@ExceptionHandler(NotRoomMemberException.class)
 	public ResponseEntity<AuthErrorResponse> handleNotRoomMember(NotRoomMemberException exception) {
 		return ResponseEntity.status(HttpStatus.FORBIDDEN)
@@ -67,6 +75,12 @@ public class ChatExceptionHandler {
 	public ResponseEntity<AuthErrorResponse> handleUserNotFound(UserNotFoundException exception) {
 		return ResponseEntity.status(HttpStatus.NOT_FOUND)
 			.body(new AuthErrorResponse("USER_NOT_FOUND", exception.getMessage()));
+	}
+
+	@ExceptionHandler(QuestionNotFoundException.class)
+	public ResponseEntity<AuthErrorResponse> handleQuestionNotFound(QuestionNotFoundException exception) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND)
+			.body(new AuthErrorResponse("QUESTION_NOT_FOUND", exception.getMessage()));
 	}
 
 	@ExceptionHandler(ChatRoomNotFoundException.class)

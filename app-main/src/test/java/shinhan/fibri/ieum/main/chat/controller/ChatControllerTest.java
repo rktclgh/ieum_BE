@@ -52,6 +52,8 @@ import shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException;
 import shinhan.fibri.ieum.main.chat.exception.SelfChatRoomException;
 import shinhan.fibri.ieum.main.chat.service.ChatService;
 import shinhan.fibri.ieum.main.meeting.exception.NotHostException;
+import shinhan.fibri.ieum.main.question.exception.QuestionForbiddenException;
+import shinhan.fibri.ieum.main.question.exception.QuestionNotFoundException;
 import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
 
 @WebMvcTest(ChatController.class)
@@ -86,6 +88,68 @@ class ChatControllerTest {
 			.andExpect(jsonPath("$.questionId").doesNotExist());
 
 		verify(chatService).createDirectRoom(any(AuthenticatedUser.class), eq(77L));
+	}
+
+	@Test
+	void createQuestionRoomReturnsQuestionRoom() throws Exception {
+		when(chatService.createQuestionRoom(any(AuthenticatedUser.class), eq(9L), eq(77L)))
+			.thenReturn(new ChatRoomResponse(100L, RoomType.question, null, 9L));
+
+		mockMvc.perform(post("/api/v1/chat/rooms/question")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"questionId\":9,\"targetUserId\":77}")
+				.with(authenticated()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.roomId", is(100)))
+			.andExpect(jsonPath("$.roomType", is("question")))
+			.andExpect(jsonPath("$.meetingId").doesNotExist())
+			.andExpect(jsonPath("$.questionId", is(9)));
+
+		verify(chatService).createQuestionRoom(any(AuthenticatedUser.class), eq(9L), eq(77L));
+	}
+
+	@Test
+	void createQuestionRoomRequiresQuestionId() throws Exception {
+		mockMvc.perform(post("/api/v1/chat/rooms/question")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"targetUserId\":77}")
+				.with(authenticated()))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
+			.andExpect(jsonPath("$.fieldErrors[0].field", is("questionId")));
+	}
+
+	@Test
+	void createQuestionRoomRequiresTargetUserId() throws Exception {
+		mockMvc.perform(post("/api/v1/chat/rooms/question")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"questionId\":9}")
+				.with(authenticated()))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
+			.andExpect(jsonPath("$.fieldErrors[0].field", is("targetUserId")));
+	}
+
+	@Test
+	void createQuestionRoomRequiresPositiveQuestionId() throws Exception {
+		mockMvc.perform(post("/api/v1/chat/rooms/question")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"questionId\":0,\"targetUserId\":77}")
+				.with(authenticated()))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
+			.andExpect(jsonPath("$.fieldErrors[0].field", is("questionId")));
+	}
+
+	@Test
+	void createQuestionRoomRequiresPositiveTargetUserId() throws Exception {
+		mockMvc.perform(post("/api/v1/chat/rooms/question")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"questionId\":9,\"targetUserId\":0}")
+				.with(authenticated()))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
+			.andExpect(jsonPath("$.fieldErrors[0].field", is("targetUserId")));
 	}
 
 	@Test
@@ -292,6 +356,32 @@ class ChatControllerTest {
 				.with(authenticated()))
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.code", is("BLOCKED")));
+	}
+
+	@Test
+	void mapsQuestionNotFoundToNotFound() throws Exception {
+		doThrow(new QuestionNotFoundException())
+			.when(chatService).createQuestionRoom(any(AuthenticatedUser.class), eq(9L), eq(77L));
+
+		mockMvc.perform(post("/api/v1/chat/rooms/question")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"questionId\":9,\"targetUserId\":77}")
+				.with(authenticated()))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code", is("QUESTION_NOT_FOUND")));
+	}
+
+	@Test
+	void mapsQuestionForbiddenToForbidden() throws Exception {
+		doThrow(new QuestionForbiddenException())
+			.when(chatService).createQuestionRoom(any(AuthenticatedUser.class), eq(9L), eq(77L));
+
+		mockMvc.perform(post("/api/v1/chat/rooms/question")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"questionId\":9,\"targetUserId\":77}")
+				.with(authenticated()))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code", is("FORBIDDEN")));
 	}
 
 	@Test

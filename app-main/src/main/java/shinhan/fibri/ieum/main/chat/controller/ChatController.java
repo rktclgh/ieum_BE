@@ -24,6 +24,7 @@ import shinhan.fibri.ieum.main.chat.dto.ChatRoomSummaryResponse;
 import shinhan.fibri.ieum.main.chat.dto.DirectRoomRequest;
 import shinhan.fibri.ieum.main.chat.dto.NotifyRoomRequest;
 import shinhan.fibri.ieum.main.chat.dto.PinRoomRequest;
+import shinhan.fibri.ieum.main.chat.dto.QuestionRoomRequest;
 import shinhan.fibri.ieum.main.chat.service.ChatService;
 
 @RestController
@@ -47,6 +48,16 @@ public class ChatController {
 		@Valid @RequestBody DirectRoomRequest request
 	) {
 		return ResponseEntity.ok(chatService.createDirectRoom(principal, request.friendId()));
+	}
+
+	@PostMapping("/rooms/question")
+	public ResponseEntity<ChatRoomResponse> createQuestionRoom(
+		@AuthenticationPrincipal AuthenticatedUser principal,
+		@Valid @RequestBody QuestionRoomRequest request
+	) {
+		return ResponseEntity.ok(
+			chatService.createQuestionRoom(principal, request.questionId(), request.targetUserId())
+		);
 	}
 
 	@GetMapping("/rooms/{roomId}")

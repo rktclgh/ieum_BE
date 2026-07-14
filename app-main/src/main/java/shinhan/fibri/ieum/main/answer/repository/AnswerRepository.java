@@ -4,4 +4,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import shinhan.fibri.ieum.main.answer.domain.Answer;
 
 public interface AnswerRepository extends JpaRepository<Answer, Long> {
+
+	boolean existsByQuestionIdAndAuthorIdAndAiFalse(Long questionId, Long authorId);
 }
