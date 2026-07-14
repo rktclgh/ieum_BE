@@ -1,6 +1,8 @@
 package shinhan.fibri.ieum.main.inquiry.service;
 
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Component;
@@ -8,6 +10,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class RedisSuspendedUserInquiryRateLimiter implements SuspendedUserInquiryRateLimiter {
 
+	private static final Logger log = LoggerFactory.getLogger(RedisSuspendedUserInquiryRateLimiter.class);
 	private static final int LIMIT_PER_MINUTE = 5;
 	private static final String WINDOW_SECONDS = "60";
 	private static final RedisScript<Long> INCREMENT_WITH_TTL = RedisScript.of("""
@@ -29,7 +32,12 @@ public class RedisSuspendedUserInquiryRateLimiter implements SuspendedUserInquir
 			Long count = redisTemplate.execute(INCREMENT_WITH_TTL, List.of(key(clientIp)), WINDOW_SECONDS);
 			return count != null && count <= LIMIT_PER_MINUTE;
 		} catch (RuntimeException exception) {
-			return false;
+			log.warn(
+				"Suspended user inquiry rate limiter unavailable; allowing request. clientIp={}",
+				clientIp,
+				exception
+			);
+			return true;
 		}
 	}
 

@@ -8,9 +8,13 @@ import static org.mockito.Mockito.when;
 
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.RedisScript;
 
+@ExtendWith(OutputCaptureExtension.class)
 class RedisSuspendedUserInquiryRateLimiterTest {
 
 	@Test
@@ -28,13 +32,16 @@ class RedisSuspendedUserInquiryRateLimiterTest {
 	}
 
 	@Test
-	void failsClosedWhenRedisIsUnavailable() {
+	void failsOpenAndLogsWhenRedisIsUnavailable(CapturedOutput output) {
 		StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
 		when(redisTemplate.execute(anyLongRedisScript(), any(), eq("60")))
 			.thenThrow(new IllegalStateException("redis unavailable"));
 		RedisSuspendedUserInquiryRateLimiter rateLimiter = new RedisSuspendedUserInquiryRateLimiter(redisTemplate);
 
-		assertThat(rateLimiter.tryAcquire("203.0.113.10")).isFalse();
+		assertThat(rateLimiter.tryAcquire("203.0.113.10")).isTrue();
+		assertThat(output.getOut())
+			.contains("Suspended user inquiry rate limiter unavailable; allowing request")
+			.contains("clientIp=203.0.113.10");
 	}
 
 	private RedisScript<Long> anyLongRedisScript() {
