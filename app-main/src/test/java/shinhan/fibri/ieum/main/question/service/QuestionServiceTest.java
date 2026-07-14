@@ -81,7 +81,7 @@ class QuestionServiceTest {
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(author));
 		LocationSnapshot location = new LocationSnapshot(37.4979, 127.0276, "서울특별시 강남구", "", "강남역");
 		when(pinWriter.create(42L, PinType.question, location)).thenReturn(100L);
-		when(questionRepository.save(any(Question.class))).thenAnswer(invocation -> {
+		when(questionRepository.saveAndFlush(any(Question.class))).thenAnswer(invocation -> {
 			Question question = invocation.getArgument(0);
 			setId(question, 200L);
 			return question;
@@ -112,7 +112,7 @@ class QuestionServiceTest {
 		);
 		inOrder.verify(fileRepository).findByFileIdAndUploaderId(imageId, 42L);
 		inOrder.verify(pinWriter).create(42L, PinType.question, location);
-		inOrder.verify(questionRepository).save(any(Question.class));
+		inOrder.verify(questionRepository).saveAndFlush(any(Question.class));
 		inOrder.verify(questionImageRepository).saveAll(any());
 		inOrder.verify(questionAnswerTicketWriter).create(200L);
 		inOrder.verify(eventPublisher).publishEvent(
