@@ -23,16 +23,14 @@ public class QuestionCompletionCallbackConfiguration {
 		@Value("${app.ai.question-answer.callback.allowed-origins:}") String allowedOrigins,
 		@Value("${app.ai.question-answer.callback.internal-token:}") String internalToken,
 		@Value("${app.ai.question-answer.callback.connect-timeout:2s}") String connectTimeout,
-		@Value("${app.ai.question-answer.callback.read-timeout:5s}") String readTimeout,
-		@Value("${app.ai.question-answer.callback.recovery-interval:60s}") String recoveryInterval
+		@Value("${app.ai.question-answer.callback.read-timeout:5s}") String readTimeout
 	) {
 		return QuestionCompletionCallbackProperties.create(
 			baseOrigin,
 			allowedOrigins,
 			internalToken,
 			parseDuration(connectTimeout, "connect timeout"),
-			parseDuration(readTimeout, "read timeout"),
-			parseDuration(recoveryInterval, "recovery interval")
+			parseDuration(readTimeout, "read timeout")
 		);
 	}
 
@@ -81,22 +79,6 @@ public class QuestionCompletionCallbackConfiguration {
 	) {
 		return new QuestionCompletionCallbackLane(executor, deliveryService::deliver);
 	}
-
-	@Bean
-	QuestionCompletionCallbackRecoveryService questionCompletionCallbackRecoveryService(
-		QuestionCompletionCallbackRepository repository,
-		QuestionCompletionCallbackLane lane
-	) {
-		return new QuestionCompletionCallbackRecoveryService(repository, lane);
-	}
-
-	@Bean
-	QuestionCompletionCallbackRecoveryScheduler questionCompletionCallbackRecoveryScheduler(
-		QuestionCompletionCallbackRecoveryService recoveryService
-	) {
-		return new QuestionCompletionCallbackRecoveryScheduler(recoveryService);
-	}
-
 	private static Duration parseDuration(String value, String field) {
 		try {
 			return DurationStyle.detectAndParse(value);

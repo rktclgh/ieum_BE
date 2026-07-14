@@ -3,8 +3,6 @@ package shinhan.fibri.ieum.ai.question.callback;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.OffsetDateTime;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,31 +35,24 @@ class JdbcQuestionCompletionCallbackRepositoryIntegrationTest {
 	}
 
 	@Test
-	void readsOnlyAnswerBearingAckPendingCompletedTasksInBoundedCompletionOrderWithoutWritingAck() {
+	void readsOnlyTheRequestedAnswerBearingAckPendingCompletedTaskWithoutWritingAck() {
 		OffsetDateTime base = OffsetDateTime.parse("2026-07-01T00:00:00Z");
-		List<Long> eligible = new ArrayList<>();
-		for (int index = 0; index < 35; index++) {
-			long questionId = insertQuestion();
-			long answerId = insertAiAnswer(questionId);
-			insertCompletedTask(questionId, answerId, base.plusSeconds(index), false);
-			eligible.add(questionId);
-		}
+		long eligibleQuestionId = insertQuestion();
+		long eligibleAnswerId = insertAiAnswer(eligibleQuestionId);
+		insertCompletedTask(eligibleQuestionId, eligibleAnswerId, base, false);
 		long ackedQuestionId = insertQuestion();
 		insertCompletedTask(ackedQuestionId, insertAiAnswer(ackedQuestionId), base.minusSeconds(2), true);
 		long insufficientQuestionId = insertQuestion();
 		insertInsufficientTask(insufficientQuestionId, base.minusSeconds(1));
 
-		List<Long> recovered = repository.findPendingQuestionIds(32);
-		PendingQuestionCompletion pending = repository.findPending(eligible.getFirst()).orElseThrow();
+		PendingQuestionCompletion pending = repository.findPending(eligibleQuestionId).orElseThrow();
 
-		assertThat(recovered).containsExactlyElementsOf(eligible.subList(0, 32));
-		assertThat(recovered).doesNotContain(ackedQuestionId, insufficientQuestionId);
-		assertThat(pending.questionId()).isEqualTo(eligible.getFirst());
-		assertThat(pending.answerId()).isPositive();
+		assertThat(pending.questionId()).isEqualTo(eligibleQuestionId);
+		assertThat(pending.answerId()).isEqualTo(eligibleAnswerId);
 		assertThat(repository.findPending(ackedQuestionId)).isEmpty();
 		assertThat(repository.findPending(insufficientQuestionId)).isEmpty();
-		assertThat(repository.existsByQuestionId(eligible.getFirst())).isTrue();
-		assertThat(answerAck(eligible.getFirst())).isNull();
+		assertThat(repository.existsByQuestionId(eligibleQuestionId)).isTrue();
+		assertThat(answerAck(eligibleQuestionId)).isNull();
 	}
 
 	@Test

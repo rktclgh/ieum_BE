@@ -12,11 +12,8 @@ public record QuestionCompletionCallbackProperties(
 	Set<String> allowedOrigins,
 	String internalToken,
 	Duration connectTimeout,
-	Duration readTimeout,
-	Duration recoveryInterval
+	Duration readTimeout
 ) {
-	private static final Duration MIN_RECOVERY_INTERVAL = Duration.ofSeconds(10);
-
 	public QuestionCompletionCallbackProperties {
 		if (baseOrigin == null || allowedOrigins == null || allowedOrigins.isEmpty()) {
 			throw new IllegalArgumentException("Callback origin and allowlist are required");
@@ -32,9 +29,6 @@ public record QuestionCompletionCallbackProperties(
 			|| readTimeout == null || readTimeout.isZero() || readTimeout.isNegative()) {
 			throw new IllegalArgumentException("Callback timeouts must be positive");
 		}
-		if (recoveryInterval == null || recoveryInterval.compareTo(MIN_RECOVERY_INTERVAL) < 0) {
-			throw new IllegalArgumentException("Callback recovery interval must be at least 10 seconds");
-		}
 	}
 
 	public static QuestionCompletionCallbackProperties create(
@@ -43,24 +37,6 @@ public record QuestionCompletionCallbackProperties(
 		String internalToken,
 		Duration connectTimeout,
 		Duration readTimeout
-	) {
-		return create(
-			baseOrigin,
-			allowedOrigins,
-			internalToken,
-			connectTimeout,
-			readTimeout,
-			Duration.ofSeconds(60)
-		);
-	}
-
-	public static QuestionCompletionCallbackProperties create(
-		String baseOrigin,
-		String allowedOrigins,
-		String internalToken,
-		Duration connectTimeout,
-		Duration readTimeout,
-		Duration recoveryInterval
 	) {
 		URI normalizedBaseOrigin = normalizeOrigin(baseOrigin);
 		Set<String> normalizedAllowlist = Arrays.stream(valueOrEmpty(allowedOrigins).split(","))
@@ -74,8 +50,7 @@ public record QuestionCompletionCallbackProperties(
 			normalizedAllowlist,
 			internalToken,
 			connectTimeout,
-			readTimeout,
-			recoveryInterval
+			readTimeout
 		);
 	}
 

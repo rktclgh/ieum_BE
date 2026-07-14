@@ -44,6 +44,8 @@ class QuestionCompletionCallbackConfigurationTest {
 				assertThat(context).hasSingleBean(QuestionCompletionCallbackWake.class);
 				assertThat(context).hasSingleBean(QuestionCompletionCallbackClient.class);
 				assertThat(context).hasSingleBean(QuestionCompletionCallbackProperties.class);
+				assertThat(context).doesNotHaveBean("questionCompletionCallbackRecoveryService");
+				assertThat(context).doesNotHaveBean("questionCompletionCallbackRecoveryScheduler");
 				HttpClient client = context.getBean("questionCompletionCallbackHttpClient", HttpClient.class);
 				assertThat(client.followRedirects()).isEqualTo(HttpClient.Redirect.NEVER);
 				ThreadPoolTaskExecutor executor = context.getBean(

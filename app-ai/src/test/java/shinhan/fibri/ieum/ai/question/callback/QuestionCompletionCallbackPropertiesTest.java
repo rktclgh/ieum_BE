@@ -9,6 +9,13 @@ import org.junit.jupiter.api.Test;
 class QuestionCompletionCallbackPropertiesTest {
 
 	@Test
+	void propertiesExposeNoDatabaseRecoveryInterval() {
+		assertThat(QuestionCompletionCallbackProperties.class.getRecordComponents())
+			.extracting(component -> component.getName())
+			.doesNotContain("recoveryInterval");
+	}
+
+	@Test
 	void acceptsAnHttpBaseOriginThatIsExplicitlyAllowlisted() {
 		QuestionCompletionCallbackProperties properties = QuestionCompletionCallbackProperties.create(
 			"http://app-main.internal:8080",
@@ -24,7 +31,6 @@ class QuestionCompletionCallbackPropertiesTest {
 			"https://main.example.com"
 		);
 		assertThat(properties.internalToken()).isEqualTo("shared-secret");
-		assertThat(properties.recoveryInterval()).isEqualTo(Duration.ofSeconds(60));
 	}
 
 	@Test
@@ -50,16 +56,6 @@ class QuestionCompletionCallbackPropertiesTest {
 		))
 			.isInstanceOf(IllegalArgumentException.class)
 			.hasMessageContaining("timeout");
-		assertThatThrownBy(() -> QuestionCompletionCallbackProperties.create(
-			"http://app-main.internal:8080",
-			"http://app-main.internal:8080",
-			"secret",
-			Duration.ofSeconds(2),
-			Duration.ofSeconds(5),
-			Duration.ofSeconds(9)
-		))
-			.isInstanceOf(IllegalArgumentException.class)
-			.hasMessageContaining("recovery interval");
 	}
 
 	private QuestionCompletionCallbackProperties create(String baseOrigin, String allowedOrigins, String token) {

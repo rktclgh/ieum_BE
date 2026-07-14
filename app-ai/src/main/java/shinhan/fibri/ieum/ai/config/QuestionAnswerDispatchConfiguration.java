@@ -18,8 +18,6 @@ import shinhan.fibri.ieum.ai.question.service.QuestionAnswerOrchestrator;
 import shinhan.fibri.ieum.ai.question.service.QuestionAnswerTaskLane;
 import shinhan.fibri.ieum.ai.question.service.QuestionAnswerTaskProcessor;
 import shinhan.fibri.ieum.ai.question.service.QuestionCompletionCallbackWake;
-import shinhan.fibri.ieum.ai.question.service.QuestionTaskRecoveryScheduler;
-import shinhan.fibri.ieum.ai.question.service.QuestionTaskRecoveryService;
 
 @Configuration
 public class QuestionAnswerDispatchConfiguration {
@@ -31,16 +29,12 @@ public class QuestionAnswerDispatchConfiguration {
 		@Value("${app.ai.features.question-answer-enabled:false}") boolean enabled,
 		@Value("${app.ai.question-answer.task-lease:2m}") String taskLease,
 		@Value("${app.ai.question-answer.max-attempts:5}") int maxAttempts,
-		@Value("${app.ai.question-answer.recovery-interval:60s}") String recoveryInterval,
-		@Value("${app.ai.question-answer.recovery-batch-size:32}") int recoveryBatchSize,
 		@Value("${app.ai.question-answer.dispatch-retry-after-seconds:5}") int retryAfterSeconds
 	) {
 		return new QuestionAnswerDispatchProperties(
 			enabled,
 			DurationStyle.detectAndParse(taskLease),
 			maxAttempts,
-			DurationStyle.detectAndParse(recoveryInterval),
-			recoveryBatchSize,
 			retryAfterSeconds
 		);
 	}
@@ -110,24 +104,5 @@ public class QuestionAnswerDispatchConfiguration {
 		QuestionCompletionCallbackWake callbackWake
 	) {
 		return new QuestionAnswerJobDispatchService(repository, lane, callbackWake);
-	}
-
-	@Bean
-	QuestionTaskRecoveryService questionTaskRecoveryService(
-		QuestionTaskWorkRepository repository,
-		QuestionAnswerTaskLane lane,
-		QuestionAnswerDispatchProperties properties
-	) {
-		return new QuestionTaskRecoveryService(
-			repository,
-			lane,
-			properties.maxAttempts(),
-			properties.recoveryBatchSize()
-		);
-	}
-
-	@Bean
-	QuestionTaskRecoveryScheduler questionTaskRecoveryScheduler(QuestionTaskRecoveryService recoveryService) {
-		return new QuestionTaskRecoveryScheduler(recoveryService);
 	}
 }

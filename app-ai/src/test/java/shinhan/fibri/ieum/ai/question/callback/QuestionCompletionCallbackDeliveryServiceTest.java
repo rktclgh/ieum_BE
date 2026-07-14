@@ -65,7 +65,7 @@ class QuestionCompletionCallbackDeliveryServiceTest {
 	}
 
 	@Test
-	void leavesAnExistingNotFoundTaskEligibleForTheNextRecovery() {
+	void leavesAnExistingNotFoundTaskEligibleForALaterExactDispatch() {
 		when(repository.findPending(42L)).thenReturn(Optional.of(new PendingQuestionCompletion(42L, 123L)));
 		when(client.deliver(42L, 123L)).thenReturn(CallbackHttpResult.NOT_FOUND);
 		when(repository.existsByQuestionId(42L)).thenReturn(true);

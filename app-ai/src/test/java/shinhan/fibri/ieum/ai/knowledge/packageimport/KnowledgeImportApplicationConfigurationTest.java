@@ -14,10 +14,8 @@ import org.springframework.scheduling.annotation.ScheduledAnnotationBeanPostProc
 import org.springframework.transaction.PlatformTransactionManager;
 import shinhan.fibri.ieum.ai.config.AiDatabaseCapabilityVerifier;
 import shinhan.fibri.ieum.ai.embedding.GeminiEmbeddingGateway;
-import shinhan.fibri.ieum.ai.question.callback.QuestionCompletionCallbackRecoveryScheduler;
 import shinhan.fibri.ieum.ai.question.controller.QuestionAnswerJobDispatchInternalController;
 import shinhan.fibri.ieum.ai.question.embedding.QuestionEmbeddingGateway;
-import shinhan.fibri.ieum.ai.question.service.QuestionTaskRecoveryScheduler;
 import shinhan.fibri.ieum.ai.report.controller.ReportReviewInternalController;
 
 class KnowledgeImportApplicationConfigurationTest {
@@ -45,8 +43,6 @@ class KnowledgeImportApplicationConfigurationTest {
 			assertThat(context).doesNotHaveBean(QuestionEmbeddingGateway.class);
 			assertThat(context).doesNotHaveBean(QuestionAnswerJobDispatchInternalController.class);
 			assertThat(context).doesNotHaveBean(ReportReviewInternalController.class);
-			assertThat(context).doesNotHaveBean(QuestionTaskRecoveryScheduler.class);
-			assertThat(context).doesNotHaveBean(QuestionCompletionCallbackRecoveryScheduler.class);
 			assertThat(context).doesNotHaveBean(ScheduledAnnotationBeanPostProcessor.class);
 			assertThat(context).doesNotHaveBean(BedrockProxyChatModel.class);
 		});

@@ -136,8 +136,6 @@ class QuestionAnswerProcessingConfigurationTest {
 			true,
 			TASK_LEASE,
 			5,
-			Duration.ofSeconds(60),
-			32,
 			5
 		);
 	}

@@ -37,26 +37,31 @@ class QuestionAnswerDispatchConfigurationTest {
 	}
 
 	@Test
-	void validatesLeaseAttemptsRecoveryAndRetryAfterBounds() {
+	void validatesLeaseAttemptsAndRetryAfterBounds() {
 		QuestionAnswerDispatchProperties defaults = new QuestionAnswerDispatchProperties(
 			false,
 			Duration.ofMinutes(2),
 			5,
-			Duration.ofSeconds(60),
-			32,
 			5
 		);
 		assertThat(defaults.enabled()).isFalse();
 		assertThat(defaults.taskLease()).isEqualTo(Duration.ofMinutes(2));
 
 		assertThatThrownBy(() -> new QuestionAnswerDispatchProperties(
-			true, Duration.ofMinutes(2), 5, Duration.ofSeconds(5), 32, 5
+			true, Duration.ofMinutes(2), 6, 5
 		)).isInstanceOf(IllegalArgumentException.class)
-			.hasMessageContaining("recovery interval");
+			.hasMessageContaining("max attempts");
 		assertThatThrownBy(() -> new QuestionAnswerDispatchProperties(
-			true, Duration.ofMinutes(2), 5, Duration.ofSeconds(60), 33, 5
+			true, Duration.ofMinutes(2), 5, 0
 		)).isInstanceOf(IllegalArgumentException.class)
-			.hasMessageContaining("batch");
+			.hasMessageContaining("retry-after");
+	}
+
+	@Test
+	void dispatchPropertiesExposeNoDatabaseRecoveryControls() {
+		assertThat(QuestionAnswerDispatchProperties.class.getRecordComponents())
+			.extracting(component -> component.getName())
+			.doesNotContain("recoveryInterval", "recoveryBatchSize");
 	}
 
 	@Test
@@ -69,6 +74,8 @@ class QuestionAnswerDispatchConfigurationTest {
 				assertThat(context).hasSingleBean(QuestionAnswerOrchestrator.class);
 				assertThat(context).hasSingleBean(QuestionAnswerTaskLane.class);
 				assertThat(context.getBean(QuestionAnswerTaskLane.class).isEnabled()).isTrue();
+				assertThat(context).doesNotHaveBean("questionTaskRecoveryService");
+				assertThat(context).doesNotHaveBean("questionTaskRecoveryScheduler");
 			});
 	}
 

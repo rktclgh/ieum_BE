@@ -2,7 +2,6 @@ package shinhan.fibri.ieum.ai.question.repository;
 
 import java.time.Duration;
 import java.time.OffsetDateTime;
-import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
@@ -15,7 +14,6 @@ import shinhan.fibri.ieum.ai.question.service.QuestionTaskFailureDisposition;
 public class JdbcQuestionTaskWorkRepository implements QuestionTaskWorkRepository {
 
 	private static final int MAX_SUPPORTED_ATTEMPTS = 5;
-	private static final int MAX_RECOVERY_BATCH = 32;
 	private static final String PROCESSING_FAILURE_CODE = "QUESTION_ANSWER_PROCESSING_FAILED";
 	private static final String PROCESSING_FAILURE_MESSAGE = "Question answer processing failed";
 
@@ -36,7 +34,29 @@ public class JdbcQuestionTaskWorkRepository implements QuestionTaskWorkRepositor
 		String canonicalWorkerId = workerId.trim();
 		UUID leaseToken = UUID.randomUUID();
 		return jdbc.sql("""
-			WITH candidate AS (
+			WITH exhausted AS (
+			    UPDATE ai_question_tasks task
+			    SET status = 'dead',
+			        lease_until = NULL,
+			        locked_by = NULL,
+			        lease_token = NULL,
+			        last_error_code = :errorCode,
+			        last_error_message = :errorMessage,
+			        updated_at = clock_timestamp()
+			    FROM questions question
+			    JOIN pins pin ON pin.pin_id = question.pin_id
+			    WHERE task.question_id = :questionId
+			      AND question.question_id = task.question_id
+			      AND task.attempts >= :maxAttempts
+			      AND task.cancel_requested_at IS NULL
+			      AND question.deleted_at IS NULL
+			      AND pin.deleted_at IS NULL
+			      AND (
+			          (task.status IN ('pending', 'retry') AND task.next_attempt_at <= clock_timestamp())
+			          OR (task.status = 'processing' AND task.lease_until <= clock_timestamp())
+			      )
+			    RETURNING task.question_id
+			), candidate AS (
 			    SELECT task.question_id
 			    FROM ai_question_tasks task
 			    JOIN questions question ON question.question_id = task.question_id
@@ -47,8 +67,8 @@ public class JdbcQuestionTaskWorkRepository implements QuestionTaskWorkRepositor
 			      AND question.deleted_at IS NULL
 			      AND pin.deleted_at IS NULL
 			      AND (
-			          (task.status IN ('pending', 'retry') AND task.next_attempt_at <= CURRENT_TIMESTAMP)
-			          OR (task.status = 'processing' AND task.lease_until <= CURRENT_TIMESTAMP)
+			          (task.status IN ('pending', 'retry') AND task.next_attempt_at <= clock_timestamp())
+			          OR (task.status = 'processing' AND task.lease_until <= clock_timestamp())
 			      )
 			    FOR UPDATE OF task SKIP LOCKED
 			)
@@ -56,13 +76,13 @@ public class JdbcQuestionTaskWorkRepository implements QuestionTaskWorkRepositor
 			SET status = 'processing',
 			    stage = 'analyzing',
 			    attempts = task.attempts + 1,
-			    lease_until = CURRENT_TIMESTAMP + (:leaseSeconds * INTERVAL '1 second'),
+			    lease_until = clock_timestamp() + (:leaseSeconds * INTERVAL '1 second'),
 			    locked_by = :workerId,
 			    lease_token = :leaseToken,
 			    last_error_code = NULL,
 			    last_error_message = NULL,
-			    started_at = COALESCE(task.started_at, CURRENT_TIMESTAMP),
-			    updated_at = CURRENT_TIMESTAMP
+			    started_at = COALESCE(task.started_at, clock_timestamp()),
+			    updated_at = clock_timestamp()
 			FROM candidate
 			WHERE task.question_id = candidate.question_id
 			RETURNING task.question_id, task.locked_by, task.lease_token, task.lease_until, task.attempts
@@ -72,6 +92,8 @@ public class JdbcQuestionTaskWorkRepository implements QuestionTaskWorkRepositor
 			.param("leaseSeconds", lease.toSeconds())
 			.param("workerId", canonicalWorkerId)
 			.param("leaseToken", leaseToken)
+			.param("errorCode", PROCESSING_FAILURE_CODE)
+			.param("errorMessage", PROCESSING_FAILURE_MESSAGE)
 			.query((resultSet, rowNumber) -> new ClaimedQuestionTask(
 				resultSet.getLong("question_id"),
 				resultSet.getString("locked_by"),
@@ -88,7 +110,7 @@ public class JdbcQuestionTaskWorkRepository implements QuestionTaskWorkRepositor
 		return jdbc.sql("""
 			SELECT task.question_id,
 			       task.status::text AS status,
-			       (task.status = 'processing' AND task.lease_until > CURRENT_TIMESTAMP) AS active_lease,
+			       (task.status = 'processing' AND task.lease_until > clock_timestamp()) AS active_lease,
 			       task.cancel_requested_at IS NOT NULL AS cancellation_requested,
 			       question.deleted_at IS NOT NULL AS question_deleted,
 			       pin.deleted_at IS NOT NULL AS pin_deleted,
@@ -111,113 +133,6 @@ public class JdbcQuestionTaskWorkRepository implements QuestionTaskWorkRepositor
 				resultSet.getObject("answer_notification_processed_at", OffsetDateTime.class)
 			))
 			.optional();
-	}
-
-	@Override
-	public List<Long> findDueQuestionIds(int maxAttempts, int limit) {
-		validateRecovery(maxAttempts, limit);
-		return jdbc.sql("""
-			SELECT task.question_id
-			FROM ai_question_tasks task
-			JOIN questions question ON question.question_id = task.question_id
-			JOIN pins pin ON pin.pin_id = question.pin_id
-			WHERE task.attempts < :maxAttempts
-			  AND task.cancel_requested_at IS NULL
-			  AND question.deleted_at IS NULL
-			  AND pin.deleted_at IS NULL
-			  AND (
-			      (task.status IN ('pending', 'retry') AND task.next_attempt_at <= CURRENT_TIMESTAMP)
-			      OR (task.status = 'processing' AND task.lease_until <= CURRENT_TIMESTAMP)
-			  )
-			ORDER BY CASE
-			             WHEN task.status = 'processing' THEN task.lease_until
-			             ELSE task.next_attempt_at
-			         END,
-			         task.created_at,
-			         task.question_id
-			LIMIT :limit
-			""")
-			.param("maxAttempts", maxAttempts)
-			.param("limit", limit)
-			.query(Long.class)
-			.list();
-	}
-
-	@Override
-	public int cleanupCancelledOrDeleted(int limit) {
-		validateLimit(limit);
-		return jdbc.sql("""
-			WITH candidates AS (
-			    SELECT task.question_id
-			    FROM ai_question_tasks task
-			    JOIN questions question ON question.question_id = task.question_id
-			    JOIN pins pin ON pin.pin_id = question.pin_id
-			    WHERE task.status IN ('pending', 'retry', 'processing')
-			      AND (
-			          task.cancel_requested_at IS NOT NULL
-			          OR question.deleted_at IS NOT NULL
-			          OR pin.deleted_at IS NOT NULL
-			      )
-			    ORDER BY task.created_at, task.question_id
-			    FOR UPDATE OF task SKIP LOCKED
-			    LIMIT :limit
-			)
-			UPDATE ai_question_tasks task
-			SET status = 'cancelled',
-			    cancelled_at = COALESCE(task.cancelled_at, CURRENT_TIMESTAMP),
-			    lease_until = NULL,
-			    locked_by = NULL,
-			    lease_token = NULL,
-			    updated_at = CURRENT_TIMESTAMP
-			FROM candidates
-			WHERE task.question_id = candidates.question_id
-			""")
-			.param("limit", limit)
-			.update();
-	}
-
-	@Override
-	public int markExhaustedDueTasksDead(int maxAttempts, int limit) {
-		validateRecovery(maxAttempts, limit);
-		return jdbc.sql("""
-			WITH candidates AS (
-			    SELECT task.question_id
-			    FROM ai_question_tasks task
-			    JOIN questions question ON question.question_id = task.question_id
-			    JOIN pins pin ON pin.pin_id = question.pin_id
-			    WHERE task.attempts >= :maxAttempts
-			      AND task.cancel_requested_at IS NULL
-			      AND question.deleted_at IS NULL
-			      AND pin.deleted_at IS NULL
-			      AND (
-			          (task.status IN ('pending', 'retry') AND task.next_attempt_at <= CURRENT_TIMESTAMP)
-			          OR (task.status = 'processing' AND task.lease_until <= CURRENT_TIMESTAMP)
-			      )
-			    ORDER BY CASE
-			                 WHEN task.status = 'processing' THEN task.lease_until
-			                 ELSE task.next_attempt_at
-			             END,
-			             task.created_at,
-			             task.question_id
-			    FOR UPDATE OF task SKIP LOCKED
-			    LIMIT :limit
-			)
-			UPDATE ai_question_tasks task
-			SET status = 'dead',
-			    lease_until = NULL,
-			    locked_by = NULL,
-			    lease_token = NULL,
-			    last_error_code = :errorCode,
-			    last_error_message = :errorMessage,
-			    updated_at = CURRENT_TIMESTAMP
-			FROM candidates
-			WHERE task.question_id = candidates.question_id
-			""")
-			.param("maxAttempts", maxAttempts)
-			.param("limit", limit)
-			.param("errorCode", PROCESSING_FAILURE_CODE)
-			.param("errorMessage", PROCESSING_FAILURE_MESSAGE)
-			.update();
 	}
 
 	@Override
@@ -300,21 +215,6 @@ public class JdbcQuestionTaskWorkRepository implements QuestionTaskWorkRepositor
 		}
 		if (maxAttempts < 1 || maxAttempts > MAX_SUPPORTED_ATTEMPTS) {
 			throw new IllegalArgumentException("maxAttempts must be between 1 and " + MAX_SUPPORTED_ATTEMPTS);
-		}
-	}
-
-	private void validateRecovery(int maxAttempts, int limit) {
-		if (maxAttempts < 1 || maxAttempts > MAX_SUPPORTED_ATTEMPTS) {
-			throw new IllegalArgumentException(
-				"maxAttempts must be between 1 and " + MAX_SUPPORTED_ATTEMPTS
-			);
-		}
-		validateLimit(limit);
-	}
-
-	private void validateLimit(int limit) {
-		if (limit < 1 || limit > MAX_RECOVERY_BATCH) {
-			throw new IllegalArgumentException("limit must be between 1 and " + MAX_RECOVERY_BATCH);
 		}
 	}
 
