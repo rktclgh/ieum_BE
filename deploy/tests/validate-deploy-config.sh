@@ -90,6 +90,8 @@ grep -Fq 'DOCKERHUB_TOKEN' "$ai_workflow"
 grep -Fq 'docker login --username' deploy/scripts/deploy-compose.sh
 
 grep -Fq 'redis:7' deploy/app-main/compose.yml
+grep -Fq 'image: redis:7.2-alpine' deploy/app-main/compose.yml
+forbid_literal 'image: redis:7-alpine' deploy/app-main/compose.yml
 grep -Fq 'appendonly' deploy/app-main/compose.yml
 grep -Fq '127.0.0.1:' deploy/app-main/compose.yml
 grep -Fq 'APP_MAIN_PRIVATE_BIND_ADDRESS' deploy/app-main/compose.yml
@@ -102,6 +104,9 @@ grep -Fq '.env.runtime' deploy/app-main/compose.yml
 grep -Fq '.env.runtime' deploy/app-ai/compose.yml
 
 grep -Fq 'REDIS_HOST=redis' deploy/env/app-main.env.example
+grep -Fq 'SPRING_DATASOURCE_URL=jdbc:postgresql://YOUR_DATABASE_HOST:5432/ieum' deploy/env/app-main.env.example
+grep -Fq 'SPRING_DATASOURCE_URL=jdbc:postgresql://YOUR_DATABASE_HOST:5432/ieum' deploy/env/app-ai.env.example
+forbid_regex 'rds\.amazonaws\.com' deploy/env
 grep -Fq 'APP_MAIN_PRIVATE_BIND_ADDRESS=172.31.38.97' deploy/env/app-main.env.example
 grep -Fq 'SERVER_FORWARD_HEADERS_STRATEGY=native' deploy/env/app-main.env.example
 grep -Fq 'APP_AI_QUESTION_ANSWER_DISPATCH_BASE_URL=http://172.31.33.42:8081' deploy/env/app-main.env.example
@@ -122,5 +127,20 @@ grep -Fq 'ssl_certificate /etc/letsencrypt/live/ieum.rktclgh.site/fullchain.pem'
 grep -Fq 'certbot certonly' deploy/scripts/configure-nginx.sh
 grep -Fq 'nginx -t' deploy/scripts/configure-nginx.sh
 grep -Fq 'renewal-hooks/deploy/reload-nginx' deploy/scripts/configure-nginx.sh
+grep -Fq 'if ! IFS= read -r dockerhub_token || [[ -z "$dockerhub_token" ]]; then' deploy/scripts/deploy-compose.sh
+grep -Fq 'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' deploy/nginx/reload-nginx.sh
+grep -Fq 'nginx -t' deploy/nginx/reload-nginx.sh
+grep -Fq 'systemctl reload nginx' deploy/nginx/reload-nginx.sh
+forbid_literal '/usr/sbin/nginx' deploy/nginx/reload-nginx.sh
+forbid_literal '/bin/systemctl' deploy/nginx/reload-nginx.sh
+
+grep -Fq 'archiveFileName.set("app-main.jar")' app-main/build.gradle.kts
+grep -Fq 'archiveFileName.set("app-ai.jar")' app-ai/build.gradle.kts
+grep -Fq 'COPY app-main/build/libs/app-main.jar /app/app.jar' deploy/app-main/Dockerfile
+grep -Fq 'COPY app-ai/build/libs/app-ai.jar /app/app.jar' deploy/app-ai/Dockerfile
+forbid_literal 'build/libs/*.jar' deploy/app-main/Dockerfile deploy/app-ai/Dockerfile
+
+grep -Fq 'ieum.notification.sse.heartbeat-ms=15000' app-main/src/main/resources/application.properties
+grep -Fq '# Spring sends an SSE heartbeat every 15s; 75s allows five missed heartbeats.' deploy/nginx/ieum.rktclgh.site.conf
 
 echo "MVP deployment config validation passed."

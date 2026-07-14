@@ -5,7 +5,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY app-ai/build/libs/*.jar /app/app.jar
+COPY app-ai/build/libs/app-ai.jar /app/app.jar
 
 USER 10001
 EXPOSE 8081

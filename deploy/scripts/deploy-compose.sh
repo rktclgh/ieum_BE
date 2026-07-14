@@ -27,8 +27,10 @@ esac
 [[ -f "$deploy_dir/compose.yml" ]] || { echo "compose.yml is missing" >&2; exit 1; }
 [[ -f "$deploy_dir/.env.runtime" ]] || { echo ".env.runtime is missing" >&2; exit 1; }
 
-IFS= read -r dockerhub_token
-[[ -n "$dockerhub_token" ]] || { echo "Docker Hub token is empty" >&2; exit 1; }
+if ! IFS= read -r dockerhub_token || [[ -z "$dockerhub_token" ]]; then
+  echo "Docker Hub token is empty" >&2
+  exit 1
+fi
 
 docker_config="$(mktemp -d)"
 trap 'rm -rf "$docker_config"' EXIT

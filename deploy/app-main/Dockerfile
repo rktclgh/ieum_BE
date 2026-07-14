@@ -5,7 +5,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY app-main/build/libs/*.jar /app/app.jar
+COPY app-main/build/libs/app-main.jar /app/app.jar
 
 USER 10001
 EXPOSE 8080

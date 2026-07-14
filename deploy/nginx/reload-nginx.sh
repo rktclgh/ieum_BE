@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-/usr/sbin/nginx -t
-/bin/systemctl reload nginx
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+nginx -t
+systemctl reload nginx
