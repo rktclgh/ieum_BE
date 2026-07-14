@@ -81,7 +81,7 @@ class QuestionServiceTest {
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(author));
 		LocationSnapshot location = new LocationSnapshot(37.4979, 127.0276, "서울특별시 강남구", "", "강남역");
 		when(pinWriter.create(42L, PinType.question, location)).thenReturn(100L);
-		when(questionRepository.save(any(Question.class))).thenAnswer(invocation -> {
+		when(questionRepository.saveAndFlush(any(Question.class))).thenAnswer(invocation -> {
 			Question question = invocation.getArgument(0);
 			setId(question, 200L);
 			return question;
@@ -112,7 +112,7 @@ class QuestionServiceTest {
 		);
 		inOrder.verify(fileRepository).findByFileIdAndUploaderId(imageId, 42L);
 		inOrder.verify(pinWriter).create(42L, PinType.question, location);
-		inOrder.verify(questionRepository).save(any(Question.class));
+		inOrder.verify(questionRepository).saveAndFlush(any(Question.class));
 		inOrder.verify(questionImageRepository).saveAll(any());
 		inOrder.verify(questionAnswerTicketWriter).create(200L);
 		inOrder.verify(eventPublisher).publishEvent(
@@ -183,6 +183,7 @@ class QuestionServiceTest {
 				77L,
 				"answerer",
 				answerAuthorProfileId,
+				"KR",
 				"human answer",
 				true,
 				Instant.parse("2026-07-08T10:00:00Z")
@@ -190,6 +191,7 @@ class QuestionServiceTest {
 			new AnswerProjection(
 				301L,
 				true,
+				null,
 				null,
 				null,
 				null,
@@ -214,6 +216,7 @@ class QuestionServiceTest {
 		assertThat(humanAnswer.author().userId()).isEqualTo(77L);
 		assertThat(humanAnswer.author().nickname()).isEqualTo("answerer");
 		assertThat(humanAnswer.author().profileImageUrl()).isEqualTo("/api/v1/files/%s".formatted(answerAuthorProfileId));
+		assertThat(humanAnswer.author().nationality()).isEqualTo("KR");
 		assertThat(humanAnswer.content()).isEqualTo("human answer");
 		assertThat(humanAnswer.isAccepted()).isTrue();
 		assertThat(humanAnswer.imageUrls()).containsExactly(
@@ -451,6 +454,11 @@ class QuestionServiceTest {
 		}
 
 		@Override
+		public String getAuthorNationality() {
+			return "KR";
+		}
+
+		@Override
 		public double getLatitude() {
 			return 37.4979;
 		}
@@ -473,6 +481,16 @@ class QuestionServiceTest {
 		@Override
 		public String getLabel() {
 			return "강남역";
+		}
+
+		@Override
+		public Instant getCreatedAt() {
+			return Instant.parse("2026-07-14T00:00:00Z");
+		}
+
+		@Override
+		public Instant getUpdatedAt() {
+			return Instant.parse("2026-07-14T00:00:00Z");
 		}
 	}
 
@@ -539,6 +557,7 @@ class QuestionServiceTest {
 		private final Long authorId;
 		private final String authorNickname;
 		private final UUID authorProfileFileId;
+		private final String authorNationality;
 		private final String content;
 		private final boolean accepted;
 		private final Instant createdAt;
@@ -549,6 +568,7 @@ class QuestionServiceTest {
 			Long authorId,
 			String authorNickname,
 			UUID authorProfileFileId,
+			String authorNationality,
 			String content,
 			boolean accepted,
 			Instant createdAt
@@ -558,6 +578,7 @@ class QuestionServiceTest {
 			this.authorId = authorId;
 			this.authorNickname = authorNickname;
 			this.authorProfileFileId = authorProfileFileId;
+			this.authorNationality = authorNationality;
 			this.content = content;
 			this.accepted = accepted;
 			this.createdAt = createdAt;
@@ -586,6 +607,11 @@ class QuestionServiceTest {
 		@Override
 		public UUID getAuthorProfileFileId() {
 			return authorProfileFileId;
+		}
+
+		@Override
+		public String getAuthorNationality() {
+			return authorNationality;
 		}
 
 		@Override

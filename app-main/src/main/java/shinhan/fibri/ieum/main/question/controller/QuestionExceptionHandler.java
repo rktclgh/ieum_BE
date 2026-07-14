@@ -2,6 +2,8 @@ package shinhan.fibri.ieum.main.question.controller;
 
 import java.util.Comparator;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
@@ -22,20 +24,26 @@ import shinhan.fibri.ieum.main.question.exception.QuestionNotFoundException;
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class QuestionExceptionHandler {
 
+	private static final Logger log = LoggerFactory.getLogger(QuestionExceptionHandler.class);
+
 	@ExceptionHandler(QuestionNotFoundException.class)
 	public ResponseEntity<AuthErrorResponse> handleQuestionNotFound(QuestionNotFoundException exception) {
+		log.warn("Question not found: {}", exception.getMessage());
 		return ResponseEntity.status(HttpStatus.NOT_FOUND)
 			.body(new AuthErrorResponse("QUESTION_NOT_FOUND", exception.getMessage()));
 	}
 
 	@ExceptionHandler(QuestionForbiddenException.class)
 	public ResponseEntity<AuthErrorResponse> handleQuestionForbidden(QuestionForbiddenException exception) {
+		log.warn("Question access forbidden: {}", exception.getMessage());
 		return ResponseEntity.status(HttpStatus.FORBIDDEN)
 			.body(new AuthErrorResponse("FORBIDDEN", exception.getMessage()));
 	}
 
 	@ExceptionHandler(InvalidQuestionRequestException.class)
 	public ResponseEntity<AuthErrorResponse> handleInvalidQuestionRequest(InvalidQuestionRequestException exception) {
+		log.warn("Invalid question request [{}] field={}: {}",
+			exception.code(), exception.field(), exception.getMessage());
 		return ResponseEntity.status(HttpStatus.BAD_REQUEST)
 			.body(new AuthErrorResponse(
 				exception.code(),

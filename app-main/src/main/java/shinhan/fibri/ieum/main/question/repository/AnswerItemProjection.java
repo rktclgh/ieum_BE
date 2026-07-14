@@ -15,6 +15,8 @@ public interface AnswerItemProjection {
 
 	UUID getAuthorProfileFileId();
 
+	String getAuthorNationality();
+
 	String getContent();
 
 	boolean getAccepted();

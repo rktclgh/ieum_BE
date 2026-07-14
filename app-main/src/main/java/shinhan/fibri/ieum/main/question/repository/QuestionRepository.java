@@ -21,11 +21,14 @@ public interface QuestionRepository extends JpaRepository<Question, Long> {
 			       u.user_id AS authorId,
 			       u.nickname AS authorNickname,
 			       u.profile_file_id AS authorProfileFileId,
+			       u.nationality AS authorNationality,
 			       ST_Y(p.location::geometry) AS latitude,
 			       ST_X(p.location::geometry) AS longitude,
 			       p.address AS address,
 			       p.detail_address AS detailAddress,
-			       p.label AS label
+			       p.label AS label,
+			       q.created_at AS createdAt,
+			       q.updated_at AS updatedAt
 			FROM questions q
 			JOIN users u ON u.user_id = q.author_id
 			JOIN pins p ON p.pin_id = q.pin_id AND p.deleted_at IS NULL
@@ -101,6 +104,7 @@ public interface QuestionRepository extends JpaRepository<Question, Long> {
 			       u.user_id AS authorId,
 			       u.nickname AS authorNickname,
 			       u.profile_file_id AS authorProfileFileId,
+			       u.nationality AS authorNationality,
 			       a.content AS content,
 			       a.is_accepted AS accepted,
 			       a.created_at AS createdAt

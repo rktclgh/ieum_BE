@@ -1,5 +1,6 @@
 package shinhan.fibri.ieum.main.question.service;
 
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -72,7 +73,7 @@ public class QuestionService {
 			PinType.question,
 			request.location()
 		);
-		Question question = questionRepository.save(Question.create(
+		Question question = questionRepository.saveAndFlush(Question.create(
 			pinId,
 			principal.userId(),
 			request.title(),
@@ -94,12 +95,14 @@ public class QuestionService {
 			question.getTitle(),
 			question.getContent(),
 			question.isResolved(),
-			new AuthorSummary(author.getId(), author.getNickname(), profileUrl(author.getProfileFileId())),
+			new AuthorSummary(author.getId(), author.getNickname(), profileUrl(author.getProfileFileId()), author.getNationality()),
 			request.location(),
 			imageFileIds.stream()
 				.map(fileId -> DISPLAY_URL_TEMPLATE.formatted(fileId))
 				.toList(),
-			List.<AnswerItem>of()
+			List.<AnswerItem>of(),
+			question.getCreatedAt(),
+			question.getUpdatedAt()
 		);
 	}
 
@@ -182,12 +185,19 @@ public class QuestionService {
 			new AuthorSummary(
 				detail.getAuthorId(),
 				detail.getAuthorNickname(),
-				profileUrl(detail.getAuthorProfileFileId())
+				profileUrl(detail.getAuthorProfileFileId()),
+				detail.getAuthorNationality()
 			),
 			toLocationSnapshot(detail),
 			imageUrls,
-			answers
+			answers,
+			toUtcOffset(detail.getCreatedAt()),
+			toUtcOffset(detail.getUpdatedAt())
 		);
+	}
+
+	private OffsetDateTime toUtcOffset(Instant instant) {
+		return instant == null ? null : instant.atOffset(ZoneOffset.UTC);
 	}
 
 	private LocationSnapshot toLocationSnapshot(QuestionDetailProjection detail) {
@@ -232,7 +242,8 @@ public class QuestionService {
 		return new AuthorSummary(
 			answer.getAuthorId(),
 			answer.getAuthorNickname(),
-			profileUrl(answer.getAuthorProfileFileId())
+			profileUrl(answer.getAuthorProfileFileId()),
+			answer.getAuthorNationality()
 		);
 	}
 
