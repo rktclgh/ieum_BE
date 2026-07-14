@@ -17,6 +17,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 import shinhan.fibri.ieum.main.admin.stats.repository.AdminStatsQueryRepository.AnswerStatsRow;
+import shinhan.fibri.ieum.main.admin.stats.repository.AdminStatsQueryRepository.ReportStatsRow;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -78,7 +79,30 @@ class AdminStatsQueryRepositoryIntegrationTest {
 		assertThat(answerStats.accepted()).isEqualTo(1);
 	}
 
+	@Test
+	void reportStatsUseSeparateEventTimestampsAndSanctionCountUsesRowsNotDistinctUsers() {
+		ReportStatsRow reportStats = repository.getReportStats(FROM, TO);
+
+		assertThat(reportStats.reportCount()).isEqualTo(2);
+		assertThat(reportStats.aiReviewedCount()).isEqualTo(1);
+		assertThat(reportStats.confirmedCount()).isEqualTo(1);
+		assertThat(reportStats.dismissedCount()).isEqualTo(1);
+		assertThat(repository.countSanctions(FROM, TO)).isEqualTo(2);
+	}
+
 	private void createSchema() {
+		jdbcTemplate.execute("""
+			DO $$
+			BEGIN
+				IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'report_status') THEN
+					CREATE TYPE report_status AS ENUM ('pending', 'ai_reviewed', 'confirmed', 'dismissed');
+				END IF;
+				IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'ai_job_status') THEN
+					CREATE TYPE ai_job_status AS ENUM ('pending', 'processing', 'retry', 'completed', 'failed');
+				END IF;
+			END
+			$$
+			""");
 		jdbcTemplate.execute("""
 			CREATE TABLE IF NOT EXISTS users (
 				user_id BIGINT PRIMARY KEY,
@@ -130,12 +154,22 @@ class AdminStatsQueryRepositoryIntegrationTest {
 				created_at TIMESTAMPTZ NOT NULL
 			)
 			""");
+		jdbcTemplate.execute("""
+			CREATE TABLE IF NOT EXISTS reports (
+				report_id BIGINT PRIMARY KEY,
+				status report_status NOT NULL,
+				ai_review_state ai_job_status NOT NULL,
+				ai_reviewed_at TIMESTAMPTZ,
+				resolved_at TIMESTAMPTZ,
+				created_at TIMESTAMPTZ NOT NULL
+			)
+			""");
 	}
 
 	private void truncateTables() {
 		jdbcTemplate.execute("""
 			TRUNCATE TABLE users, login_logs, user_sanctions, pins, questions, meetings,
-				answers, messages
+				answers, messages, reports
 			""");
 	}
 
@@ -161,5 +195,18 @@ class AdminStatsQueryRepositoryIntegrationTest {
 		jdbcTemplate.update("INSERT INTO answers(answer_id, is_accepted, created_at) VALUES (1, true, '2026-07-02T10:00:00+09:00')");
 		jdbcTemplate.update("INSERT INTO answers(answer_id, is_accepted, created_at) VALUES (2, false, '2026-07-03T10:00:00+09:00')");
 		jdbcTemplate.update("INSERT INTO answers(answer_id, is_accepted, created_at) VALUES (3, true, '2026-08-01T00:00:00+09:00')");
+
+		jdbcTemplate.update("""
+			INSERT INTO reports(report_id, status, ai_review_state, ai_reviewed_at, resolved_at, created_at)
+			VALUES (1, 'confirmed', 'completed', '2026-07-04T10:00:00+09:00', '2026-07-06T10:00:00+09:00', '2026-06-30T10:00:00+09:00')
+			""");
+		jdbcTemplate.update("""
+			INSERT INTO reports(report_id, status, ai_review_state, ai_reviewed_at, resolved_at, created_at)
+			VALUES (2, 'dismissed', 'pending', NULL, '2026-07-07T10:00:00+09:00', '2026-07-03T10:00:00+09:00')
+			""");
+		jdbcTemplate.update("""
+			INSERT INTO reports(report_id, status, ai_review_state, ai_reviewed_at, resolved_at, created_at)
+			VALUES (3, 'pending', 'completed', '2026-08-01T00:00:00+09:00', NULL, '2026-07-04T10:00:00+09:00')
+			""");
 	}
 }

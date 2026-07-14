@@ -28,6 +28,7 @@ import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.main.admin.stats.dto.ContentStatsResponse;
+import shinhan.fibri.ieum.main.admin.stats.dto.ReportStatsResponse;
 import shinhan.fibri.ieum.main.admin.stats.dto.UserStatsResponse;
 import shinhan.fibri.ieum.main.admin.stats.exception.InvalidStatsRangeException;
 import shinhan.fibri.ieum.main.admin.stats.service.AdminStatsQueryService;
@@ -111,6 +112,27 @@ class AdminStatsControllerTest {
 			.andExpect(jsonPath("$.answerCount", is(10)))
 			.andExpect(jsonPath("$.acceptedRate", is(0.4)))
 			.andExpect(jsonPath("$.messageCount", is(20)));
+	}
+
+	@Test
+	void reportsEndpointReturnsReportStats() throws Exception {
+		when(queryService.getReportStats(any())).thenReturn(new ReportStatsResponse(
+			LocalDate.of(2026, 7, 1),
+			LocalDate.of(2026, 7, 31),
+			11,
+			9,
+			7,
+			3,
+			6
+		));
+
+		mockMvc.perform(get("/api/v1/admin/stats/reports").with(admin()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.reportCount", is(11)))
+			.andExpect(jsonPath("$.aiReviewedCount", is(9)))
+			.andExpect(jsonPath("$.confirmedCount", is(7)))
+			.andExpect(jsonPath("$.dismissedCount", is(3)))
+			.andExpect(jsonPath("$.sanctionCount", is(6)));
 	}
 
 	@Test

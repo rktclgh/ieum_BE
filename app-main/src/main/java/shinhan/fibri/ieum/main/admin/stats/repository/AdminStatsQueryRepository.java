@@ -64,6 +64,39 @@ public class AdminStatsQueryRepository {
 		));
 	}
 
+	public ReportStatsRow getReportStats(OffsetDateTime from, OffsetDateTime to) {
+		String sql = """
+			SELECT
+			  COUNT(*) FILTER (WHERE created_at >= :from AND created_at < :to) AS report_count,
+			  COUNT(*) FILTER (
+			  	WHERE ai_reviewed_at >= :from
+			  	  AND ai_reviewed_at < :to
+			  	  AND CAST(ai_review_state AS varchar) = 'completed'
+			  ) AS ai_reviewed_count,
+			  COUNT(*) FILTER (
+			  	WHERE resolved_at >= :from
+			  	  AND resolved_at < :to
+			  	  AND CAST(status AS varchar) = 'confirmed'
+			  ) AS confirmed_count,
+			  COUNT(*) FILTER (
+			  	WHERE resolved_at >= :from
+			  	  AND resolved_at < :to
+			  	  AND CAST(status AS varchar) = 'dismissed'
+			  ) AS dismissed_count
+			FROM reports
+			""";
+		return jdbcTemplate.queryForObject(sql, rangeParams(from, to), (rs, rowNum) -> new ReportStatsRow(
+			rs.getLong("report_count"),
+			rs.getLong("ai_reviewed_count"),
+			rs.getLong("confirmed_count"),
+			rs.getLong("dismissed_count")
+		));
+	}
+
+	public long countSanctions(OffsetDateTime from, OffsetDateTime to) {
+		return count("SELECT COUNT(*) FROM user_sanctions WHERE created_at >= :from AND created_at < :to", from, to);
+	}
+
 	private long count(String sql, OffsetDateTime from, OffsetDateTime to) {
 		Long result = jdbcTemplate.queryForObject(sql, rangeParams(from, to), Long.class);
 		return result == null ? 0 : result;
@@ -76,5 +109,13 @@ public class AdminStatsQueryRepository {
 	}
 
 	public record AnswerStatsRow(long total, long accepted) {
+	}
+
+	public record ReportStatsRow(
+		long reportCount,
+		long aiReviewedCount,
+		long confirmedCount,
+		long dismissedCount
+	) {
 	}
 }

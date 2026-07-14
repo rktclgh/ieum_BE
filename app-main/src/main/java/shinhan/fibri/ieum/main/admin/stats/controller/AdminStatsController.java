@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import shinhan.fibri.ieum.main.admin.stats.dto.ContentStatsResponse;
+import shinhan.fibri.ieum.main.admin.stats.dto.ReportStatsResponse;
 import shinhan.fibri.ieum.main.admin.stats.dto.StatsRangeRequest;
 import shinhan.fibri.ieum.main.admin.stats.dto.UserStatsResponse;
 import shinhan.fibri.ieum.main.admin.stats.service.AdminStatsQueryService;
@@ -27,5 +28,10 @@ public class AdminStatsController {
 	@GetMapping("/content")
 	public ResponseEntity<ContentStatsResponse> getContentStats(@Valid @ModelAttribute StatsRangeRequest request) {
 		return ResponseEntity.ok(adminStatsQueryService.getContentStats(request));
+	}
+
+	@GetMapping("/reports")
+	public ResponseEntity<ReportStatsResponse> getReportStats(@Valid @ModelAttribute StatsRangeRequest request) {
+		return ResponseEntity.ok(adminStatsQueryService.getReportStats(request));
 	}
 }

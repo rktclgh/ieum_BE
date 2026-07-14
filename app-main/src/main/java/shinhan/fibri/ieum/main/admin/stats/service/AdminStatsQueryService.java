@@ -9,11 +9,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import shinhan.fibri.ieum.main.admin.stats.dto.ContentStatsResponse;
+import shinhan.fibri.ieum.main.admin.stats.dto.ReportStatsResponse;
 import shinhan.fibri.ieum.main.admin.stats.dto.StatsRangeRequest;
 import shinhan.fibri.ieum.main.admin.stats.dto.UserStatsResponse;
 import shinhan.fibri.ieum.main.admin.stats.exception.InvalidStatsRangeException;
 import shinhan.fibri.ieum.main.admin.stats.repository.AdminStatsQueryRepository;
 import shinhan.fibri.ieum.main.admin.stats.repository.AdminStatsQueryRepository.AnswerStatsRow;
+import shinhan.fibri.ieum.main.admin.stats.repository.AdminStatsQueryRepository.ReportStatsRow;
 
 @Service
 public class AdminStatsQueryService {
@@ -60,6 +62,21 @@ public class AdminStatsQueryService {
 			answerStats.total(),
 			acceptedRate,
 			repository.countMessages(range.fromTs(), range.toTs())
+		);
+	}
+
+	@Transactional(readOnly = true)
+	public ReportStatsResponse getReportStats(StatsRangeRequest request) {
+		ResolvedRange range = resolveRange(request);
+		ReportStatsRow reportStats = repository.getReportStats(range.fromTs(), range.toTs());
+		return new ReportStatsResponse(
+			range.from(),
+			range.to(),
+			reportStats.reportCount(),
+			reportStats.aiReviewedCount(),
+			reportStats.confirmedCount(),
+			reportStats.dismissedCount(),
+			repository.countSanctions(range.fromTs(), range.toTs())
 		);
 	}
 

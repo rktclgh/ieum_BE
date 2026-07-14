@@ -14,11 +14,13 @@ import java.time.ZoneId;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import shinhan.fibri.ieum.main.admin.stats.dto.ContentStatsResponse;
+import shinhan.fibri.ieum.main.admin.stats.dto.ReportStatsResponse;
 import shinhan.fibri.ieum.main.admin.stats.dto.StatsRangeRequest;
 import shinhan.fibri.ieum.main.admin.stats.dto.UserStatsResponse;
 import shinhan.fibri.ieum.main.admin.stats.exception.InvalidStatsRangeException;
 import shinhan.fibri.ieum.main.admin.stats.repository.AdminStatsQueryRepository;
 import shinhan.fibri.ieum.main.admin.stats.repository.AdminStatsQueryRepository.AnswerStatsRow;
+import shinhan.fibri.ieum.main.admin.stats.repository.AdminStatsQueryRepository.ReportStatsRow;
 
 class AdminStatsQueryServiceTest {
 
@@ -105,5 +107,22 @@ class AdminStatsQueryServiceTest {
 			LocalDate.of(2026, 7, 1),
 			LocalDate.of(2026, 7, 31)
 		)).acceptedRate()).isZero();
+	}
+
+	@Test
+	void reportStatsCombineReportEventsAndSanctionRows() {
+		when(repository.getReportStats(FROM_TS, TO_TS)).thenReturn(new ReportStatsRow(5L, 4L, 3L, 2L));
+		when(repository.countSanctions(FROM_TS, TO_TS)).thenReturn(7L);
+
+		ReportStatsResponse response = service.getReportStats(new StatsRangeRequest(
+			LocalDate.of(2026, 7, 1),
+			LocalDate.of(2026, 7, 31)
+		));
+
+		assertThat(response.reportCount()).isEqualTo(5);
+		assertThat(response.aiReviewedCount()).isEqualTo(4);
+		assertThat(response.confirmedCount()).isEqualTo(3);
+		assertThat(response.dismissedCount()).isEqualTo(2);
+		assertThat(response.sanctionCount()).isEqualTo(7);
 	}
 }
