@@ -217,6 +217,21 @@ class InquiryControllerTest {
 	}
 
 	@Test
+	void doesNotMapNonMailCompletionExceptionToMailDeliveryFailure() throws Exception {
+		org.mockito.Mockito.doThrow(new CompletionException(new IllegalStateException("other async failure")))
+			.when(suspendedUserInquiryService)
+			.send(any(SuspendedUserInquiryRequest.class));
+
+		mockMvc.perform(post("/api/v1/inquiries/suspended-users")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"email":"user@example.com","title":"제재 문의","content":"로그인이 안 됩니다."}
+					"""))
+			.andExpect(status().isInternalServerError())
+			.andExpect(jsonPath("$.code", is("INTERNAL_SERVER_ERROR")));
+	}
+
+	@Test
 	void mapsSynchronousSuspendedUserInquiryMailFailureToBadGateway() throws Exception {
 		org.mockito.Mockito.doThrow(new MailSendException("smtp down"))
 			.when(suspendedUserInquiryService)

@@ -42,9 +42,30 @@ public class InquiryExceptionHandler {
 			.body(new AuthErrorResponse("INQUIRY_RATE_LIMITED", exception.getMessage()));
 	}
 
-	@ExceptionHandler({CompletionException.class, MailException.class})
-	public ResponseEntity<AuthErrorResponse> handleMailDeliveryFailure(RuntimeException exception) {
+	@ExceptionHandler(MailException.class)
+	public ResponseEntity<AuthErrorResponse> handleMailDeliveryFailure(MailException exception) {
 		return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
 			.body(new AuthErrorResponse("INQUIRY_MAIL_DELIVERY_FAILED", "Failed to send inquiry mail"));
+	}
+
+	@ExceptionHandler(CompletionException.class)
+	public ResponseEntity<AuthErrorResponse> handleCompletionException(CompletionException exception) {
+		if (hasCause(exception, MailException.class)) {
+			return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+				.body(new AuthErrorResponse("INQUIRY_MAIL_DELIVERY_FAILED", "Failed to send inquiry mail"));
+		}
+		return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+			.body(new AuthErrorResponse("INTERNAL_SERVER_ERROR", "Internal server error"));
+	}
+
+	private boolean hasCause(Throwable exception, Class<? extends Throwable> causeType) {
+		Throwable current = exception;
+		while (current != null) {
+			if (causeType.isInstance(current)) {
+				return true;
+			}
+			current = current.getCause();
+		}
+		return false;
 	}
 }
