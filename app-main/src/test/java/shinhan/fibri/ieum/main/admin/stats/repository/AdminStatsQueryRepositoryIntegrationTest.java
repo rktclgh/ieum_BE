@@ -153,11 +153,13 @@ class AdminStatsQueryRepositoryIntegrationTest {
 		jdbcTemplate.update("""
 			INSERT INTO reports(
 				report_id, reporter_id, target_type, message_id, reported_user_id, reason, context_hash,
-				status, resolved_by, ai_review_state, ai_decision, ai_review_result, ai_reviewed_at, resolved_at, created_at
+				status, resolved_by, ai_review_state, ai_decision, ai_confidence, ai_reason,
+				ai_model_version, ai_policy_set_hash, ai_review_result, ai_reviewed_at, resolved_at, created_at
 			)
 			VALUES (
 				1, 2, 'message', 1, 1, 'spam', repeat('a', 64),
-				'confirmed', 4, 'completed', 'normal', '{}'::jsonb,
+				'confirmed', 4, 'completed', 'normal', 0.9500, 'normal content',
+				'test-model', repeat('d', 64), '{}'::jsonb,
 				'2026-07-04T10:00:00+09:00', '2026-07-06T10:00:00+09:00', '2026-06-30T10:00:00+09:00'
 			)
 			""");
@@ -174,11 +176,14 @@ class AdminStatsQueryRepositoryIntegrationTest {
 		jdbcTemplate.update("""
 			INSERT INTO reports(
 				report_id, reporter_id, target_type, message_id, reported_user_id, reason, context_hash,
-				status, ai_review_state, ai_decision, ai_review_result, ai_reviewed_at, created_at
+				status, ai_review_state, ai_decision, ai_confidence, ai_reason,
+				ai_model_version, ai_policy_set_hash, ai_review_result, ai_reviewed_at, created_at
 			)
 			VALUES (
 				3, 2, 'message', 3, 1, 'etc', repeat('c', 64),
-				'pending', 'completed', 'normal', '{}'::jsonb, '2026-08-01T00:00:00+09:00', '2026-07-04T10:00:00+09:00'
+				'pending', 'completed', 'normal', 0.9500, 'normal content',
+				'test-model', repeat('e', 64), '{}'::jsonb,
+				'2026-08-01T00:00:00+09:00', '2026-07-04T10:00:00+09:00'
 			)
 			""");
 		// 세 이벤트 모두 기간 밖 — 프루닝 WHERE로 걸러져 어떤 지표에도 잡히지 않아야 한다
