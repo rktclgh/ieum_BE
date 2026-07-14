@@ -100,8 +100,32 @@ public class ChatService {
 		return ChatRoomResponse.from(room);
 	}
 
-	@Transactional
 	public ChatRoomResponse createQuestionRoom(
+		AuthenticatedUser principal,
+		Long questionId,
+		Long targetUserId
+	) {
+		try {
+			return createQuestionRoomInNewTransaction(principal, questionId, targetUserId);
+		} catch (DataIntegrityViolationException exception) {
+			if (!isChatRoomConstraintViolation(exception)) {
+				throw exception;
+			}
+			return createQuestionRoomInNewTransaction(principal, questionId, targetUserId);
+		}
+	}
+
+	private ChatRoomResponse createQuestionRoomInNewTransaction(
+		AuthenticatedUser principal,
+		Long questionId,
+		Long targetUserId
+	) {
+		TransactionTemplate template = new TransactionTemplate(transactionManager);
+		template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+		return template.execute(status -> createQuestionRoomInTransaction(principal, questionId, targetUserId));
+	}
+
+	private ChatRoomResponse createQuestionRoomInTransaction(
 		AuthenticatedUser principal,
 		Long questionId,
 		Long targetUserId

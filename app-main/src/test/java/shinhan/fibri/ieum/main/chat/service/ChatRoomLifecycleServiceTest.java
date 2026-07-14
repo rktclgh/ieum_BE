@@ -12,10 +12,8 @@ import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.TransactionDefinition;
-import org.springframework.transaction.TransactionStatus;
-import org.springframework.transaction.support.SimpleTransactionStatus;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import shinhan.fibri.ieum.common.auth.domain.GenderType;
 import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
@@ -27,30 +25,13 @@ import shinhan.fibri.ieum.common.chat.repository.ChatRoomRepository;
 
 class ChatRoomLifecycleServiceTest {
 
-	private final List<TransactionDefinition> transactionDefinitions = new java.util.ArrayList<>();
 	private final UserRepository userRepository = org.mockito.Mockito.mock(UserRepository.class);
 	private final ChatRoomRepository chatRoomRepository = org.mockito.Mockito.mock(ChatRoomRepository.class);
 	private final ChatMemberRepository chatMemberRepository = org.mockito.Mockito.mock(ChatMemberRepository.class);
-	private final PlatformTransactionManager transactionManager = new PlatformTransactionManager() {
-		@Override
-		public TransactionStatus getTransaction(TransactionDefinition definition) {
-			transactionDefinitions.add(definition);
-			return new SimpleTransactionStatus();
-		}
-
-		@Override
-		public void commit(TransactionStatus status) {
-		}
-
-		@Override
-		public void rollback(TransactionStatus status) {
-		}
-	};
 	private final ChatRoomLifecycleService service = new ChatRoomLifecycleService(
 		userRepository,
 		chatRoomRepository,
-		chatMemberRepository,
-		transactionManager
+		chatMemberRepository
 	);
 
 	@Test
@@ -70,20 +51,16 @@ class ChatRoomLifecycleServiceTest {
 	}
 
 	@Test
-	void createGroupRoomDoesNotUseRequiresNewTransaction() {
-		User host = user(42L, "host@example.com", "host");
-		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(host));
-		when(chatRoomRepository.saveAndFlush(any(ChatRoom.class))).thenAnswer(invocation -> {
-			ChatRoom room = invocation.getArgument(0);
-			setField(room, "id", 100L);
-			return room;
-		});
+	void createGroupRoomStillJoinsTheCallingTransaction() throws NoSuchMethodException {
+		var method = ChatRoomLifecycleService.class.getDeclaredMethod(
+			"createGroupRoom",
+			Long.class,
+			Long.class
+		);
+		var transactional = method.getAnnotation(Transactional.class);
 
-		Long roomId = service.createGroupRoom(7L, 42L);
-
-		assertThat(roomId).isEqualTo(100L);
-		assertThat(transactionDefinitions)
-			.noneMatch(definition -> definition.getPropagationBehavior() == TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+		assertThat(transactional).isNotNull();
+		assertThat(transactional.propagation()).isEqualTo(Propagation.REQUIRED);
 	}
 
 	@Test
@@ -119,24 +96,33 @@ class ChatRoomLifecycleServiceTest {
 	}
 
 	@Test
-	void getOrCreateQuestionRoomRetriesAndRestoresMembersWhenRoomKeyRaceOccurs() {
+	void getOrCreateQuestionRoomJoinsTheCallingTransaction() throws NoSuchMethodException {
+		var method = ChatRoomLifecycleService.class.getDeclaredMethod(
+			"getOrCreateQuestionRoom",
+			Long.class,
+			Long.class,
+			Long.class
+		);
+		var transactional = method.getAnnotation(Transactional.class);
+
+		assertThat(transactional).isNotNull();
+		assertThat(transactional.propagation()).isEqualTo(Propagation.REQUIRED);
+	}
+
+	@Test
+	void getOrCreateQuestionRoomLeavesRoomKeyRaceRecoveryToTheCaller() {
 		User first = user(42L, "first@example.com", "first");
 		User second = user(77L, "second@example.com", "second");
-		ChatRoom room = room(ChatRoom.question(9L, 42L, 77L), 100L);
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(first));
 		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(second));
-		when(chatRoomRepository.findByRoomKey("q:9:42:77"))
-			.thenReturn(Optional.empty())
-			.thenReturn(Optional.of(room));
+		when(chatRoomRepository.findByRoomKey("q:9:42:77")).thenReturn(Optional.empty());
 		when(chatRoomRepository.saveAndFlush(any(ChatRoom.class)))
 			.thenThrow(new DataIntegrityViolationException("uidx_chat_rooms_room_key"));
-		when(chatMemberRepository.findByRoom_Id(100L)).thenReturn(List.of());
 
-		Long roomId = service.getOrCreateQuestionRoom(9L, 42L, 77L);
+		assertThatThrownBy(() -> service.getOrCreateQuestionRoom(9L, 42L, 77L))
+			.isInstanceOf(DataIntegrityViolationException.class);
 
-		assertThat(roomId).isEqualTo(100L);
 		verify(chatRoomRepository).saveAndFlush(any(ChatRoom.class));
-		verify(chatMemberRepository, org.mockito.Mockito.times(2)).save(any(ChatMember.class));
 	}
 
 	@Test

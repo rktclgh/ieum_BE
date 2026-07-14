@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -18,7 +19,6 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionStatus;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 import shinhan.fibri.ieum.common.auth.domain.GenderType;
 import shinhan.fibri.ieum.common.auth.domain.User;
@@ -59,9 +59,11 @@ class ChatServiceTest {
 	private final QuestionRepository questionRepository = org.mockito.Mockito.mock(QuestionRepository.class);
 	private final AnswerRepository answerRepository = org.mockito.Mockito.mock(AnswerRepository.class);
 	private final ChatRoomLifecycle chatRoomLifecycle = org.mockito.Mockito.mock(ChatRoomLifecycle.class);
+	private final List<TransactionDefinition> transactionDefinitions = new ArrayList<>();
 	private final PlatformTransactionManager transactionManager = new PlatformTransactionManager() {
 		@Override
 		public TransactionStatus getTransaction(TransactionDefinition definition) {
+			transactionDefinitions.add(definition);
 			return new SimpleTransactionStatus();
 		}
 
@@ -129,17 +131,33 @@ class ChatServiceTest {
 	}
 
 	@Test
-	void createQuestionRoomUsesTransactionalSharedQuestionLookup() throws NoSuchMethodException {
-		var method = ChatService.class.getDeclaredMethod(
-			"createQuestionRoom",
-			AuthenticatedUser.class,
-			Long.class,
-			Long.class
-		);
-		var transactional = method.getAnnotation(Transactional.class);
+	void createQuestionRoomRunsTheWholeOperationInOneNewTransaction() {
+		stubQuestionRoomCreation();
 
-		assertThat(transactional).isNotNull();
-		assertThat(transactional.readOnly()).isFalse();
+		service.createQuestionRoom(principal(42L), 9L, 77L);
+
+		assertThat(transactionDefinitions)
+			.singleElement()
+			.satisfies(definition -> assertThat(definition.getPropagationBehavior())
+				.isEqualTo(TransactionDefinition.PROPAGATION_REQUIRES_NEW));
+	}
+
+	@Test
+	void createQuestionRoomRetriesTheWholeTransactionAfterRoomKeyRace() {
+		stubQuestionRoomCreation();
+		when(chatRoomLifecycle.getOrCreateQuestionRoom(9L, 42L, 77L))
+			.thenThrow(new DataIntegrityViolationException("uidx_chat_rooms_room_key"))
+			.thenReturn(100L);
+
+		var response = service.createQuestionRoom(principal(42L), 9L, 77L);
+
+		assertThat(response.roomId()).isEqualTo(100L);
+		assertThat(transactionDefinitions)
+			.hasSize(2)
+			.allSatisfy(definition -> assertThat(definition.getPropagationBehavior())
+				.isEqualTo(TransactionDefinition.PROPAGATION_REQUIRES_NEW));
+		verify(questionRepository, times(2)).findActiveByIdForShare(9L);
+		verify(answerRepository, times(2)).existsByQuestionIdAndAuthorIdAndAiFalse(9L, 77L);
 	}
 
 	@Test
@@ -601,6 +619,20 @@ class ChatServiceTest {
 
 	private AuthenticatedUser principal(Long userId) {
 		return new AuthenticatedUser(userId, "user" + userId + "@example.com", UserRole.user, UserStatus.active);
+	}
+
+	private void stubQuestionRoomCreation() {
+		User me = user(42L, "me@example.com", "me");
+		Question question = Question.create(5L, 42L, "title", "content");
+		ChatRoom room = room(ChatRoom.question(9L, 42L, 77L), 100L);
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(me));
+		when(questionRepository.findActiveByIdForShare(9L)).thenReturn(Optional.of(question));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L))
+			.thenReturn(Optional.of(user(77L, "target@example.com", "target")));
+		when(answerRepository.existsByQuestionIdAndAuthorIdAndAiFalse(9L, 77L)).thenReturn(true);
+		when(friendService.hasBlockBetween(42L, 77L)).thenReturn(false);
+		when(chatRoomLifecycle.getOrCreateQuestionRoom(9L, 42L, 77L)).thenReturn(100L);
+		when(chatRoomRepository.findById(100L)).thenReturn(Optional.of(room));
 	}
 
 	private User user(Long id, String email, String nickname) {
