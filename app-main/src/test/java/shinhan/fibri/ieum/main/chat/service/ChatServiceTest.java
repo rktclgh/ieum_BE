@@ -235,7 +235,7 @@ class ChatServiceTest {
 	@Test
 	void getRoomRequiresActiveMembershipAndReturnsMembers() {
 		User me = user(42L, "me@example.com", "me");
-		User friend = user(77L, "friend@example.com", "friend");
+		User friend = user(77L, "friend@example.com", "friend", "US");
 		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
 		ChatMember meMember = ChatMember.join(room, me);
 		ChatMember friendMember = ChatMember.join(room, friend);
@@ -249,6 +249,11 @@ class ChatServiceTest {
 		assertThat(response.members())
 			.extracting(member -> member.userId())
 			.containsExactlyInAnyOrder(42L, 77L);
+		assertThat(response.members())
+			.filteredOn(member -> member.userId().equals(77L))
+			.singleElement()
+			.extracting(member -> member.nationality())
+			.isEqualTo("US");
 	}
 
 	@Test
@@ -447,13 +452,17 @@ class ChatServiceTest {
 	}
 
 	private User user(Long id, String email, String nickname) {
+		return user(id, email, nickname, "KR");
+	}
+
+	private User user(Long id, String email, String nickname, String nationality) {
 		User user = User.createEmailUser(
 			email,
 			"hash",
 			nickname,
 			LocalDate.of(1995, 1, 1),
 			GenderType.female,
-			"KR"
+			nationality
 		);
 		setField(user, "id", id);
 		return user;
