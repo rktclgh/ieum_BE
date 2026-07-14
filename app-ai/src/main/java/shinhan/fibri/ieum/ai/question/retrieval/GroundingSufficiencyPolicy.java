@@ -5,9 +5,12 @@ import java.util.Objects;
 
 public class GroundingSufficiencyPolicy {
 
-	public GroundingSufficiencyResult evaluate(List<VectorKnowledgeEvidence> evidence, boolean highRisk) {
+	public GroundingSufficiencyResult evaluate(
+		List<? extends KnowledgeEvidence> evidence,
+		boolean highRisk
+	) {
 		Objects.requireNonNull(evidence, "evidence must not be null");
-		List<VectorKnowledgeEvidence> snapshot = List.copyOf(evidence);
+		List<? extends KnowledgeEvidence> snapshot = List.copyOf(evidence);
 		if (snapshot.isEmpty()) {
 			return result(GroundingSufficiencyResult.Reason.EMPTY_EVIDENCE);
 		}
@@ -26,7 +29,7 @@ public class GroundingSufficiencyPolicy {
 		return new GroundingSufficiencyResult(reason.decision(), reason);
 	}
 
-	private boolean authorityEvidence(VectorKnowledgeEvidence evidence) {
+	private boolean authorityEvidence(KnowledgeEvidence evidence) {
 		boolean approvedSourceType = "curated".equals(evidence.sourceType())
 			|| "verified_external".equals(evidence.sourceType());
 		return approvedSourceType && ("government".equals(evidence.sourceGrade())

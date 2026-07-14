@@ -9,7 +9,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
-import shinhan.fibri.ieum.ai.question.retrieval.VectorKnowledgeEvidence;
+import shinhan.fibri.ieum.ai.question.retrieval.KnowledgeEvidence;
 
 public class QuestionAnswerCitationAssembler {
 
@@ -27,7 +27,7 @@ public class QuestionAnswerCitationAssembler {
 
 	public List<JsonNode> assemble(
 		String answer,
-		List<VectorKnowledgeEvidence> retrievedEvidence,
+		List<? extends KnowledgeEvidence> retrievedEvidence,
 		List<AnswerCitation> citations
 	) {
 		Objects.requireNonNull(answer, "answer must not be null");
@@ -39,7 +39,7 @@ public class QuestionAnswerCitationAssembler {
 		if (citations.isEmpty() || citations.size() > MAX_CITATIONS) {
 			throw new IllegalArgumentException("citations must contain 1 to 8 items");
 		}
-		for (VectorKnowledgeEvidence evidence : retrievedEvidence) {
+		for (KnowledgeEvidence evidence : retrievedEvidence) {
 			Objects.requireNonNull(evidence, "retrievedEvidence must not contain null");
 		}
 
@@ -86,11 +86,15 @@ public class QuestionAnswerCitationAssembler {
 			&& Character.isLowSurrogate(answer.charAt(index));
 	}
 
-	private ObjectNode toEvidenceJson(VectorKnowledgeEvidence evidence, AnswerCitation citation) {
+	private ObjectNode toEvidenceJson(KnowledgeEvidence evidence, AnswerCitation citation) {
 		ObjectNode node = objectMapper.createObjectNode();
-		node.put("type", "knowledge_chunk");
+		Long relationId = evidence.relationId();
+		node.put("type", relationId == null ? "knowledge_chunk" : "kg_relation");
 		node.put("sourceId", evidence.sourceId());
 		node.put("chunkId", evidence.chunkId());
+		if (relationId != null) {
+			node.put("relationId", relationId);
+		}
 		node.put("sourceType", evidence.sourceType());
 		node.put("title", evidence.title());
 		node.put("excerpt", evidence.excerpt());

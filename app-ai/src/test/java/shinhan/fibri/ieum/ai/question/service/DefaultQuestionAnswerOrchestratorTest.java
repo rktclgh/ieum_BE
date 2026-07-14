@@ -62,9 +62,10 @@ import shinhan.fibri.ieum.ai.question.grounding.LocalGroundingRequest;
 import shinhan.fibri.ieum.ai.question.repository.ClaimedQuestionTask;
 import shinhan.fibri.ieum.ai.question.retrieval.GroundingSufficiencyPolicy;
 import shinhan.fibri.ieum.ai.question.retrieval.GroundingSufficiencyResult;
+import shinhan.fibri.ieum.ai.question.retrieval.HybridKnowledgeRetrievalResult;
+import shinhan.fibri.ieum.ai.question.retrieval.HybridKnowledgeRetrievalService;
+import shinhan.fibri.ieum.ai.question.retrieval.KnowledgeEvidence;
 import shinhan.fibri.ieum.ai.question.retrieval.VectorKnowledgeEvidence;
-import shinhan.fibri.ieum.ai.question.retrieval.VectorKnowledgeRetrievalResult;
-import shinhan.fibri.ieum.ai.question.retrieval.VectorOnlyKnowledgeRetrievalService;
 import shinhan.fibri.ieum.ai.question.webgrounding.QuestionWebGroundingUnavailableException;
 import shinhan.fibri.ieum.ai.question.webgrounding.WebGroundedAnswer;
 import shinhan.fibri.ieum.ai.question.webgrounding.WebGroundedCitation;
@@ -93,7 +94,10 @@ class DefaultQuestionAnswerOrchestratorTest {
 
 		ArgumentCaptor<shinhan.fibri.ieum.ai.question.retrieval.VectorKnowledgeRetrievalRequest> retrieval =
 			ArgumentCaptor.forClass(shinhan.fibri.ieum.ai.question.retrieval.VectorKnowledgeRetrievalRequest.class);
-		verify(fixture.retrievalService).retrieve(retrieval.capture());
+		verify(fixture.retrievalService).retrieve(
+			retrieval.capture(),
+			same(fixture.analysis.entityCandidates())
+		);
 		assertThat(retrieval.getValue().geoScope())
 			.isEqualTo(shinhan.fibri.ieum.ai.question.retrieval.GeoScope.local);
 		assertThat(retrieval.getValue().coordinates().latitude()).isEqualTo(37.5665d);
@@ -111,7 +115,7 @@ class DefaultQuestionAnswerOrchestratorTest {
 		ArgumentCaptor<LocalGroundingRequest> grounding = ArgumentCaptor.forClass(LocalGroundingRequest.class);
 		verify(fixture.groundingGateway).validate(grounding.capture(), eq(Duration.ofSeconds(30)));
 		assertThat(grounding.getValue().prompt()).isSameAs(prompt.getValue());
-		verify(fixture.retrievalService).revalidateEvidence(same(fixture.retrievalResult.evidence()));
+		verify(fixture.retrievalService).revalidateEvidence(same(fixture.retrievalResult.candidates()));
 		verify(fixture.sufficiencyPolicy).evaluate(same(fixture.revalidatedEvidence), eq(false));
 		verify(fixture.citationAssembler).assemble(
 			eq(fixture.generated.answer()),
@@ -125,6 +129,8 @@ class DefaultQuestionAnswerOrchestratorTest {
 		verify(fixture.finalizationService).completeGrounded(finalization.capture());
 		assertThat(finalization.getValue().answerMode()).isEqualTo(QuestionAnswerMode.LOCAL_GROUNDED);
 		assertThat(finalization.getValue().context().generationProvider()).isEqualTo("bedrock");
+		assertThat(finalization.getValue().context().retrievalConfigVersion())
+			.isEqualTo("retrieval-v2-hybrid-kg1");
 		assertThat(finalization.getValue().context().groundingScore()).isEqualByComparingTo("0.91");
 		assertThat(finalization.getValue().context().regionContext().fieldNames())
 			.toIterable()
@@ -156,7 +162,7 @@ class DefaultQuestionAnswerOrchestratorTest {
 		providerOrder.verify(fixture.checkpointService).saveEmbedding(
 			fixture.task, fixture.embedding, Fixture.LEASE
 		);
-		providerOrder.verify(fixture.retrievalService).retrieve(any());
+		providerOrder.verify(fixture.retrievalService).retrieve(any(), any());
 		providerOrder.verify(fixture.checkpointService).guardCurrentStage(
 			fixture.task, QuestionTaskStage.RETRIEVING, Fixture.LEASE
 		);
@@ -677,8 +683,8 @@ class DefaultQuestionAnswerOrchestratorTest {
 		private final QuestionCheckpointService checkpointService = mock(QuestionCheckpointService.class);
 		private final QuestionEmbeddingTextFormatter embeddingFormatter = mock(QuestionEmbeddingTextFormatter.class);
 		private final QuestionEmbeddingGateway embeddingGateway = mock(QuestionEmbeddingGateway.class);
-		private final VectorOnlyKnowledgeRetrievalService retrievalService = mock(
-			VectorOnlyKnowledgeRetrievalService.class
+		private final HybridKnowledgeRetrievalService retrievalService = mock(
+			HybridKnowledgeRetrievalService.class
 		);
 		private final GroundingSufficiencyPolicy sufficiencyPolicy = mock(GroundingSufficiencyPolicy.class);
 		private final LocalAnswerGateway answerGateway = mock(LocalAnswerGateway.class);
@@ -726,13 +732,17 @@ class DefaultQuestionAnswerOrchestratorTest {
 			"gemini-embedding-2",
 			java.util.Collections.nCopies(768, 0.01f)
 		);
-		private final List<VectorKnowledgeEvidence> evidence = List.of(evidence());
-		private final VectorKnowledgeRetrievalResult retrievalResult = new VectorKnowledgeRetrievalResult(
-			"vector-only-v1",
-			List.of(evidence.getFirst()),
-			List.of(evidence.getFirst())
+		private final List<KnowledgeEvidence> evidence = List.of(evidence());
+		private final List<KnowledgeEvidence> candidates = List.of(
+			evidence.getFirst(),
+			evidence(2L, 22L, "추가 후보")
 		);
-		private final List<VectorKnowledgeEvidence> revalidatedEvidence = List.copyOf(evidence);
+		private final HybridKnowledgeRetrievalResult retrievalResult = new HybridKnowledgeRetrievalResult(
+			"retrieval-v2-hybrid-kg1",
+			candidates,
+			evidence
+		);
+		private final List<KnowledgeEvidence> revalidatedEvidence = retrievalResult.evidence();
 		private final GeneratedAnswer generated = answer("앞문으로 타고 뒷문으로 내립니다.", "bedrock", "nova-micro", "local-answer-v1");
 		private final GroundingValidationResult supported = validation(true, "0.91");
 		private final WebGroundingPrompt webPrompt = new WebGroundingPrompt(
@@ -775,8 +785,8 @@ class DefaultQuestionAnswerOrchestratorTest {
 			when(analyzer.analyze(any())).thenReturn(analysis);
 			when(embeddingFormatter.format(snapshot)).thenReturn(EMBEDDING_TEXT);
 			when(embeddingGateway.embed(EMBEDDING_TEXT)).thenReturn(embedding);
-			when(retrievalService.retrieve(any())).thenReturn(retrievalResult);
-			when(retrievalService.revalidateEvidence(same(retrievalResult.evidence())))
+			when(retrievalService.retrieve(any(), any())).thenReturn(retrievalResult);
+			when(retrievalService.revalidateEvidence(same(retrievalResult.candidates())))
 				.thenReturn(revalidatedEvidence);
 			when(sufficiencyPolicy.evaluate(same(revalidatedEvidence), eq(false)))
 				.thenReturn(new GroundingSufficiencyResult(
@@ -901,11 +911,15 @@ class DefaultQuestionAnswerOrchestratorTest {
 		}
 
 		private VectorKnowledgeEvidence evidence() {
+			return evidence(1L, 11L, "버스 승하차 안내");
+		}
+
+		private VectorKnowledgeEvidence evidence(long sourceId, long chunkId, String title) {
 			return new VectorKnowledgeEvidence(
-				1L,
-				11L,
+				sourceId,
+				chunkId,
 				"curated",
-				"버스 승하차 안내",
+				title,
 				"앞문으로 승차하고 뒷문으로 하차합니다.",
 				"community",
 				"a".repeat(64),

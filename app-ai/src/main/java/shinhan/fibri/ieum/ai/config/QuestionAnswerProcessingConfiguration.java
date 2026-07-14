@@ -18,7 +18,7 @@ import shinhan.fibri.ieum.ai.question.generation.LocalAnswerProperties;
 import shinhan.fibri.ieum.ai.question.grounding.LocalGroundingGateway;
 import shinhan.fibri.ieum.ai.question.grounding.LocalGroundingProperties;
 import shinhan.fibri.ieum.ai.question.retrieval.GroundingSufficiencyPolicy;
-import shinhan.fibri.ieum.ai.question.retrieval.VectorOnlyKnowledgeRetrievalService;
+import shinhan.fibri.ieum.ai.question.retrieval.HybridKnowledgeRetrievalService;
 import shinhan.fibri.ieum.ai.question.service.DefaultQuestionAnswerOrchestrator;
 import shinhan.fibri.ieum.ai.question.service.QuestionCompletionCallbackWake;
 import shinhan.fibri.ieum.ai.question.webgrounding.WebGroundingGateway;
@@ -71,7 +71,7 @@ public class QuestionAnswerProcessingConfiguration {
 		QuestionCheckpointService checkpointService,
 		QuestionEmbeddingTextFormatter embeddingFormatter,
 		QuestionEmbeddingGateway embeddingGateway,
-		VectorOnlyKnowledgeRetrievalService retrievalService,
+		HybridKnowledgeRetrievalService retrievalService,
 		GroundingSufficiencyPolicy sufficiencyPolicy,
 		LocalAnswerGateway answerGateway,
 		LocalGroundingGateway groundingGateway,

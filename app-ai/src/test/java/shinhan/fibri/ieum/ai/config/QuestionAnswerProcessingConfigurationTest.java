@@ -21,7 +21,7 @@ import shinhan.fibri.ieum.ai.question.generation.LocalAnswerProperties;
 import shinhan.fibri.ieum.ai.question.grounding.LocalGroundingGateway;
 import shinhan.fibri.ieum.ai.question.grounding.LocalGroundingProperties;
 import shinhan.fibri.ieum.ai.question.retrieval.GroundingSufficiencyPolicy;
-import shinhan.fibri.ieum.ai.question.retrieval.VectorOnlyKnowledgeRetrievalService;
+import shinhan.fibri.ieum.ai.question.retrieval.HybridKnowledgeRetrievalService;
 import shinhan.fibri.ieum.ai.question.service.DefaultQuestionAnswerOrchestrator;
 import shinhan.fibri.ieum.ai.question.service.QuestionAnswerOrchestrator;
 import shinhan.fibri.ieum.ai.question.service.QuestionCompletionCallbackWake;
@@ -94,6 +94,8 @@ class QuestionAnswerProcessingConfigurationTest {
 			assertThat(fields.getPropertyValue("leaseExtension")).isEqualTo(TASK_LEASE);
 			assertThat(fields.getPropertyValue("answerTimeout")).isEqualTo(MODEL_TIMEOUT);
 			assertThat(fields.getPropertyValue("groundingTimeout")).isEqualTo(MODEL_TIMEOUT);
+			assertThat(fields.getPropertyValue("retrievalService"))
+				.isSameAs(context.getBean(HybridKnowledgeRetrievalService.class));
 			assertThat(fields.getPropertyValue("webGroundingGateway")).isSameAs(gateway);
 			assertThat(fields.getPropertyValue("webGroundingPromptFactory"))
 				.isSameAs(context.getBean(WebGroundingPromptFactory.class));
@@ -114,8 +116,8 @@ class QuestionAnswerProcessingConfigurationTest {
 			.withBean(QuestionCheckpointService.class, () -> mock(QuestionCheckpointService.class))
 			.withBean(QuestionEmbeddingGateway.class, () -> mock(QuestionEmbeddingGateway.class))
 			.withBean(
-				VectorOnlyKnowledgeRetrievalService.class,
-				() -> mock(VectorOnlyKnowledgeRetrievalService.class)
+				HybridKnowledgeRetrievalService.class,
+				() -> mock(HybridKnowledgeRetrievalService.class)
 			)
 			.withBean(LocalAnswerGateway.class, () -> mock(LocalAnswerGateway.class))
 			.withBean(LocalGroundingGateway.class, () -> mock(LocalGroundingGateway.class))

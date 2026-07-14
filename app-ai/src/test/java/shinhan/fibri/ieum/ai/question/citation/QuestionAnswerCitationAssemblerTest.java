@@ -17,6 +17,7 @@ import shinhan.fibri.ieum.ai.question.finalization.QuestionAnswerFinalizationCon
 import shinhan.fibri.ieum.ai.question.finalization.QuestionAnswerMode;
 import shinhan.fibri.ieum.ai.question.finalization.QuestionTaskFence;
 import shinhan.fibri.ieum.ai.question.retrieval.GeoScope;
+import shinhan.fibri.ieum.ai.question.retrieval.HybridKnowledgeEvidence;
 import shinhan.fibri.ieum.ai.question.retrieval.VectorKnowledgeEvidence;
 
 class QuestionAnswerCitationAssemblerTest {
@@ -95,6 +96,43 @@ class QuestionAnswerCitationAssemblerTest {
 			"geoScore",
 			"distanceKm"
 		)).noneMatch(node::has);
+	}
+
+	@Test
+	void emitsKgRelationSnapshotWithRelationIdAndPassesFinalizationContract() {
+		String answer = "아이돌봄서비스는 출산가정을 지원합니다.";
+		List<JsonNode> assembled = assembler.assemble(
+			answer,
+			List.of(hybridEvidence()),
+			List.of(new AnswerCitation(0, 0, 8))
+		);
+
+		JsonNode node = assembled.getFirst();
+		assertThat(fieldNames(node)).containsExactly(
+			"type",
+			"sourceId",
+			"chunkId",
+			"relationId",
+			"sourceType",
+			"title",
+			"excerpt",
+			"url",
+			"domain",
+			"contentHash",
+			"score",
+			"startIndex",
+			"endIndex",
+			"retrievedAt"
+		);
+		assertThat(node.get("type").textValue()).isEqualTo("kg_relation");
+		assertThat(node.get("relationId").longValue()).isEqualTo(9_007L);
+
+		assertThat(new GroundedQuestionAnswerFinalization(
+			new QuestionTaskFence(1L, "worker-a", UUID.randomUUID()),
+			QuestionAnswerMode.LOCAL_GROUNDED,
+			answer,
+			context(assembled)
+		)).isNotNull();
 	}
 
 	@Test
@@ -294,6 +332,37 @@ class QuestionAnswerCitationAssemblerTest {
 			new BigDecimal("0.87"),
 			new BigDecimal("0.75"),
 			new BigDecimal("0.82"),
+			null,
+			RETRIEVED_AT
+		);
+	}
+
+	private HybridKnowledgeEvidence hybridEvidence() {
+		return new HybridKnowledgeEvidence(
+			77L,
+			707L,
+			"curated",
+			"아이돌봄서비스 안내",
+			"관계: 아이돌봄서비스 supports 출산가정\n근거: 신청 자격 안내",
+			"public_agency",
+			"b".repeat(64),
+			"https://example.org/care",
+			"welfare",
+			"welfare",
+			GeoScope.general,
+			new BigDecimal("0.90"),
+			1,
+			1,
+			9_007L,
+			"아이돌봄서비스",
+			"subject",
+			"아이돌봄서비스",
+			"supports",
+			"출산가정",
+			new BigDecimal("0.95"),
+			new BigDecimal("0.92"),
+			new BigDecimal("0.75"),
+			new BigDecimal("0.88"),
 			null,
 			RETRIEVED_AT
 		);

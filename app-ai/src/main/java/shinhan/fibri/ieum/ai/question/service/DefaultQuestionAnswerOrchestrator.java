@@ -46,10 +46,10 @@ import shinhan.fibri.ieum.ai.question.repository.ClaimedQuestionTask;
 import shinhan.fibri.ieum.ai.question.retrieval.GeoPoint;
 import shinhan.fibri.ieum.ai.question.retrieval.GroundingSufficiencyPolicy;
 import shinhan.fibri.ieum.ai.question.retrieval.GroundingSufficiencyResult;
-import shinhan.fibri.ieum.ai.question.retrieval.VectorKnowledgeEvidence;
+import shinhan.fibri.ieum.ai.question.retrieval.HybridKnowledgeRetrievalResult;
+import shinhan.fibri.ieum.ai.question.retrieval.HybridKnowledgeRetrievalService;
+import shinhan.fibri.ieum.ai.question.retrieval.KnowledgeEvidence;
 import shinhan.fibri.ieum.ai.question.retrieval.VectorKnowledgeRetrievalRequest;
-import shinhan.fibri.ieum.ai.question.retrieval.VectorKnowledgeRetrievalResult;
-import shinhan.fibri.ieum.ai.question.retrieval.VectorOnlyKnowledgeRetrievalService;
 import shinhan.fibri.ieum.ai.question.webgrounding.WebGroundedAnswer;
 import shinhan.fibri.ieum.ai.question.webgrounding.WebGroundingGateway;
 import shinhan.fibri.ieum.ai.question.webgrounding.WebGroundingPrompt;
@@ -69,7 +69,7 @@ public class DefaultQuestionAnswerOrchestrator implements QuestionAnswerOrchestr
 	private final QuestionCheckpointService checkpointService;
 	private final QuestionEmbeddingTextFormatter embeddingFormatter;
 	private final QuestionEmbeddingGateway embeddingGateway;
-	private final VectorOnlyKnowledgeRetrievalService retrievalService;
+	private final HybridKnowledgeRetrievalService retrievalService;
 	private final GroundingSufficiencyPolicy sufficiencyPolicy;
 	private final LocalAnswerGateway answerGateway;
 	private final LocalGroundingGateway groundingGateway;
@@ -91,7 +91,7 @@ public class DefaultQuestionAnswerOrchestrator implements QuestionAnswerOrchestr
 		QuestionCheckpointService checkpointService,
 		QuestionEmbeddingTextFormatter embeddingFormatter,
 		QuestionEmbeddingGateway embeddingGateway,
-		VectorOnlyKnowledgeRetrievalService retrievalService,
+		HybridKnowledgeRetrievalService retrievalService,
 		GroundingSufficiencyPolicy sufficiencyPolicy,
 		LocalAnswerGateway answerGateway,
 		LocalGroundingGateway groundingGateway,
@@ -168,17 +168,14 @@ public class DefaultQuestionAnswerOrchestrator implements QuestionAnswerOrchestr
 			return;
 		}
 
-		VectorKnowledgeRetrievalResult retrieval = retrievalService.retrieve(retrievalRequest(
-			snapshot,
-			analysis,
-			embedding
-		));
+		HybridKnowledgeRetrievalResult retrieval = retrievalService.retrieve(
+			retrievalRequest(snapshot, analysis, embedding),
+			analysis.entityCandidates()
+		);
 		if (cancelled(checkpointService.guardCurrentStage(task, QuestionTaskStage.RETRIEVING, leaseExtension))) {
 			return;
 		}
-		List<VectorKnowledgeEvidence> evidence = List.copyOf(
-			retrievalService.revalidateEvidence(retrieval.evidence())
-		);
+		List<KnowledgeEvidence> evidence = retrievalService.revalidateEvidence(retrieval.candidates());
 		GroundingSufficiencyResult sufficiency = sufficiencyPolicy.evaluate(
 			evidence,
 			analysis.highRiskDomain()
@@ -517,11 +514,11 @@ public class DefaultQuestionAnswerOrchestrator implements QuestionAnswerOrchestr
 	private LocalAnswerPrompt localPrompt(
 		QuestionInputSnapshot snapshot,
 		QueryAnalysis analysis,
-		List<VectorKnowledgeEvidence> evidence
+		List<? extends KnowledgeEvidence> evidence
 	) {
 		List<LocalAnswerEvidence> localEvidence = new ArrayList<>(evidence.size());
 		for (int index = 0; index < evidence.size(); index++) {
-			VectorKnowledgeEvidence item = evidence.get(index);
+			KnowledgeEvidence item = evidence.get(index);
 			localEvidence.add(new LocalAnswerEvidence(index, item.title(), item.excerpt(), item.sourceType()));
 		}
 		RegionContext region = analysis.regionContext();

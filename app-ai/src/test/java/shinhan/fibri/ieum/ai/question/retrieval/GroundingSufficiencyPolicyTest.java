@@ -82,6 +82,15 @@ class GroundingSufficiencyPolicyTest {
 	}
 
 	@Test
+	void highRiskAcceptsAuthorityBackedHybridRelationEvidence() {
+		assertThat(policy.evaluate(List.of(hybridEvidence()), true))
+			.isEqualTo(new GroundingSufficiencyResult(
+				GroundingSufficiencyResult.Decision.SUFFICIENT,
+				GroundingSufficiencyResult.Reason.HIGH_RISK_AUTHORITY_EVIDENCE_PRESENT
+			));
+	}
+
+	@Test
 	void neutralQueryAnalysisFailsSafeThroughTheSameHighRiskAuthorityRule() {
 		QueryAnalysis neutral = QueryAnalysis.neutral("question-query-analysis-v1");
 		VectorKnowledgeEvidence acceptedHumanAnswer = evidence(
@@ -117,6 +126,37 @@ class GroundingSufficiencyPolicyTest {
 			value,
 			value,
 			value,
+			null,
+			Instant.parse("2026-07-13T03:04:05Z")
+		);
+	}
+
+	private HybridKnowledgeEvidence hybridEvidence() {
+		return new HybridKnowledgeEvidence(
+			1L,
+			1L,
+			"curated",
+			"title",
+			"관계: 서비스 supports 가정\n근거: excerpt",
+			"government",
+			"b".repeat(64),
+			"https://example.com/source",
+			"welfare",
+			"welfare",
+			GeoScope.general,
+			new BigDecimal("0.90"),
+			1,
+			1,
+			10L,
+			"서비스",
+			"subject",
+			"서비스",
+			"supports",
+			"가정",
+			new BigDecimal("0.95"),
+			new BigDecimal("0.90"),
+			BigDecimal.ZERO,
+			new BigDecimal("0.90"),
 			null,
 			Instant.parse("2026-07-13T03:04:05Z")
 		);
