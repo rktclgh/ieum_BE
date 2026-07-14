@@ -52,6 +52,35 @@ class AdminUserRoleServiceTest {
 		verify(sessionStore).revokeAllSessionsOfUser(10L);
 	}
 
+	@Test
+	void promoteUserToAdminRevokesSessionsAfterCommit() {
+		TransactionSynchronizationManager.initSynchronization();
+		User target = user(UserRole.user);
+		when(userRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(target));
+
+		service.changeRole(adminPrincipal(), 10L, UserRole.admin);
+
+		assertThat(target.getRole()).isEqualTo(UserRole.admin);
+		verify(sessionStore, never()).revokeAllSessionsOfUser(10L);
+
+		for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
+			synchronization.afterCommit();
+		}
+
+		verify(sessionStore).revokeAllSessionsOfUser(10L);
+	}
+
+	@Test
+	void sameRoleDoesNotRevokeSessions() {
+		User target = user(UserRole.user);
+		when(userRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(target));
+
+		service.changeRole(adminPrincipal(), 10L, UserRole.user);
+
+		assertThat(target.getRole()).isEqualTo(UserRole.user);
+		verify(sessionStore, never()).revokeAllSessionsOfUser(10L);
+	}
+
 	private static AuthenticatedUser adminPrincipal() {
 		return new AuthenticatedUser(1L, "admin@example.com", UserRole.admin, UserStatus.active);
 	}

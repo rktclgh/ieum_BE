@@ -41,9 +41,7 @@ public class AdminUserRoleService {
 			role
 		);
 
-		if (previousRole == UserRole.admin && role != UserRole.admin) {
-			revokeSessionsAfterCommit(userId);
-		}
+		revokeSessionsAfterCommit(userId);
 	}
 
 	private void revokeSessionsAfterCommit(Long userId) {
