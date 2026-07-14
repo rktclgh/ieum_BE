@@ -21,6 +21,7 @@ class CanonicalPostgresResourceLayoutTest {
 		assertThat(loader.getResource("canonical-db/migrations/v14_report_worklist_expand.sql")).isNotNull();
 		assertThat(loader.getResource("canonical-db/migrations/v15_question_ai_ticket_notification.sql")).isNotNull();
 		assertThat(loader.getResource("canonical-db/migrations/v20_answer_report_target.sql")).isNotNull();
+		assertThat(loader.getResource("canonical-db/migrations/v21_report_target_review_followup.sql")).isNotNull();
 		assertThat(loader.getResource("canonical-db/migrations/v15_question_ai_trigger_notification.sql")).isNull();
 		assertThat(loader.getResource("canonical-db/migrations/v15_question_recommendation_embedding_model.sql")).isNull();
 		assertThat(loader.getResource("canonical-db/test-baselines/schema-v12.sql")).isNotNull();

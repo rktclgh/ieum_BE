@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.OffsetDateTime;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -52,6 +53,7 @@ public class ReportContextSnapshotFactory {
 		Answer target = Objects.requireNonNull(answer, "answer must not be null");
 		List<String> imageFileIds = Objects.requireNonNull(images, "images must not be null")
 			.stream()
+			.sorted(Comparator.comparingInt(AnswerImage::getSortOrder))
 			.map(image -> image.getFileId().toString())
 			.toList();
 		AnswerContextSnapshotPayload payload = new AnswerContextSnapshotPayload(

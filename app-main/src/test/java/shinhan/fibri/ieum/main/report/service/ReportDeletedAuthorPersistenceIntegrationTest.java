@@ -57,6 +57,7 @@ class ReportDeletedAuthorPersistenceIntegrationTest {
 	private ReportContextSnapshotFactory snapshotFactory;
 
 	private long reporterId;
+	private long deletedAuthorId;
 	private long answerId;
 
 	@AfterAll
@@ -69,7 +70,7 @@ class ReportDeletedAuthorPersistenceIntegrationTest {
 	void setUp() {
 		jdbc.execute("TRUNCATE TABLE users RESTART IDENTITY CASCADE");
 		reporterId = insertUser("reporter@example.com", "reporter", null);
-		long deletedAuthorId = insertUser("deleted@example.com", "deleted", "2026-07-13T10:00:00Z");
+		deletedAuthorId = insertUser("deleted@example.com", "deleted", "2026-07-13T10:00:00Z");
 		long pinId = jdbc.queryForObject("""
 			INSERT INTO pins (author_id, pin_type, location, address)
 			VALUES (?, 'question', ST_SetSRID(ST_MakePoint(127.0, 37.5), 4326)::geography, '서울')
@@ -102,7 +103,7 @@ class ReportDeletedAuthorPersistenceIntegrationTest {
 			"SELECT reported_user_id FROM reports WHERE report_id = ?",
 			Long.class,
 			reportId
-		)).isEqualTo(2L);
+		)).isEqualTo(deletedAuthorId);
 	}
 
 	private long insertUser(String email, String nickname, String deletedAt) {
