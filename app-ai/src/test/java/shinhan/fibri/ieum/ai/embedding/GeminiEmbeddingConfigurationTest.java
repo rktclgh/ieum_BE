@@ -66,6 +66,19 @@ class GeminiEmbeddingConfigurationTest {
 	}
 
 	@Test
+	void wiresSharedEmbeddingTransportForAcceptedAnswerIngestionAlone() {
+		contextRunner
+			.withPropertyValues(
+				"app.ai.features.accepted-answer-ingestion-enabled=true",
+				"app.ai.question-answer.embedding.gemini-api-key=test-only-not-a-real-key"
+			)
+			.run(context -> {
+				assertThat(context).hasNotFailed();
+				assertThat(context).hasSingleBean(GeminiEmbeddingGateway.class);
+			});
+	}
+
+	@Test
 	void failsFastForBlankApiKeyInKnowledgeImportMode() {
 		contextRunner
 			.withPropertyValues(

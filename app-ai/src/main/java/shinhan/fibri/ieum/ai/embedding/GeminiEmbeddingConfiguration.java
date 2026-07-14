@@ -61,6 +61,14 @@ public class GeminiEmbeddingConfiguration {
 		}
 
 		@ConditionalOnProperty(
+			prefix = "app.ai.features",
+			name = "accepted-answer-ingestion-enabled",
+			havingValue = "true"
+		)
+		static final class AcceptedAnswerIngestionEnabled {
+		}
+
+		@ConditionalOnProperty(
 			prefix = "app.ai",
 			name = "mode",
 			havingValue = "knowledge-import"
