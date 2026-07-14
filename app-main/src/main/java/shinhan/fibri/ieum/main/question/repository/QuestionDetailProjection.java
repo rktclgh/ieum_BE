@@ -1,5 +1,6 @@
 package shinhan.fibri.ieum.main.question.repository;
 
+import java.time.Instant;
 import java.util.UUID;
 
 public interface QuestionDetailProjection {
@@ -18,6 +19,8 @@ public interface QuestionDetailProjection {
 
 	UUID getAuthorProfileFileId();
 
+	String getAuthorNationality();
+
 	double getLatitude();
 
 	double getLongitude();
@@ -27,4 +30,8 @@ public interface QuestionDetailProjection {
 	String getDetailAddress();
 
 	String getLabel();
+
+	Instant getCreatedAt();
+
+	Instant getUpdatedAt();
 }

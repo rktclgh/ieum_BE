@@ -451,6 +451,11 @@ class QuestionServiceTest {
 		}
 
 		@Override
+		public String getAuthorNationality() {
+			return "KR";
+		}
+
+		@Override
 		public double getLatitude() {
 			return 37.4979;
 		}
@@ -473,6 +478,16 @@ class QuestionServiceTest {
 		@Override
 		public String getLabel() {
 			return "강남역";
+		}
+
+		@Override
+		public Instant getCreatedAt() {
+			return Instant.parse("2026-07-14T00:00:00Z");
+		}
+
+		@Override
+		public Instant getUpdatedAt() {
+			return Instant.parse("2026-07-14T00:00:00Z");
 		}
 	}
 

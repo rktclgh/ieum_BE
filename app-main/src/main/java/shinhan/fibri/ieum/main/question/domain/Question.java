@@ -8,7 +8,9 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.OffsetDateTime;
 import java.util.Objects;
+import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.SQLRestriction;
+import org.hibernate.annotations.UpdateTimestamp;
 
 @Entity
 @Table(name = "questions")
@@ -35,10 +37,12 @@ public class Question {
 	@Column(name = "is_resolved", nullable = false)
 	private boolean resolved;
 
-	@Column(name = "created_at", insertable = false, updatable = false)
+	@CreationTimestamp
+	@Column(name = "created_at", nullable = false, updatable = false)
 	private OffsetDateTime createdAt;
 
-	@Column(name = "updated_at", insertable = false, updatable = false)
+	@UpdateTimestamp
+	@Column(name = "updated_at", nullable = false)
 	private OffsetDateTime updatedAt;
 
 	@Column(name = "deleted_at")

@@ -191,10 +191,12 @@ class QuestionControllerTest {
 			"title",
 			"content",
 			false,
-			new AuthorSummary(42L, "nickname", null),
+			new AuthorSummary(42L, "nickname", null, "KR"),
 			new LocationSnapshot(37.4979, 127.0276, "서울특별시 강남구", "", "강남역"),
 			List.of("/api/v1/files/00000000-0000-0000-0000-000000000001?v=display"),
-			List.<AnswerItem>of()
+			List.<AnswerItem>of(),
+			OffsetDateTime.parse("2026-07-14T00:00:00Z"),
+			OffsetDateTime.parse("2026-07-14T00:00:00Z")
 		);
 	}
 
