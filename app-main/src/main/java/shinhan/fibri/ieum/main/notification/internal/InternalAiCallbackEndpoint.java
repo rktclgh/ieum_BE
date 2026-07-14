@@ -2,6 +2,7 @@ package shinhan.fibri.ieum.main.notification.internal;
 
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.regex.Pattern;
+import shinhan.fibri.ieum.main.support.HttpRequestPaths;
 
 public final class InternalAiCallbackEndpoint {
 
@@ -15,6 +16,7 @@ public final class InternalAiCallbackEndpoint {
 	}
 
 	public static boolean matches(HttpServletRequest request) {
-		return "POST".equals(request.getMethod()) && PATH.matcher(request.getRequestURI()).matches();
+		return "POST".equals(request.getMethod())
+			&& PATH.matcher(HttpRequestPaths.withinApplication(request)).matches();
 	}
 }

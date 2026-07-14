@@ -153,6 +153,23 @@ class CsrfDoubleSubmitFilterTest {
 	}
 
 	@Test
+	void doFilterSkipsAiCompletionCallbackBehindContextPath() throws Exception {
+		CsrfDoubleSubmitFilter filter = new CsrfDoubleSubmitFilter();
+		MockHttpServletRequest request = new MockHttpServletRequest(
+			"POST",
+			"/ieum/api/v1/internal/ai/question-answer-jobs/10/completed"
+		);
+		request.setContextPath("/ieum");
+		request.setServletPath("/api/v1/internal/ai/question-answer-jobs/10/completed");
+		MockHttpServletResponse response = new MockHttpServletResponse();
+		FilterChain chain = mock(FilterChain.class);
+
+		filter.doFilter(request, response, chain);
+
+		verify(chain).doFilter(request, response);
+	}
+
+	@Test
 	void doFilterRejectsBlankCsrfTokenPair() throws Exception {
 		CsrfDoubleSubmitFilter filter = new CsrfDoubleSubmitFilter();
 		MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/users/me");

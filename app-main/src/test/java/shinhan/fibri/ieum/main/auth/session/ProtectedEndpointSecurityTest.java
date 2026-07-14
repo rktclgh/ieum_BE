@@ -1,11 +1,15 @@
 package shinhan.fibri.ieum.main.auth.session;
 
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.containsString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.Optional;
@@ -16,6 +20,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockCookie;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -41,6 +47,52 @@ class ProtectedEndpointSecurityTest {
 
 	@Autowired
 	private SessionTokenValidator sessionTokenValidator;
+
+	@Test
+	void frontendGetAllowsAnonymousRequest() throws Exception {
+		mockMvc.perform(get("/static-security/ping"))
+			.andExpect(status().isOk());
+	}
+
+	@Test
+	void frontendHeadAllowsAnonymousRequest() throws Exception {
+		mockMvc.perform(head("/static-security/ping"))
+			.andExpect(status().isOk());
+	}
+
+	@Test
+	void frontendUnsafeMethodStillRequiresAuthentication() throws Exception {
+		mockMvc.perform(post("/static-security/ping"))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.code", is("AUTHENTICATION_REQUIRED")));
+	}
+
+	@Test
+	void protectedApiHeadStillRequiresAuthentication() throws Exception {
+		mockMvc.perform(head("/api/v1/protected/ping"))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.code", is("AUTHENTICATION_REQUIRED")));
+	}
+
+	@Test
+	void nonPublicActuatorEndpointStillRequiresAuthentication() throws Exception {
+		mockMvc.perform(get("/actuator/info"))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.code", is("AUTHENTICATION_REQUIRED")));
+	}
+
+	@Test
+	void defaultSpringSecurityLogoutEndpointIsDisabled() throws Exception {
+		mockMvc.perform(get("/logout"))
+			.andExpect(status().isNotFound())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+			.andExpect(content().string(containsString("NEXT_STATIC_404")))
+			.andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-cache"))
+			.andExpect(header().string(
+				"Cross-Origin-Opener-Policy",
+				"same-origin-allow-popups"
+			));
+	}
 
 	@Test
 	void protectedEndpointReturnsJsonUnauthorizedWhenAccessCookieIsMissing() throws Exception {
@@ -174,6 +226,11 @@ class ProtectedEndpointSecurityTest {
 
 	@RestController
 	static class ProtectedController {
+
+		@GetMapping("/static-security/ping")
+		String staticPing() {
+			return "static-ok";
+		}
 
 		@GetMapping("/api/v1/protected/ping")
 		String ping() {

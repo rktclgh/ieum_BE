@@ -35,6 +35,7 @@ public class SecurityConfig {
 		return http
 			.cors(Customizer.withDefaults())
 			.csrf(AbstractHttpConfigurer::disable)
+			.logout(AbstractHttpConfigurer::disable)
 			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 			.formLogin(AbstractHttpConfigurer::disable)
 			.httpBasic(AbstractHttpConfigurer::disable)
@@ -48,12 +49,20 @@ public class SecurityConfig {
 				.requestMatchers(
 					"/api/v1/auth/**",
 					"/ws/**",
+					"/swagger-ui",
+					"/swagger-ui.html",
 					"/swagger-ui/**",
+					"/v3/api-docs",
+					"/v3/api-docs.yaml",
 					"/v3/api-docs/**",
 					"/actuator/health"
 				).permitAll()
 				.requestMatchers(HttpMethod.POST, "/api/v1/inquiries/suspended-users").permitAll()
 				.requestMatchers("/api/v1/admin/**").hasRole("admin")
+				.requestMatchers("/api/**").authenticated()
+				.requestMatchers("/actuator/**").authenticated()
+				.requestMatchers(HttpMethod.GET, "/**").permitAll()
+				.requestMatchers(HttpMethod.HEAD, "/**").permitAll()
 				.anyRequest().authenticated()
 			)
 			.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)

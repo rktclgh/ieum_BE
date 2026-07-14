@@ -16,6 +16,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.main.notification.internal.InternalAiCallbackEndpoint;
+import shinhan.fibri.ieum.main.support.HttpRequestPaths;
 
 @Component
 @RequiredArgsConstructor
@@ -25,7 +26,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
 	@Override
 	protected boolean shouldNotFilter(HttpServletRequest request) {
-		return InternalAiCallbackEndpoint.matches(request);
+		return InternalAiCallbackEndpoint.matches(request) || isSafeFrontendRead(request);
+	}
+
+	private boolean isSafeFrontendRead(HttpServletRequest request) {
+		String method = request.getMethod();
+		if (!("GET".equals(method) || "HEAD".equals(method))) {
+			return false;
+		}
+
+		return !HttpRequestPaths.isBackendOrOperations(request);
 	}
 
 	@Override
