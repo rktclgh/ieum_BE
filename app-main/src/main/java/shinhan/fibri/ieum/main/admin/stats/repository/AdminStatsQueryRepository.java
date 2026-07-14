@@ -15,13 +15,16 @@ public class AdminStatsQueryRepository {
 		this.jdbcTemplate = jdbcTemplate;
 	}
 
+	// 유저 지표는 "관측 시점에 살아있던 유저" 기준으로 집계한다.
+	// 단순 deleted_at IS NULL 필터는 이후 탈퇴 시 과거 통계가 소급 감소하는
+	// 데이터 불일치를 만들므로, 탈퇴 시각과 관측 시각을 비교해 판정한다.
 	public long countSignups(OffsetDateTime from, OffsetDateTime to) {
 		return count("""
 			SELECT COUNT(*)
 			FROM users
 			WHERE created_at >= :from
 			  AND created_at < :to
-			  AND deleted_at IS NULL
+			  AND (deleted_at IS NULL OR deleted_at >= :to)
 			""", from, to);
 	}
 
@@ -32,7 +35,7 @@ public class AdminStatsQueryRepository {
 			JOIN users u ON u.user_id = l.user_id
 			WHERE l.logged_in_at >= :from
 			  AND l.logged_in_at < :to
-			  AND u.deleted_at IS NULL
+			  AND (u.deleted_at IS NULL OR l.logged_in_at < u.deleted_at)
 			""", from, to);
 	}
 
@@ -43,7 +46,7 @@ public class AdminStatsQueryRepository {
 			JOIN users u ON u.user_id = s.user_id
 			WHERE s.created_at >= :from
 			  AND s.created_at < :to
-			  AND u.deleted_at IS NULL
+			  AND (u.deleted_at IS NULL OR s.created_at < u.deleted_at)
 			""", from, to);
 	}
 

@@ -65,10 +65,16 @@ class AdminStatsQueryRepositoryIntegrationTest {
 	}
 
 	@Test
-	void userStatsCountsSignupsDistinctActiveUsersAndDistinctSuspendedUsersWithinRange() {
-		assertThat(repository.countSignups(FROM, TO)).isEqualTo(2);
-		assertThat(repository.countActiveUsers(FROM, TO)).isEqualTo(2);
-		assertThat(repository.countSuspendedUsers(FROM, TO)).isEqualTo(1);
+	void userStatsCountUsersAliveAtObservationTimeEvenIfDeletedLater() {
+		// signups: user1(7/1)·user2(7/31) 생존, user7(7/10 가입, 8/5 탈퇴=기간 후) 포함,
+		//          user5(7/15 가입, 7/20 탈퇴=기간 내) 제외 → 3
+		assertThat(repository.countSignups(FROM, TO)).isEqualTo(3);
+		// active: user1·user2 생존 로그인, user5(7/6 로그인 < 7/20 탈퇴) 포함,
+		//         user6(7/5 탈퇴 후 7/10 로그인) 제외 → 3
+		assertThat(repository.countActiveUsers(FROM, TO)).isEqualTo(3);
+		// suspended: user1, user5(7/12 제재 < 7/20 탈퇴) 포함,
+		//            user6(7/5 탈퇴 후 7/10 제재) 제외 → 2
+		assertThat(repository.countSuspendedUsers(FROM, TO)).isEqualTo(2);
 	}
 
 	@Test
@@ -92,7 +98,8 @@ class AdminStatsQueryRepositoryIntegrationTest {
 		assertThat(reportStats.aiReviewedCount()).isEqualTo(1);
 		assertThat(reportStats.confirmedCount()).isEqualTo(1);
 		assertThat(reportStats.dismissedCount()).isEqualTo(1);
-		assertThat(repository.countSanctions(FROM, TO)).isEqualTo(3);
+		// sanctionCount는 행 수 지표: 탈퇴 여부 무관, 기간 내 제재 4건(s1·s2·s4·s5)
+		assertThat(repository.countSanctions(FROM, TO)).isEqualTo(4);
 	}
 
 	private void truncateTables() {
@@ -104,18 +111,29 @@ class AdminStatsQueryRepositoryIntegrationTest {
 		insertUser(2, "user2", "2026-07-31T23:59:59+09:00");
 		insertUser(3, "user3", "2026-08-01T00:00:00+09:00");
 		insertUser(4, "admin", "2026-06-01T00:00:00+09:00");
-		insertDeletedUser(5, "deleted", "2026-07-15T00:00:00+09:00");
+		// user5: 기간 내 가입(7/15) 후 기간 내 탈퇴(7/20) — 가입자 제외, 탈퇴 전 활동은 포함
+		insertDeletedUser(5, "deleted", "2026-07-15T00:00:00+09:00", "2026-07-20T00:00:00+09:00");
+		// user6: 기간 전 가입, 기간 초(7/5) 탈퇴 — 탈퇴 후 이벤트는 제외돼야 함
+		insertDeletedUser(6, "deleted2", "2026-06-10T00:00:00+09:00", "2026-07-05T00:00:00+09:00");
+		// user7: 기간 내 가입(7/10), 기간 종료 후 탈퇴(8/5) — 관측 시점(:to) 기준 생존 → 가입자 포함
+		insertDeletedUser(7, "deleted3", "2026-07-10T00:00:00+09:00", "2026-08-05T00:00:00+09:00");
 
 		jdbcTemplate.update("INSERT INTO login_logs(log_id, user_id, provider, logged_in_at) VALUES (1, 1, 'email', '2026-07-03T10:00:00+09:00')");
 		jdbcTemplate.update("INSERT INTO login_logs(log_id, user_id, provider, logged_in_at) VALUES (2, 1, 'email', '2026-07-04T10:00:00+09:00')");
 		jdbcTemplate.update("INSERT INTO login_logs(log_id, user_id, provider, logged_in_at) VALUES (3, 2, 'email', '2026-07-05T10:00:00+09:00')");
 		jdbcTemplate.update("INSERT INTO login_logs(log_id, user_id, provider, logged_in_at) VALUES (4, 3, 'email', '2026-08-01T00:00:00+09:00')");
+		// user5: 탈퇴(7/20) 전 로그인 → 활성 포함
 		jdbcTemplate.update("INSERT INTO login_logs(log_id, user_id, provider, logged_in_at) VALUES (5, 5, 'email', '2026-07-06T10:00:00+09:00')");
+		// user6: 탈퇴(7/5) 후 로그인 → 활성 제외
+		jdbcTemplate.update("INSERT INTO login_logs(log_id, user_id, provider, logged_in_at) VALUES (6, 6, 'email', '2026-07-10T10:00:00+09:00')");
 
 		jdbcTemplate.update("INSERT INTO user_sanctions(sanction_id, user_id, admin_id, sanction_type, reason, created_at) VALUES (1, 1, 4, 'permanent', 'reason', '2026-07-10T10:00:00+09:00')");
 		jdbcTemplate.update("INSERT INTO user_sanctions(sanction_id, user_id, admin_id, sanction_type, reason, created_at) VALUES (2, 1, 4, 'permanent', 'reason', '2026-07-11T10:00:00+09:00')");
 		jdbcTemplate.update("INSERT INTO user_sanctions(sanction_id, user_id, admin_id, sanction_type, reason, created_at) VALUES (3, 2, 4, 'permanent', 'reason', '2026-08-01T00:00:00+09:00')");
+		// user5: 탈퇴(7/20) 전 제재 → 정지 유저 포함
 		jdbcTemplate.update("INSERT INTO user_sanctions(sanction_id, user_id, admin_id, sanction_type, reason, created_at) VALUES (4, 5, 4, 'permanent', 'reason', '2026-07-12T10:00:00+09:00')");
+		// user6: 탈퇴(7/5) 후 제재 → 정지 유저 제외 (sanctionCount 행 수에는 포함)
+		jdbcTemplate.update("INSERT INTO user_sanctions(sanction_id, user_id, admin_id, sanction_type, reason, created_at) VALUES (5, 6, 4, 'permanent', 'reason', '2026-07-13T10:00:00+09:00')");
 
 		insertPin(1, 1, "question", "2026-07-02T10:00:00+09:00");
 		insertPin(2, 1, "question", "2026-08-01T00:00:00+09:00");
@@ -171,11 +189,11 @@ class AdminStatsQueryRepositoryIntegrationTest {
 			""", userId, nickname + "@example.com", nickname, createdAt);
 	}
 
-	private void insertDeletedUser(long userId, String nickname, String createdAt) {
+	private void insertDeletedUser(long userId, String nickname, String createdAt, String deletedAt) {
 		jdbcTemplate.update("""
 			INSERT INTO users(user_id, email, password_hash, nickname, email_verified, created_at, deleted_at)
-			VALUES (?, ?, 'hash', ?, true, ?::timestamptz, '2026-07-20T00:00:00+09:00')
-			""", userId, nickname + "@example.com", nickname, createdAt);
+			VALUES (?, ?, 'hash', ?, true, ?::timestamptz, ?::timestamptz)
+			""", userId, nickname + "@example.com", nickname, createdAt, deletedAt);
 	}
 
 	private void insertPin(long pinId, long authorId, String pinType, String createdAt) {
