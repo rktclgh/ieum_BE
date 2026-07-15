@@ -5,6 +5,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -21,7 +22,9 @@ import shinhan.fibri.ieum.main.admin.user.dto.ChangeUserRoleRequest;
 import shinhan.fibri.ieum.main.admin.user.dto.CreateSanctionRequest;
 import shinhan.fibri.ieum.main.admin.user.dto.CreateSanctionResponse;
 import shinhan.fibri.ieum.main.admin.user.dto.CursorPage;
+import shinhan.fibri.ieum.main.admin.user.dto.HardDeleteUserRequest;
 import shinhan.fibri.ieum.main.admin.user.service.AdminSanctionService;
+import shinhan.fibri.ieum.main.admin.user.service.AdminUserHardDeleteService;
 import shinhan.fibri.ieum.main.admin.user.service.AdminUserQueryService;
 import shinhan.fibri.ieum.main.admin.user.service.AdminUserRoleService;
 
@@ -33,6 +36,7 @@ public class AdminUserController {
 	private final AdminUserQueryService adminUserQueryService;
 	private final AdminSanctionService adminSanctionService;
 	private final AdminUserRoleService adminUserRoleService;
+	private final AdminUserHardDeleteService adminUserHardDeleteService;
 
 	@GetMapping
 	public ResponseEntity<CursorPage<AdminUserItem>> getUsers(
@@ -72,6 +76,16 @@ public class AdminUserController {
 		@Valid @RequestBody ChangeUserRoleRequest request
 	) {
 		adminUserRoleService.changeRole(principal, userId, request.role());
+		return ResponseEntity.noContent().build();
+	}
+
+	@DeleteMapping("/{userId}")
+	public ResponseEntity<Void> hardDelete(
+		@AuthenticationPrincipal AuthenticatedUser principal,
+		@PathVariable Long userId,
+		@Valid @RequestBody HardDeleteUserRequest request
+	) {
+		adminUserHardDeleteService.hardDelete(principal, userId, request.confirmationEmail());
 		return ResponseEntity.noContent().build();
 	}
 }

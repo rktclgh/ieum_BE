@@ -39,6 +39,17 @@ public class AsyncConfig implements AsyncConfigurer {
 		return executor;
 	}
 
+	@Bean("fileCleanupTaskExecutor")
+	public Executor fileCleanupTaskExecutor() {
+		ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+		executor.setThreadNamePrefix("ieum-file-cleanup-");
+		executor.setCorePoolSize(2);
+		executor.setMaxPoolSize(4);
+		executor.setQueueCapacity(500);
+		executor.initialize();
+		return executor;
+	}
+
 	@Override
 	public AsyncUncaughtExceptionHandler getAsyncUncaughtExceptionHandler() {
 		return (exception, method, params) -> log.error(
