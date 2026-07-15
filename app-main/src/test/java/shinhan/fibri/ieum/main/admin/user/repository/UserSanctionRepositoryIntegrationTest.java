@@ -13,12 +13,9 @@ import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabas
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 import shinhan.fibri.ieum.main.admin.user.domain.SanctionType;
 import shinhan.fibri.ieum.main.admin.user.domain.UserSanction;
+import shinhan.fibri.ieum.testsupport.CanonicalPostgresDataSource;
 
 /**
  * 기준 DDL과 같은 PostgreSQL enum/컬럼명으로 제재 만료 쿼리를 검증한다.
@@ -27,26 +24,14 @@ import shinhan.fibri.ieum.main.admin.user.domain.UserSanction;
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Testcontainers(disabledWithoutDocker = true)
 class UserSanctionRepositoryIntegrationTest {
 
-	@Container
-	@SuppressWarnings("resource")
-	static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(
-		DockerImageName.parse("postgis/postgis:16-3.4-alpine").asCompatibleSubstituteFor("postgres")
-	);
+	private static final String DATABASE = "ieum_main_user_sanction_repository";
 
 	@DynamicPropertySource
 	static void registerDataSourceProperties(DynamicPropertyRegistry registry) {
-		registry.add("spring.datasource.url", postgres::getJdbcUrl);
-		registry.add("spring.datasource.username", postgres::getUsername);
-		registry.add("spring.datasource.password", postgres::getPassword);
-		registry.add("spring.datasource.driver-class-name", postgres::getDriverClassName);
+		CanonicalPostgresDataSource.recreateAndRegister(registry, DATABASE);
 		registry.add("spring.jpa.hibernate.ddl-auto", () -> "none");
-		registry.add(
-			"spring.jpa.properties.hibernate.dialect",
-			() -> "shinhan.fibri.ieum.common.config.SnakeCasePostgreSQLDialect"
-		);
 	}
 
 	@Autowired
@@ -57,9 +42,8 @@ class UserSanctionRepositoryIntegrationTest {
 
 	@BeforeEach
 	void setUpSchemaAndRows() {
-		createSchema();
-		jdbcTemplate.update("TRUNCATE TABLE user_sanctions RESTART IDENTITY");
-		jdbcTemplate.update("TRUNCATE TABLE users RESTART IDENTITY CASCADE");
+		jdbcTemplate.update("DELETE FROM user_sanctions");
+		jdbcTemplate.update("DELETE FROM users");
 		insertUser(1L, "suspended");
 		insertUser(2L, "suspended");
 		insertUser(3L, "suspended");
@@ -171,69 +155,17 @@ class UserSanctionRepositoryIntegrationTest {
 		assertThat(row.get("revoked_by")).isEqualTo(99L);
 	}
 
-	private void createSchema() {
-		jdbcTemplate.execute("DROP TABLE IF EXISTS user_sanctions");
-		jdbcTemplate.execute("""
-			DO $$
-			BEGIN
-				IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'sanction_type') THEN
-					CREATE TYPE sanction_type AS ENUM ('temporary', 'permanent');
-				END IF;
-				IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'sanction_decision_source') THEN
-					CREATE TYPE sanction_decision_source AS ENUM ('admin', 'ai_recommendation');
-				END IF;
-				IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'sanction_review_status') THEN
-					CREATE TYPE sanction_review_status AS ENUM ('pending_review', 'confirmed', 'dismissed', 'not_required');
-				END IF;
-				IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'user_status') THEN
-					CREATE TYPE user_status AS ENUM ('active', 'suspended', 'withdrawn');
-				END IF;
-			END
-			$$
-			""");
-		jdbcTemplate.execute("""
-			CREATE TABLE IF NOT EXISTS users (
-				user_id BIGINT PRIMARY KEY,
-				status user_status NOT NULL DEFAULT 'active',
-				deleted_at timestamptz
-			)
-			""");
-		jdbcTemplate.execute("""
-			CREATE TABLE IF NOT EXISTS user_sanctions (
-				sanction_id     bigserial PRIMARY KEY,
-				user_id         bigint NOT NULL REFERENCES users (user_id),
-				report_id        bigint,
-				decision_source  sanction_decision_source NOT NULL DEFAULT 'admin',
-				admin_id         bigint REFERENCES users (user_id),
-				sanction_type    sanction_type NOT NULL,
-				reason          text NOT NULL,
-				starts_at       timestamptz NOT NULL DEFAULT now(),
-				ends_at         timestamptz,
-				duration_minutes integer,
-				review_status   sanction_review_status NOT NULL DEFAULT 'not_required',
-				revoked_at      timestamptz,
-				revoked_by      bigint REFERENCES users (user_id),
-				released_at     timestamptz,
-				released_by     bigint REFERENCES users (user_id),
-				created_at      timestamptz NOT NULL DEFAULT now(),
-				CONSTRAINT ck_user_sanctions_duration CHECK (
-					(sanction_type = 'temporary' AND duration_minutes IS NOT NULL AND duration_minutes > 0 AND ends_at IS NOT NULL)
-					OR (sanction_type = 'permanent' AND duration_minutes IS NULL)
-				),
-				CONSTRAINT ck_user_sanctions_review_status CHECK (
-					(
-						decision_source = 'ai_recommendation'
-						AND report_id IS NOT NULL
-						AND review_status IN ('pending_review', 'confirmed', 'dismissed')
-					)
-					OR (decision_source = 'admin' AND review_status = 'not_required')
-				)
-			)
-			""");
-	}
-
 	private void insertUser(Long userId, String status) {
-		jdbcTemplate.update("INSERT INTO users (user_id, status) VALUES (?, CAST(? AS user_status))", userId, status);
+		jdbcTemplate.update(
+			"""
+				INSERT INTO users (user_id, email, password_hash, nickname, email_verified, status)
+				VALUES (?, ?, 'hash', ?, true, CAST(? AS user_status))
+				""",
+			userId,
+			"user" + userId + "@example.com",
+			"user" + userId,
+			status
+		);
 	}
 
 	private void insertSanction(Long userId, String type, String endsAt, String releasedAt, Long createdBy) {
