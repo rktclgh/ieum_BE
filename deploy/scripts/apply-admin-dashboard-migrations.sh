@@ -3,6 +3,41 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
+if [[ -n "${MIGRATION_RUNTIME_ENV:-}" ]]; then
+	[[ -f "$MIGRATION_RUNTIME_ENV" && ! -L "$MIGRATION_RUNTIME_ENV" ]] || {
+		echo "MIGRATION_RUNTIME_ENV must be a regular file" >&2
+		exit 2
+	}
+	runtime_env_mode="$(stat -c '%a' "$MIGRATION_RUNTIME_ENV" 2>/dev/null || stat -f '%Lp' "$MIGRATION_RUNTIME_ENV")"
+	[[ "$runtime_env_mode" == "600" ]] || {
+		echo "MIGRATION_RUNTIME_ENV must have mode 600" >&2
+		exit 2
+	}
+
+	set -a
+	# shellcheck source=/dev/null
+	source "$MIGRATION_RUNTIME_ENV"
+	set +a
+
+	for variable_name in SPRING_DATASOURCE_URL SPRING_DATASOURCE_USERNAME SPRING_DATASOURCE_PASSWORD; do
+		[[ -n "${!variable_name:-}" ]] || {
+			echo "$variable_name is required in MIGRATION_RUNTIME_ENV" >&2
+			exit 2
+		}
+	done
+
+	if [[ "$SPRING_DATASOURCE_URL" =~ ^jdbc:postgresql://([^/:?]+)(:([0-9]+))?/([^/?]+)(\?.*)?$ ]]; then
+		export PGHOST="${BASH_REMATCH[1]}"
+		export PGPORT="${BASH_REMATCH[3]:-5432}"
+		export PGDATABASE="${BASH_REMATCH[4]}"
+	else
+		echo "SPRING_DATASOURCE_URL must be a PostgreSQL JDBC URL" >&2
+		exit 2
+	fi
+	export PGUSER="$SPRING_DATASOURCE_USERNAME"
+	export PGPASSWORD="$SPRING_DATASOURCE_PASSWORD"
+fi
+
 required_connection_variables=(PGHOST PGPORT PGDATABASE PGUSER)
 for variable_name in "${required_connection_variables[@]}"; do
   if [[ -z "${!variable_name:-}" ]]; then

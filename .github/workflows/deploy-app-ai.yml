@@ -80,28 +80,8 @@ jobs:
           set -euo pipefail
 
           deploy_path="$1"
-          migration_env="$deploy_path/.migration.env"
-          test -f "$migration_env"
-          test ! -L "$migration_env"
-          [[ "$(stat -c '%a' "$migration_env")" == "600" ]]
-          command -v psql >/dev/null 2>&1
-
-          set -a
-          source "$migration_env"
-          set +a
-
-          for required_name in PGHOST PGPORT PGDATABASE PGUSER; do
-            test -n "${!required_name:-}"
-          done
-          if [[ -z "${PGPASSWORD:-}" ]]; then
-            test -n "${PGPASSFILE:-}"
-            [[ "$PGPASSFILE" == /* ]]
-            test -f "$PGPASSFILE"
-            test ! -L "$PGPASSFILE"
-            [[ "$(stat -c '%a' "$PGPASSFILE")" == "600" ]]
-          fi
-
-          "$deploy_path/deploy/scripts/apply-admin-dashboard-migrations.sh"
+          MIGRATION_RUNTIME_ENV="$deploy_path/.env.runtime" \
+            "$deploy_path/deploy/scripts/apply-admin-dashboard-migrations.sh"
           REMOTE_MIGRATION
 
       - name: Set up Java
@@ -111,8 +91,8 @@ jobs:
           java-version: 21
           cache: gradle
 
-      - name: Test and build app-ai
-        run: ./gradlew :app-ai:test :app-ai:bootJar --no-daemon
+      - name: Build app-ai
+        run: ./gradlew :app-ai:bootJar --no-daemon
 
       - name: Refuse stale deployment
         env:

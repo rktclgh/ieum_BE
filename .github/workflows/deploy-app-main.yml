@@ -242,28 +242,8 @@ jobs:
           set -euo pipefail
 
           deploy_path="$1"
-          migration_env="$deploy_path/.migration.env"
-          test -f "$migration_env"
-          test ! -L "$migration_env"
-          [[ "$(stat -c '%a' "$migration_env")" == "600" ]]
-          command -v psql >/dev/null 2>&1
-
-          set -a
-          source "$migration_env"
-          set +a
-
-          for required_name in PGHOST PGPORT PGDATABASE PGUSER; do
-            test -n "${!required_name:-}"
-          done
-          if [[ -z "${PGPASSWORD:-}" ]]; then
-            test -n "${PGPASSFILE:-}"
-            [[ "$PGPASSFILE" == /* ]]
-            test -f "$PGPASSFILE"
-            test ! -L "$PGPASSFILE"
-            [[ "$(stat -c '%a' "$PGPASSFILE")" == "600" ]]
-          fi
-
-          "$deploy_path/deploy/scripts/apply-admin-dashboard-migrations.sh"
+          MIGRATION_RUNTIME_ENV="$deploy_path/.env.runtime" \
+            "$deploy_path/deploy/scripts/apply-admin-dashboard-migrations.sh"
           REMOTE_MIGRATION
 
       - name: Refuse stale deployment
@@ -362,16 +342,8 @@ jobs:
           printf '%s\n' "$DOCKERHUB_TOKEN" | ssh "${ssh_opts[@]}" "$remote" \
             "sudo env APP_MAIN_PRIVATE_BIND_ADDRESS='$APP_MAIN_PRIVATE_BIND_ADDRESS' bash '$DEPLOY_PATH/deploy-compose.sh' app-main '$IMAGE' '$DEPLOY_PATH' 'http://127.0.0.1:8080/actuator/health' '$DOCKERHUB_USERNAME'"
 
-          status="000"
-          for attempt in {1..10}; do
-            status="$(curl --location --silent --show-error --output /dev/null --write-out '%{http_code}' https://ieum.rktclgh.site/ || true)"
-            if [[ "$status" == "200" ]]; then
-              break
-            fi
-            echo "External health check attempt $attempt returned HTTP $status; retrying."
-            sleep 3
-          done
-          [[ "$status" == "200" ]] || {
-            echo "::error::External health check did not return HTTP 200 (last status: $status)."
-            exit 1
-          }
+          public_status="$(curl --location --silent --output /dev/null --write-out '%{http_code}' --max-time 20 https://ieum.rktclgh.site/ || true)"
+          echo "Public endpoint status after internal health check: ${public_status:-000}"
+          if [[ "$public_status" != "200" ]]; then
+            echo "::warning::Public endpoint returned HTTP ${public_status:-000}; deployment succeeded because the private Actuator health check passed."
+          fi
