@@ -1,5 +1,6 @@
 package shinhan.fibri.ieum.main.chat.service;
 
+import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -30,6 +31,7 @@ public class ChatMessageService {
 	private final MessageRepository messageRepository;
 	private final RoomEventPublisher roomEventPublisher;
 	private final ChatNotificationPublisher chatNotificationPublisher;
+	private final ChatRoomListChangeEmitter chatRoomListChangeEmitter;
 
 	@Transactional
 	public ChatMessageResponse send(AuthenticatedUser principal, Long roomId, SendChatMessageRequest request) {
@@ -38,6 +40,8 @@ public class ChatMessageService {
 			.orElseThrow(NotRoomMemberException::new);
 		restoreLeftMembersForReopenableRoom(member, principal.userId());
 		Message message = messageRepository.save(toMessage(member, request));
+		List<Long> activeUserIds = chatMemberRepository.findActiveUserIdsByRoomId(roomId);
+		chatRoomListChangeEmitter.upsert(roomId, activeUserIds);
 		WsMessageEvent event = toEvent(message);
 		ChatPushTrigger pushTrigger = new ChatPushTrigger(
 			message.getId(),

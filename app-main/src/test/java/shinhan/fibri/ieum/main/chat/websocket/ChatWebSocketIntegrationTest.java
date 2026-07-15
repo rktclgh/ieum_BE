@@ -34,19 +34,25 @@ import org.springframework.messaging.simp.stomp.StompSessionHandlerAdapter;
 import org.springframework.messaging.simp.user.SimpUserRegistry;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.web.socket.WebSocketHttpHeaders;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import org.springframework.web.socket.messaging.WebSocketStompClient;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
+import shinhan.fibri.ieum.common.chat.domain.RoomType;
 import shinhan.fibri.ieum.common.chat.repository.ChatMemberRepository;
+import shinhan.fibri.ieum.main.admin.content.service.ContentPurgeService;
 import shinhan.fibri.ieum.main.auth.session.AuthSession;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
 import shinhan.fibri.ieum.main.auth.session.ValidatedAuthSession;
 import shinhan.fibri.ieum.main.chat.dto.ChatMessageResponse;
+import shinhan.fibri.ieum.main.chat.dto.ChatRoomListEvent;
+import shinhan.fibri.ieum.main.chat.dto.ChatRoomSummaryResponse;
 import shinhan.fibri.ieum.main.chat.dto.SendChatMessageRequest;
+import shinhan.fibri.ieum.main.chat.service.ChatRoomListEventPublisher;
 import shinhan.fibri.ieum.main.chat.service.ChatMessageRateLimiter;
 import shinhan.fibri.ieum.main.chat.service.ChatMessageService;
 import shinhan.fibri.ieum.main.chat.service.RoomEventPublisher;
@@ -83,17 +89,36 @@ class ChatWebSocketIntegrationTest {
 	private RoomEventPublisher roomEventPublisher;
 
 	@Autowired
+	private ChatRoomListEventPublisher roomListEventPublisher;
+
+	@Autowired
 	private SimpUserRegistry userRegistry;
+
+	@MockitoBean
+	private ContentPurgeService contentPurgeService;
 
 	@BeforeEach
 	void setUp() {
 		AuthenticatedUser principal = new AuthenticatedUser(42L, "user@example.com", UserRole.user, UserStatus.active);
+		AuthenticatedUser otherPrincipal = new AuthenticatedUser(77L, "other@example.com", UserRole.user, UserStatus.active);
 		when(sessionTokenValidator.validateSession("access-token"))
 			.thenReturn(Optional.of(new ValidatedAuthSession(principal, "sid-1")));
+		when(sessionTokenValidator.validateSession("other-access-token"))
+			.thenReturn(Optional.of(new ValidatedAuthSession(otherPrincipal, "sid-2")));
 		when(sessionStore.findBySessionId("sid-1")).thenReturn(Optional.of(new AuthSession(
 			"sid-1",
 			42L,
 			"user@example.com",
+			"refresh-hash",
+			null,
+			UserRole.user,
+			UserStatus.active,
+			OffsetDateTime.parse("2026-07-08T00:00:00+09:00")
+		)));
+		when(sessionStore.findBySessionId("sid-2")).thenReturn(Optional.of(new AuthSession(
+			"sid-2",
+			77L,
+			"other@example.com",
 			"refresh-hash",
 			null,
 			UserRole.user,
@@ -155,8 +180,70 @@ class ChatWebSocketIntegrationTest {
 		session.disconnect();
 	}
 
+	@Test
+	void userRoomQueueReceivesUpsertEventForAuthenticatedUser() throws Exception {
+		StompSession session = connect();
+		BlockingQueue<ChatRoomListEvent> events = new LinkedBlockingQueue<>();
+		session.subscribe("/user/queue/rooms", frameHandler(ChatRoomListEvent.class, events));
+		awaitSubscriptionRegistration("42", "/user/queue/rooms");
+
+		roomListEventPublisher.publish(42L, ChatRoomListEvent.upsert(roomSummary(100L, true)));
+		ChatRoomListEvent upsert = events.poll(3, TimeUnit.SECONDS);
+		assertThat(upsert).isNotNull();
+		assertThat(upsert.type()).isEqualTo("upsert");
+		assertThat(upsert.room()).isNotNull();
+		assertThat(upsert.room().roomId()).isEqualTo(100L);
+		assertThat(upsert.room().pinned()).isTrue();
+		assertThat(upsert.roomId()).isNull();
+		session.disconnect();
+	}
+
+	@Test
+	void userRoomQueueReceivesRemoveEventForAuthenticatedUser() throws Exception {
+		StompSession session = connect();
+		BlockingQueue<ChatRoomListEvent> events = new LinkedBlockingQueue<>();
+		session.subscribe("/user/queue/rooms", frameHandler(ChatRoomListEvent.class, events));
+		awaitSubscriptionRegistration("42", "/user/queue/rooms");
+
+		roomListEventPublisher.publish(42L, ChatRoomListEvent.remove(100L));
+		ChatRoomListEvent remove = events.poll(3, TimeUnit.SECONDS);
+		assertThat(remove).isNotNull();
+		assertThat(remove.type()).isEqualTo("remove");
+		assertThat(remove.room()).isNull();
+		assertThat(remove.roomId()).isEqualTo(100L);
+		session.disconnect();
+	}
+
+	@Test
+	void userRoomQueueDoesNotLeakTargetedEventsToAnotherAuthenticatedUser() throws Exception {
+		StompSession targetSession = connect("access-token");
+		StompSession otherSession = connect("other-access-token");
+		BlockingQueue<ChatRoomListEvent> targetEvents = new LinkedBlockingQueue<>();
+		BlockingQueue<ChatRoomListEvent> otherEvents = new LinkedBlockingQueue<>();
+		targetSession.subscribe("/user/queue/rooms", frameHandler(ChatRoomListEvent.class, targetEvents));
+		otherSession.subscribe("/user/queue/rooms", frameHandler(ChatRoomListEvent.class, otherEvents));
+		awaitSubscriptionRegistration("42", "/user/queue/rooms");
+		awaitSubscriptionRegistration("77", "/user/queue/rooms");
+
+		roomListEventPublisher.publish(42L, ChatRoomListEvent.upsert(roomSummary(300L, false)));
+
+		ChatRoomListEvent targetEvent = targetEvents.poll(3, TimeUnit.SECONDS);
+		assertThat(targetEvent).isNotNull();
+		assertThat(targetEvent.type()).isEqualTo("upsert");
+		assertThat(targetEvent.room()).isNotNull();
+		assertThat(targetEvent.room().roomId()).isEqualTo(300L);
+		assertThat(otherEvents.poll(500, TimeUnit.MILLISECONDS)).isNull();
+		targetSession.disconnect();
+		otherSession.disconnect();
+	}
+
 	@SuppressWarnings("removal")
 	private StompSession connect() throws Exception {
+		return connect("access-token");
+	}
+
+	@SuppressWarnings("removal")
+	private StompSession connect(String accessToken) throws Exception {
 		WebSocketStompClient client = new WebSocketStompClient(new StandardWebSocketClient());
 		MappingJackson2MessageConverter converter = new MappingJackson2MessageConverter();
 		converter.getObjectMapper()
@@ -164,7 +251,7 @@ class ChatWebSocketIntegrationTest {
 			.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 		client.setMessageConverter(converter);
 		WebSocketHttpHeaders headers = new WebSocketHttpHeaders();
-		headers.add(HttpHeaders.COOKIE, "access_token=access-token");
+		headers.add(HttpHeaders.COOKIE, "access_token=" + accessToken);
 		StompSession session = client.connectAsync(webSocketUrl(), headers, new StompSessionHandlerAdapter() {
 		}).get(3, TimeUnit.SECONDS);
 		return session;
@@ -189,24 +276,32 @@ class ChatWebSocketIntegrationTest {
 	}
 
 	private void awaitSubscriptionRegistration(String destination) throws InterruptedException {
+		awaitSubscriptionRegistration("42", destination);
+	}
+
+	private void awaitSubscriptionRegistration(String userName, String destination) throws InterruptedException {
 		long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
 		while (System.nanoTime() < deadline) {
-			if (hasSubscription(destination)) {
+			if (hasSubscription(userName, destination)) {
 				return;
 			}
 			Thread.sleep(50);
 		}
-		assertThat(hasSubscription(destination)).isTrue();
+		assertThat(hasSubscription(userName, destination)).isTrue();
 	}
 
-	private boolean hasSubscription(String destination) {
-		var user = userRegistry.getUser("42");
+	private boolean hasSubscription(String userName, String destination) {
+		var user = userRegistry.getUser(userName);
 		if (user == null) {
 			return false;
 		}
 		return user.getSessions().stream()
 			.flatMap(session -> session.getSubscriptions().stream())
 			.anyMatch(subscription -> destination.equals(subscription.getDestination()));
+	}
+
+	private ChatRoomSummaryResponse roomSummary(Long roomId, boolean pinned) {
+		return new ChatRoomSummaryResponse(roomId, RoomType.direct, null, null, null, pinned, true, 0L, null);
 	}
 
 	@TestConfiguration
