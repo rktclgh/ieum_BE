@@ -108,20 +108,17 @@ ChatRoom
 
 ### `ChatMember`와 사용자별 메시지 가시성
 
-나가기 후에도 영속 채팅방 목록인 `chat_rooms`와 `chat_members` 행은 그대로 남는다. `chat_members`에 nullable `visible_after_message_id`를 추가하고, 해당 사용자가 볼 수 없는 마지막 메시지 ID를 exclusive cutoff로 저장한다.
+나가기 후에도 영속 채팅방 목록인 `chat_rooms`와 `chat_members` 행은 그대로 남는다. `chat_members`에 `visible_after_message_id BIGINT NOT NULL DEFAULT 0`을 추가하고, 해당 사용자가 볼 수 없는 마지막 메시지 ID를 exclusive cutoff로 저장한다.
 
 사용자에게 메시지를 보여주는 조건은 다음과 같다.
 
 ```text
 message.room_id = member.room_id
 AND message.deleted_at IS NULL
-AND (
-  member.visible_after_message_id IS NULL
-  OR message.message_id > member.visible_after_message_id
-)
+AND message.message_id > member.visible_after_message_id
 ```
 
-- 최초 참여 시 cutoff는 `NULL`이며 방 생성 이후의 모든 메시지를 볼 수 있다.
+- 최초 참여 시 cutoff는 `0`이며 양수 `message_id`인 방 생성 이후의 모든 메시지를 볼 수 있다.
 - 나가기는 현재 멤버십을 비활성화하지만 방과 메시지를 삭제하지 않는다.
 - 기존 방을 다시 여는 요청은 **인증된 요청자 멤버만** 활성화한다.
 - 요청자 멤버가 비활성 상태라면 현재 방의 최대 `message_id`를 cutoff로 저장하고 `left_at`을 비운다.
@@ -271,7 +268,7 @@ X-CSRF-Token: ...
 - 장점: `message_id > cutoff`라는 단일 규칙을 모든 사용자 화면 query에 적용할 수 있다.
 - 장점: 메시지를 보존하면서 사용자별 이력만 숨길 수 있다.
 - 장점: `joined_at`의 최초 참여 시각 의미를 바꾸지 않는다.
-- 비용: `chat_members.visible_after_message_id BIGINT NULL` migration이 필요하다.
+- 비용: `chat_members.visible_after_message_id BIGINT NOT NULL DEFAULT 0` migration과 음수 방지 check가 필요하다.
 - 주의: 활성 멤버에 대한 반복 호출은 반드시 no-op이어야 한다.
 
 ### 선택하지 않음: 과거 메시지 물리 삭제
@@ -289,7 +286,8 @@ timestamp가 같은 메시지와 경계를 엄밀히 분리하지 못하고, 다
 - 질문 작성자 검증 제거
 - 사람 답변자 검증 제거
 - `AnswerRepository` 의존성 제거
-- 질문방 생성에서만 쓰이던 `QuestionForbiddenException`과 handler mapping은 소비처가 없어지면 제거
+- 전역 공유 `QuestionForbiddenException`은 질문·답변·관리자 경로에서 계속 사용하므로 유지
+- 질문방 생성에서만 쓰이던 chat-scoped `QuestionForbiddenException` handler mapping만 제거
 - 활성 질문 존재와 제목 조회 유지
 - self, 사용자 존재, 차단 검증 유지
 - 기존 방이면 인증된 요청자 멤버만 활성화하고 대상 멤버는 변경하지 않음
@@ -302,11 +300,12 @@ timestamp가 같은 메시지와 경계를 엄밀히 분리하지 못하고, 다
 `direct/question`의 비활성 멤버에는 exclusive cutoff를 저장하는 메서드를 사용한다.
 
 ```java
-void activateAfter(Long latestMessageId) {
+void reactivateAfter(long latestMessageId) {
     if (leftAt == null) {
         return;
     }
     visibleAfterMessageId = latestMessageId;
+    lastReadAt = null;
     leftAt = null;
 }
 ```
@@ -323,15 +322,14 @@ void activateAfter(Long latestMessageId) {
 - `findByRoomIdAndUserIdForUpdate(roomId, userId)`
 - `findOneToOneMembersByRoomIdForUpdate(roomId)` — user ID 오름차순 잠금
 
-질문방 API는 요청자 멤버만 잠근다. 1:1 메시지 전송은 송신자·수신자 멤버를 고정 순서로 잠근 뒤 송신자의 활성 상태를 확인하고 수신자를 처리한다. `leftAt != null`인 멤버에만 최대 메시지 ID를 읽고 `activateAfter(maxMessageId)`를 호출한다.
+질문방 API는 요청자 멤버만 잠근다. 1:1 메시지 전송은 송신자·수신자 멤버를 고정 순서로 잠근 뒤 송신자의 활성 상태를 확인하고 수신자를 처리한다. `leftAt != null`인 멤버에만 최대 메시지 ID를 읽고 `reactivateAfter(maxMessageId)`를 호출한다.
 
 ### `MessageRepository`
 
 사용자 화면용 query는 raw cutoff를 service 인자로 받지 않는다. `roomId/userId` 또는 `roomIds/userId`를 받아 query 내부에서 `ChatMember`와 join하고 다음 조건을 항상 적용한다.
 
 ```text
-member.visibleAfterMessageId IS NULL
-OR message.id > member.visibleAfterMessageId
+message.id > member.visibleAfterMessageId
 ```
 
 - 최신 메시지 페이지
@@ -347,26 +345,28 @@ OR message.id > member.visibleAfterMessageId
 
 - 질문방 생성과 기존 방 조회는 현재 room key를 재사용한다.
 - `getOrCreateQuestionRoom(questionId, requesterId, targetUserId)`처럼 요청자 역할을 시그니처에 드러낸다.
-- 새 방이면 두 멤버를 생성하고, 기존 방이면 요청자 멤버만 1:1 공통 `activateAfter(cutoff)` 규칙으로 처리한다.
+- 새 방이면 cutoff `0`인 두 멤버를 생성하고, 기존 방이면 요청자 멤버만 1:1 공통 `reactivateAfter(cutoff)` 규칙으로 처리한다.
 - 대상 멤버는 방 조회로 활성화하지 않는다.
 - 질문 작성자·답변자·채택 관계는 알지 못한다.
 - 그룹방의 `addMember` 경로는 기존 동작을 유지한다.
 
 ### DB migration
 
-`chat_members`에 다음 nullable 컬럼을 추가한다.
+`chat_members`에 다음 non-null 컬럼과 검증 제약을 추가한다.
 
 ```sql
 ALTER TABLE chat_members
-    ADD COLUMN visible_after_message_id BIGINT;
+    ADD COLUMN visible_after_message_id BIGINT NOT NULL DEFAULT 0,
+    ADD CONSTRAINT ck_chat_members_visible_after_message_id
+        CHECK (visible_after_message_id >= 0);
 
-CREATE INDEX idx_messages_room_message
+CREATE INDEX idx_messages_room_message_id
     ON messages(room_id, message_id DESC);
 ```
 
 - FK는 걸지 않는다. 메시지 soft-delete나 보존 정책과 무관한 숫자 watermark다.
-- 기존 행은 `NULL`이므로 배포 전과 동일하게 현재 이력을 모두 볼 수 있다.
-- 별도 backfill은 필요 없다.
+- 기존 행은 DDL의 `DEFAULT 0`으로 채워지므로 배포 전과 동일하게 현재 이력을 모두 볼 수 있다.
+- 별도 애플리케이션 backfill은 필요 없다.
 - 복합 인덱스는 방별 최대 ID 조회와 cutoff 이후 필터를 지원한다.
 
 ### 공개 문서와 FE
@@ -408,7 +408,7 @@ CREATE INDEX idx_messages_room_message
 - 비활성 멤버가 활성화될 때만 `visibleAfterMessageId`가 현재 방 최대 메시지 ID로 갱신됨
 - `joinedAt`은 활성화 전후 동일함
 - 활성 멤버에 대한 반복 생성 호출은 cutoff no-op
-- 새 방은 두 멤버가 활성 상태이고 cutoff가 `NULL`
+- 새 방은 두 멤버가 활성 상태이고 cutoff가 `0`
 - 기존 방 POST는 비활성 요청자만 활성화하고 비활성 대상은 그대로 유지
 - 양쪽이 나간 방에서 한 사용자가 POST해도 그 사용자만 활성화
 - 메시지 전송 직전에만 비활성 수신자가 활성화됨
@@ -456,7 +456,7 @@ CREATE INDEX idx_messages_room_message
 
 ### Packet B — 1:1 메시지 가시성 보정
 
-- `visible_after_message_id` migration과 `ChatMember.activateAfter(cutoff)` 추가
+- `visible_after_message_id` migration과 `ChatMember.reactivateAfter(cutoff)` 추가
 - 요청자·수신자 멤버의 명시적 row lock과 역할별 활성화 적용
 - history, cursor, unread, lastMessage의 사용자별 cutoff 적용
 - direct/question 공통 회귀 테스트 추가

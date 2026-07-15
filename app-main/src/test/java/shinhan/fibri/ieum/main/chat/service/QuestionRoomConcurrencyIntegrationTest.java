@@ -2,9 +2,13 @@ package shinhan.fibri.ieum.main.chat.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 
 import java.sql.Connection;
 import java.time.Duration;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -14,6 +18,7 @@ import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
@@ -23,12 +28,15 @@ import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
+import shinhan.fibri.ieum.main.chat.dto.SendChatMessageRequest;
 import shinhan.fibri.ieum.main.chat.dto.ChatRoomResponse;
+import shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException;
 import shinhan.fibri.ieum.main.friend.service.FriendRequestNotifier;
 import shinhan.fibri.ieum.main.friend.service.FriendService;
 import shinhan.fibri.ieum.testsupport.CanonicalPostgresContainer;
@@ -36,7 +44,13 @@ import shinhan.fibri.ieum.testsupport.SqlScriptRunner;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import({ChatService.class, ChatRoomLifecycleService.class, FriendService.class})
+@Import({
+	ChatService.class,
+	ChatMessageService.class,
+	ChatRoomLifecycleService.class,
+	OneToOneChatMemberService.class,
+	FriendService.class
+})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 class QuestionRoomConcurrencyIntegrationTest {
 
@@ -69,6 +83,9 @@ class QuestionRoomConcurrencyIntegrationTest {
 	private ChatService service;
 
 	@Autowired
+	private ChatMessageService messageService;
+
+	@Autowired
 	private JdbcTemplate jdbc;
 
 	@Autowired
@@ -76,6 +93,15 @@ class QuestionRoomConcurrencyIntegrationTest {
 
 	@MockitoBean
 	private FriendRequestNotifier friendRequestNotifier;
+
+	@MockitoBean
+	private RoomEventPublisher roomEventPublisher;
+
+	@MockitoBean
+	private ChatNotificationPublisher chatNotificationPublisher;
+
+	@MockitoSpyBean
+	private OneToOneChatMemberService oneToOneChatMemberService;
 
 	private long ownerId;
 	private long answererId;
@@ -161,6 +187,69 @@ class QuestionRoomConcurrencyIntegrationTest {
 				questionId
 			)).isTrue();
 		}
+	}
+
+	@Test
+	@Timeout(20)
+	void sendRejectsSenderWhoLeavesAfterScalarRoutingBeforeAuthoritativeLocks() throws Exception {
+		ChatRoomResponse room = createQuestionRoom();
+		int messageCountBefore = jdbc.queryForObject(
+			"SELECT count(*) FROM messages WHERE room_id = ?",
+			Integer.class,
+			room.roomId()
+		);
+		CountDownLatch prepareSendReached = new CountDownLatch(1);
+		CountDownLatch allowPrepareSend = new CountDownLatch(1);
+		doAnswer(invocation -> {
+			prepareSendReached.countDown();
+			if (!allowPrepareSend.await(5, TimeUnit.SECONDS)) {
+				throw new AssertionError("send did not resume after the committed leave");
+			}
+			return invocation.callRealMethod();
+		}).when(oneToOneChatMemberService).prepareSend(eq(room.roomId()), eq(ownerId));
+
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		Future<?> send = null;
+		Future<?> leave = null;
+		try {
+			send = executor.submit(() -> messageService.send(
+				principal(ownerId),
+				room.roomId(),
+				new SendChatMessageRequest("must-not-persist", null)
+			));
+
+			assertThat(prepareSendReached.await(5, TimeUnit.SECONDS)).isTrue();
+			leave = executor.submit(() -> service.leaveRoom(principal(ownerId), room.roomId()));
+			leave.get(5, TimeUnit.SECONDS);
+			assertThat(jdbc.queryForObject(
+				"SELECT left_at IS NOT NULL FROM chat_members WHERE room_id = ? AND user_id = ?",
+				Boolean.class,
+				room.roomId(),
+				ownerId
+			)).isTrue();
+
+			allowPrepareSend.countDown();
+			Future<?> completedSend = send;
+			assertThatThrownBy(() -> completedSend.get(5, TimeUnit.SECONDS))
+				.isInstanceOf(ExecutionException.class)
+				.hasCauseInstanceOf(NotRoomMemberException.class);
+		} finally {
+			allowPrepareSend.countDown();
+			if (send != null) {
+				send.cancel(true);
+			}
+			if (leave != null) {
+				leave.cancel(true);
+			}
+			executor.shutdownNow();
+			assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+		}
+
+		assertThat(jdbc.queryForObject(
+			"SELECT count(*) FROM messages WHERE room_id = ?",
+			Integer.class,
+			room.roomId()
+		)).isEqualTo(messageCountBefore);
 	}
 
 	private ChatRoomResponse createQuestionRoom() {

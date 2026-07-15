@@ -30,7 +30,7 @@ import shinhan.fibri.ieum.testsupport.SqlScriptRunner;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import({ChatService.class, ChatRoomLifecycleService.class, FriendService.class})
+@Import({ChatService.class, ChatRoomLifecycleService.class, OneToOneChatMemberService.class, FriendService.class})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 class QuestionRoomSingleConnectionIntegrationTest {
 
