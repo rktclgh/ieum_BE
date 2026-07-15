@@ -19,6 +19,7 @@ import shinhan.fibri.ieum.common.auth.domain.UserRole;
 public class JdbcAdminUserHardDeleteRepository implements AdminUserHardDeleteRepository {
 
 	private static final Logger log = LoggerFactory.getLogger(JdbcAdminUserHardDeleteRepository.class);
+	private static final int FILE_DELETE_BATCH_SIZE = 1_000;
 
 	private final NamedParameterJdbcTemplate jdbc;
 
@@ -181,10 +182,15 @@ public class JdbcAdminUserHardDeleteRepository implements AdminUserHardDeleteRep
 		if (fileIds.isEmpty()) {
 			return 0;
 		}
-		return jdbc.update(
-			"DELETE FROM files WHERE file_id IN (:fileIds)",
-			new MapSqlParameterSource("fileIds", fileIds)
-		);
+		int deleted = 0;
+		for (int from = 0; from < fileIds.size(); from += FILE_DELETE_BATCH_SIZE) {
+			int to = Math.min(from + FILE_DELETE_BATCH_SIZE, fileIds.size());
+			deleted += jdbc.update(
+				"DELETE FROM files WHERE file_id IN (:fileIds)",
+				new MapSqlParameterSource("fileIds", fileIds.subList(from, to))
+			);
+		}
+		return deleted;
 	}
 
 	private HardDeleteTarget toTarget(ResultSet rs, int rowNum) throws SQLException {
