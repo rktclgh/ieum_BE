@@ -10,9 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import shinhan.fibri.ieum.main.admin.content.repository.ContentPurgeChunk;
 import shinhan.fibri.ieum.main.admin.content.repository.ContentPurgeRepository;
-import shinhan.fibri.ieum.main.file.service.FileObjectKeys;
-import shinhan.fibri.ieum.main.file.service.FileVariant;
-import shinhan.fibri.ieum.main.file.storage.FileStorage;
+import shinhan.fibri.ieum.main.file.service.S3FileDeletionService;
 
 @Service
 public class ContentPurgeService {
@@ -24,17 +22,17 @@ public class ContentPurgeService {
 	private static final int RETENTION_DAYS = 90;
 
 	private final ContentPurgeRepository repository;
-	private final FileStorage fileStorage;
+	private final S3FileDeletionService s3FileDeletionService;
 	private final Clock clock;
 
 	@Autowired
-	public ContentPurgeService(ContentPurgeRepository repository, FileStorage fileStorage) {
-		this(repository, fileStorage, Clock.system(KST));
+	public ContentPurgeService(ContentPurgeRepository repository, S3FileDeletionService s3FileDeletionService) {
+		this(repository, s3FileDeletionService, Clock.system(KST));
 	}
 
-	ContentPurgeService(ContentPurgeRepository repository, FileStorage fileStorage, Clock clock) {
+	ContentPurgeService(ContentPurgeRepository repository, S3FileDeletionService s3FileDeletionService, Clock clock) {
 		this.repository = repository;
-		this.fileStorage = fileStorage;
+		this.s3FileDeletionService = s3FileDeletionService;
 		this.clock = clock;
 	}
 
@@ -74,17 +72,7 @@ public class ContentPurgeService {
 
 	private void deleteS3Objects(List<String> s3Keys) {
 		for (String s3Key : s3Keys) {
-			deleteLogOnly(s3Key);
-			deleteLogOnly(FileObjectKeys.variantKey(s3Key, FileVariant.DISPLAY));
-			deleteLogOnly(FileObjectKeys.variantKey(s3Key, FileVariant.THUMB));
-		}
-	}
-
-	private void deleteLogOnly(String s3Key) {
-		try {
-			fileStorage.delete(s3Key);
-		} catch (RuntimeException exception) {
-			log.warn("Failed to delete purged content file object. s3Key={}", s3Key, exception);
+			s3FileDeletionService.deleteOriginAndVariantsLogOnly(s3Key);
 		}
 	}
 }
