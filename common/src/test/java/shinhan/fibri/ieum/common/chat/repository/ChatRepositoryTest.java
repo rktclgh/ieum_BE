@@ -90,6 +90,32 @@ class ChatRepositoryTest {
 	}
 
 	@Test
+	void findsActiveMembersByRoomAndRequestedUsersInOneQuery() {
+		User me = persist(user("active-batch-me@example.com", "active-batch-me"));
+		User friend = persist(user("active-batch-friend@example.com", "active-batch-friend"));
+		User leftUser = persist(user("active-batch-left@example.com", "active-batch-left"));
+		User other = persist(user("active-batch-other@example.com", "active-batch-other"));
+		ChatRoom room = chatRoomRepository.save(ChatRoom.direct(me.getId(), friend.getId()));
+		ChatRoom otherRoom = chatRoomRepository.save(ChatRoom.direct(me.getId(), other.getId()));
+		chatMemberRepository.save(ChatMember.join(room, me));
+		chatMemberRepository.save(ChatMember.join(room, friend));
+		ChatMember left = chatMemberRepository.save(ChatMember.join(room, leftUser));
+		left.leave(OffsetDateTime.parse("2026-07-08T09:00:00+09:00"));
+		chatMemberRepository.save(ChatMember.join(otherRoom, other));
+		entityManager.flush();
+		entityManager.clear();
+
+		List<ChatMember> members = chatMemberRepository.findActiveByRoomIdAndUserIds(
+			room.getId(),
+			List.of(me.getId(), friend.getId(), leftUser.getId(), other.getId())
+		);
+
+		assertThat(members)
+			.extracting(member -> member.getUser().getId())
+			.containsExactlyInAnyOrder(me.getId(), friend.getId());
+	}
+
+	@Test
 	void findsAllRoomMembersWithUserFetched() {
 		User me = persist(user("all-me@example.com", "all-me"));
 		User friend = persist(user("all-friend@example.com", "all-friend"));
@@ -148,6 +174,39 @@ class ChatRepositoryTest {
 		assertThat(messageRepository.findLastMessagesByRoomIds(List.of(room.getId())))
 			.extracting(Message::getContent)
 			.containsExactly("new");
+	}
+
+	@Test
+	void countsUnreadMessagesByRoomAndUsersInOneQuery() {
+		User me = persist(user("unread-batch-me@example.com", "unread-batch-me"));
+		User friend = persist(user("unread-batch-friend@example.com", "unread-batch-friend"));
+		User quiet = persist(user("unread-batch-quiet@example.com", "unread-batch-quiet"));
+		ChatRoom room = chatRoomRepository.save(ChatRoom.direct(me.getId(), friend.getId()));
+		ChatMember meMember = chatMemberRepository.save(ChatMember.join(room, me));
+		ChatMember friendMember = chatMemberRepository.save(ChatMember.join(room, friend));
+		ChatMember quietMember = chatMemberRepository.save(ChatMember.join(room, quiet));
+		OffsetDateTime base = OffsetDateTime.parse("2026-07-08T10:00:00+09:00");
+		meMember.markRead(base);
+		friendMember.markRead(base.plusMinutes(1));
+		quietMember.markRead(base.plusMinutes(10));
+		messageRepository.save(Message.text(room, me, "old-own", base.minusMinutes(1)));
+		messageRepository.save(Message.text(room, friend, "for-me", base.plusMinutes(2)));
+		messageRepository.save(Message.text(room, quiet, "for-me-and-friend", base.plusMinutes(3)));
+		entityManager.flush();
+		entityManager.clear();
+
+		assertThat(messageRepository.countUnreadByRoomIdAndUserIds(
+			room.getId(),
+			List.of(me.getId(), friend.getId(), quiet.getId())
+		))
+			.extracting(
+				MessageRepository.UserUnreadCount::getUserId,
+				MessageRepository.UserUnreadCount::getUnreadCount
+			)
+			.containsExactlyInAnyOrder(
+				org.assertj.core.groups.Tuple.tuple(me.getId(), 2L),
+				org.assertj.core.groups.Tuple.tuple(friend.getId(), 1L)
+			);
 	}
 
 	@Test

@@ -60,4 +60,18 @@ public interface ChatMemberRepository extends JpaRepository<ChatMember, ChatMemb
 		@Param("userId") Long userId,
 		@Param("roomIds") List<Long> roomIds
 	);
+
+	@Query("""
+		SELECT member
+		FROM ChatMember member
+		JOIN FETCH member.room
+		JOIN FETCH member.user
+		WHERE member.room.id = :roomId
+		  AND member.user.id IN :userIds
+		  AND member.leftAt IS NULL
+		""")
+	List<ChatMember> findActiveByRoomIdAndUserIds(
+		@Param("roomId") Long roomId,
+		@Param("userIds") List<Long> userIds
+	);
 }

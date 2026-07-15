@@ -34,6 +34,7 @@ import shinhan.fibri.ieum.common.chat.repository.ChatMemberRepository;
 import shinhan.fibri.ieum.common.chat.repository.ChatRoomRepository;
 import shinhan.fibri.ieum.common.chat.repository.MessageRepository;
 import shinhan.fibri.ieum.main.answer.repository.AnswerRepository;
+import shinhan.fibri.ieum.main.chat.dto.ChatRoomSummaryResponse;
 import shinhan.fibri.ieum.main.chat.exception.BlockedChatException;
 import shinhan.fibri.ieum.main.chat.exception.ChatRoomNotFoundException;
 import shinhan.fibri.ieum.main.chat.exception.NotFriendsException;
@@ -59,6 +60,7 @@ class ChatServiceTest {
 	private final QuestionRepository questionRepository = org.mockito.Mockito.mock(QuestionRepository.class);
 	private final AnswerRepository answerRepository = org.mockito.Mockito.mock(AnswerRepository.class);
 	private final ChatRoomLifecycle chatRoomLifecycle = org.mockito.Mockito.mock(ChatRoomLifecycle.class);
+	private final ChatRoomSummaryQueryService chatRoomSummaryQueryService = org.mockito.Mockito.mock(ChatRoomSummaryQueryService.class);
 	private final List<TransactionDefinition> transactionDefinitions = new ArrayList<>();
 	private final PlatformTransactionManager transactionManager = new PlatformTransactionManager() {
 		@Override
@@ -85,6 +87,7 @@ class ChatServiceTest {
 		questionRepository,
 		answerRepository,
 		chatRoomLifecycle,
+		chatRoomSummaryQueryService,
 		transactionManager
 	);
 
@@ -363,43 +366,32 @@ class ChatServiceTest {
 	}
 
 	@Test
-	void listRoomsCombinesMembershipUnreadAndLastMessageThenSortsPinnedFirst() {
-		User me = user(42L, "me@example.com", "me");
-		User friend = user(77L, "friend@example.com", "friend");
-		ChatRoom normalRoom = room(ChatRoom.direct(42L, 77L), 100L);
-		ChatRoom pinnedRoom = room(ChatRoom.question(10L, 42L, 88L), 200L);
-		ChatMember normalMember = ChatMember.join(normalRoom, me);
-		ChatMember pinnedMember = ChatMember.join(pinnedRoom, me);
-		pinnedMember.setPinned(true, OffsetDateTime.parse("2026-07-08T12:00:00+09:00"));
-		Message normalLast = message(501L, normalRoom, friend, "normal", "2026-07-08T11:00:00+09:00");
-		Message pinnedLast = message(502L, pinnedRoom, me, "pinned", "2026-07-08T10:00:00+09:00");
-		when(chatRoomRepository.findActiveRoomsByUserId(42L)).thenReturn(List.of(normalRoom, pinnedRoom));
-		when(chatMemberRepository.findActiveByUserIdAndRoomIds(42L, List.of(100L, 200L)))
-			.thenReturn(List.of(normalMember, pinnedMember));
-		when(messageRepository.countUnreadByRoomIds(42L, List.of(100L, 200L)))
-			.thenReturn(List.of(unread(100L, 3L)));
-		when(messageRepository.findLastMessagesByRoomIds(List.of(100L, 200L)))
-			.thenReturn(List.of(normalLast, pinnedLast));
+	void listRoomsDelegatesToAuthoritativeSummaryQuery() {
+		ChatRoomSummaryResponse summary = new ChatRoomSummaryResponse(
+			100L,
+			RoomType.direct,
+			null,
+			null,
+			false,
+			true,
+			3L,
+			null
+		);
+		when(chatRoomSummaryQueryService.listForUser(42L, null)).thenReturn(List.of(summary));
 
 		var response = service.listRooms(principal(42L), null);
 
-		assertThat(response)
-			.extracting(room -> room.roomId())
-			.containsExactly(200L, 100L);
-		assertThat(response.get(0).pinned()).isTrue();
-		assertThat(response.get(0).lastMessage().content()).isEqualTo("pinned");
-		assertThat(response.get(1).unreadCount()).isEqualTo(3L);
+		assertThat(response).containsExactly(summary);
+		verify(chatRoomSummaryQueryService).listForUser(42L, null);
 	}
 
 	@Test
-	void listRoomsUsesTypeSpecificQueryWhenTypeIsPresent() {
-		when(chatRoomRepository.findActiveRoomsByUserIdAndRoomType(42L, RoomType.direct))
-			.thenReturn(List.of());
+	void listRoomsPassesRequestedTypeToAuthoritativeSummaryQuery() {
+		when(chatRoomSummaryQueryService.listForUser(42L, RoomType.direct)).thenReturn(List.of());
 
 		assertThat(service.listRooms(principal(42L), RoomType.direct)).isEmpty();
 
-		verify(chatRoomRepository).findActiveRoomsByUserIdAndRoomType(42L, RoomType.direct);
-		verify(chatRoomRepository, never()).findActiveRoomsByUserId(42L);
+		verify(chatRoomSummaryQueryService).listForUser(42L, RoomType.direct);
 	}
 
 	@Test
