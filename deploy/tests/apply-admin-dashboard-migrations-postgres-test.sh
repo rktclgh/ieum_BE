@@ -59,7 +59,11 @@ sql "
   CREATE SCHEMA trap;
   CREATE TABLE public.users (user_id bigint PRIMARY KEY);
   CREATE TABLE trap.users (user_id bigint PRIMARY KEY);
-  ALTER ROLE postgres IN DATABASE ieum SET search_path = trap, public;
+  CREATE FUNCTION trap.hashtextextended(text, bigint) RETURNS bigint
+    LANGUAGE sql AS 'SELECT 0::bigint';
+  CREATE FUNCTION trap.pg_advisory_lock(bigint) RETURNS void
+    LANGUAGE plpgsql AS 'BEGIN RAISE EXCEPTION ''unsafe search_path''; END';
+  ALTER ROLE postgres IN DATABASE ieum SET search_path = trap, pg_catalog, public;
 " >/dev/null
 
 run_helper() {

@@ -26,8 +26,8 @@ cd "$root"
 psql \
   --no-psqlrc \
   --set=ON_ERROR_STOP=1 <<'SQL'
-SELECT pg_advisory_lock(hashtextextended('ieum:admin-dashboard:v25-v26', 0));
 SET search_path = pg_catalog, public;
+SELECT pg_advisory_lock(hashtextextended('ieum:admin-dashboard:v25-v26', 0));
 
 CREATE OR REPLACE FUNCTION pg_temp.auth_version_contract_state()
 RETURNS text

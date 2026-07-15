@@ -79,6 +79,11 @@ grep -Fq "apply_auth_version_migration" "$stdin_file" \
   || fail "an exact existing auth schema must skip the locking v25 file"
 grep -Fq "SET search_path = pg_catalog, public" "$stdin_file" \
   || fail "migration session must pin trusted catalog resolution before running qualified DDL"
+search_path_line="$(grep -n -m1 -F 'SET search_path = pg_catalog, public' "$stdin_file" | cut -d: -f1)"
+advisory_lock_line="$(grep -n -m1 -F 'SELECT pg_advisory_lock' "$stdin_file" | cut -d: -f1)"
+test -n "$search_path_line" && test -n "$advisory_lock_line" \
+  && (( search_path_line < advisory_lock_line )) \
+  || fail "trusted search_path must be pinned before the advisory-lock function call"
 
 required_exact_catalog_tokens=(
   "relpersistence = 'p'"
