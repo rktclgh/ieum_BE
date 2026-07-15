@@ -47,7 +47,7 @@ class ChatMemberTest {
 	}
 
 	@Test
-	void hideHistoryThroughAdvancesVisibilityWithoutLeavingTheRoom() {
+	void visibilityCutoffSurvivesLeaveAndRejoin() {
 		ChatRoom room = ChatRoom.direct(1L, 2L);
 		User user = user("history-hidden@example.com", "history-hidden");
 		ChatMember member = ChatMember.join(room, user);
@@ -60,6 +60,10 @@ class ChatMemberTest {
 		assertThat(member.isActive()).isTrue();
 		assertThat(member.getVisibleAfterMessageId()).isEqualTo(41L);
 		assertThat(member.getLastReadAt()).isNull();
+
+		member.leave(now.plusMinutes(2));
+		member.rejoin();
+		assertThat(member.getVisibleAfterMessageId()).isEqualTo(41L);
 	}
 
 	@Test

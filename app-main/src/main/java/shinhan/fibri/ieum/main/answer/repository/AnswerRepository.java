@@ -10,6 +10,8 @@ import shinhan.fibri.ieum.main.answer.domain.Answer;
 
 public interface AnswerRepository extends JpaRepository<Answer, Long> {
 
+	boolean existsByQuestionIdAndAuthorIdAndAiFalse(Long questionId, Long authorId);
+
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("""
 		select a from Answer a

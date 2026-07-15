@@ -2,6 +2,9 @@ package shinhan.fibri.ieum.main.chat.service;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -245,6 +248,22 @@ public class ChatService {
 			.filter(member -> member.getUser().getId().equals(user.getId()))
 			.findFirst()
 			.ifPresentOrElse(ChatMember::rejoin, () -> chatMemberRepository.save(ChatMember.join(room, user)));
+	}
+
+	private Map<Long, String> findQuestionTitles(List<ChatRoom> rooms) {
+		List<Long> questionIds = rooms.stream()
+			.map(ChatRoom::getQuestionId)
+			.filter(Objects::nonNull)
+			.distinct()
+			.toList();
+		if (questionIds.isEmpty()) {
+			return Map.of();
+		}
+		return questionRepository.findTitlesByIds(questionIds).stream()
+			.collect(Collectors.toMap(
+				QuestionTitleProjection::getQuestionId,
+				QuestionTitleProjection::getTitle
+			));
 	}
 
 	private String findQuestionTitle(Long questionId) {

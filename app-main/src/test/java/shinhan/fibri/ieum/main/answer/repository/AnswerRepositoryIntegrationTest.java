@@ -76,6 +76,14 @@ class AnswerRepositoryIntegrationTest {
 	}
 
 	@Test
+	void humanAnswerPredicateMatchesOnlyExactQuestionAndAuthorAndExcludesAi() {
+		assertThat(repository.existsByQuestionIdAndAuthorIdAndAiFalse(1L, 2L)).isTrue();
+		assertThat(repository.existsByQuestionIdAndAuthorIdAndAiFalse(2L, 2L)).isFalse();
+		assertThat(repository.existsByQuestionIdAndAuthorIdAndAiFalse(1L, 3L)).isFalse();
+		assertThat(repository.existsByQuestionIdAndAuthorIdAndAiFalse(1L, null)).isFalse();
+	}
+
+	@Test
 	@Transactional(propagation = Propagation.NOT_SUPPORTED)
 	void findAllByQuestionIdAndIdInForUpdateReturnsIdOrderAndLocksRowsAgainstConcurrentAcceptedUpdate() throws Exception {
 		ExecutorService executor = Executors.newSingleThreadExecutor();
