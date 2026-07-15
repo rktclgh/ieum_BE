@@ -40,17 +40,20 @@ case "$datasource_url" in
     ;;
 esac
 
-inquiry_admin_email="$(sed -n 's/^INQUIRY_ADMIN_EMAIL=//p' "$deploy_dir/.env.runtime" | tail -n 1)"
-[[ -n "$inquiry_admin_email" ]] || {
-  echo "INQUIRY_ADMIN_EMAIL is required in .env.runtime." >&2
-  exit 1
-}
+# app-main 전용 검증 (app-ai는 admin 문의 메일·redis를 쓰지 않음)
+if [[ "$service" == "app-main" ]]; then
+  inquiry_admin_email="$(sed -n 's/^INQUIRY_ADMIN_EMAIL=//p' "$deploy_dir/.env.runtime" | tail -n 1)"
+  [[ -n "$inquiry_admin_email" ]] || {
+    echo "INQUIRY_ADMIN_EMAIL is required in .env.runtime." >&2
+    exit 1
+  }
 
-redis_host="$(sed -n 's/^REDIS_HOST=//p' "$deploy_dir/.env.runtime" | tail -n 1)"
-[[ "$redis_host" == "redis" ]] || {
-  echo "REDIS_HOST must be redis in .env.runtime." >&2
-  exit 1
-}
+  redis_host="$(sed -n 's/^REDIS_HOST=//p' "$deploy_dir/.env.runtime" | tail -n 1)"
+  [[ "$redis_host" == "redis" ]] || {
+    echo "REDIS_HOST must be redis in .env.runtime." >&2
+    exit 1
+  }
+fi
 
 if ! IFS= read -r dockerhub_token || [[ -z "$dockerhub_token" ]]; then
   echo "Docker Hub token is empty" >&2

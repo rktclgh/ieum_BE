@@ -27,7 +27,7 @@ permissions:
 
 concurrency:
   group: deploy-app-main-production
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -40,8 +40,11 @@ jobs:
     steps:
       - name: Check out backend
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Validate deployment source
+        if: github.event_name == 'push'
         run: |
           [[ "$GITHUB_REF" == "refs/heads/main" ]]
 
@@ -110,6 +113,7 @@ jobs:
         run: deploy/tests/verify-static-frontend-package.sh app-main/src/main/resources/static app-main/build/libs/app-main.jar
 
       - name: Refuse stale deployment
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
