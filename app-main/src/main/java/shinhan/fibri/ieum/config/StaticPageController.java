@@ -22,10 +22,19 @@ public class StaticPageController {
 		"/meetups/detail", "/meetups/detail/",
 		"/my", "/my/",
 		"/my/edit", "/my/edit/",
-		"/my/settings", "/my/settings/",
+		"/my/inquiry", "/my/inquiry/",
+		"/my/notifications", "/my/notifications/",
+		"/my/permissions", "/my/permissions/",
 		"/oauth/kakao/callback", "/oauth/kakao/callback/",
 		"/questions", "/questions/",
-		"/questions/detail", "/questions/detail/"
+		"/questions/detail", "/questions/detail/",
+		"/admin", "/admin/",
+		"/admin/login", "/admin/login/",
+		"/admin/users", "/admin/users/",
+		"/admin/users/detail", "/admin/users/detail/",
+		"/admin/reports", "/admin/reports/",
+		"/admin/reports/detail", "/admin/reports/detail/",
+		"/admin/inquiries", "/admin/inquiries/"
 	})
 	public String forwardStaticPage(HttpServletRequest request) {
 		String path = HttpRequestPaths.withinApplication(request);

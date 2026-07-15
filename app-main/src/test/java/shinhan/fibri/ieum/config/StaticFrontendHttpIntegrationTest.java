@@ -36,16 +36,24 @@ class StaticFrontendHttpIntegrationTest {
 
 	@Test
 	void servesForwardedHtmlWithoutConsultingAnInvalidAuthCookie() throws Exception {
-		HttpResponse<String> response = get("/login", "access_token=invalid-static-cookie");
+		HttpResponse<String> response = get("/admin/login", "access_token=invalid-static-cookie");
 
 		assertThat(response.statusCode()).isEqualTo(200);
-		assertThat(response.body()).contains("STATIC_LOGIN_PAGE");
+		assertThat(response.body()).contains("STATIC_ADMIN_LOGIN_PAGE");
 		assertThat(response.headers().firstValue("Content-Type")).hasValueSatisfying(
 			value -> assertThat(value).startsWith("text/html")
 		);
 		assertThat(response.headers().firstValue("Cache-Control")).contains("no-cache");
 		assertThat(response.headers().firstValue("Cross-Origin-Opener-Policy"))
 			.contains("same-origin-allow-popups");
+	}
+
+	@Test
+	void removedSettingsPageUsesTheFrontend404() throws Exception {
+		HttpResponse<String> response = get("/my/settings", null);
+
+		assertThat(response.statusCode()).isEqualTo(404);
+		assertThat(response.body()).contains("NEXT_STATIC_404");
 	}
 
 	@Test

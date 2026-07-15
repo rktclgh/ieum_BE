@@ -42,10 +42,23 @@ routes=(
   meetups/detail
   my
   my/edit
-  my/settings
+  my/inquiry
+  my/notifications
+  my/permissions
   oauth/kakao/callback
   questions
   questions/detail
+  admin
+  admin/login
+  admin/users
+  admin/users/detail
+  admin/reports
+  admin/reports/detail
+  admin/inquiries
+)
+
+forbidden_routes=(
+  my/settings
 )
 
 require_static_file index.html
@@ -55,6 +68,10 @@ require_static_file 404.html
 for route in "${routes[@]}"; do
   require_static_file "$route/index.html"
   require_static_file "$route/index.txt"
+done
+
+for route in "${forbidden_routes[@]}"; do
+  test ! -e "$static_dir/$route" || fail "removed static route is still present: $route"
 done
 
 test -n "$(find "$static_dir/_next/static" -type f -print -quit 2>/dev/null)" \
@@ -93,6 +110,13 @@ for route in "${routes[@]}"; do
   require_jar_entry "$route/index.txt"
 done
 
+
+for route in "${forbidden_routes[@]}"; do
+  if grep -Fq "BOOT-INF/classes/static/$route/" "$jar_listing"; then
+    fail "removed static route is still packaged in JAR: $route"
+  fi
+done
+
 grep -Eq '^BOOT-INF/classes/static/_next/static/.+' "$jar_listing" \
   || fail "no hashed Next.js static asset packaged in JAR"
 
@@ -108,6 +132,19 @@ sed -n 's#^BOOT-INF/classes/static/\(.*\.txt\)$#\1#p' "$jar_listing" \
 
 if ! diff -u "$expected_rsc" "$packaged_rsc"; then
   fail "packaged RSC manifest differs from static directory"
+fi
+
+absolute_jar_file="$(cd "$(dirname "$jar_file")" && pwd)/$(basename "$jar_file")"
+extracted_dir="$work_dir/extracted"
+mkdir -p "$extracted_dir"
+(
+  cd "$extracted_dir"
+  jar xf "$absolute_jar_file" BOOT-INF/classes/static
+)
+
+if ! diff -qr "$static_dir" "$extracted_dir/BOOT-INF/classes/static" >/dev/null; then
+  diff -qr "$static_dir" "$extracted_dir/BOOT-INF/classes/static" >&2 || true
+  fail "packaged static subtree differs from static directory"
 fi
 
 echo "Static frontend JAR verification passed."

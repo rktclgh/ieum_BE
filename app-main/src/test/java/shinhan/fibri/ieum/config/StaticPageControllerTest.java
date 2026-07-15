@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.config;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.forwardedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.mockito.Mockito.mock;
@@ -45,10 +46,19 @@ class StaticPageControllerTest {
 		"/meetups/detail",
 		"/my",
 		"/my/edit",
-		"/my/settings",
+		"/my/inquiry",
+		"/my/notifications",
+		"/my/permissions",
 		"/oauth/kakao/callback",
 		"/questions",
-		"/questions/detail"
+		"/questions/detail",
+		"/admin",
+		"/admin/login",
+		"/admin/users",
+		"/admin/users/detail",
+		"/admin/reports",
+		"/admin/reports/detail",
+		"/admin/inquiries"
 	})
 	void fixedPageWithAndWithoutTrailingSlashForwardsToNestedIndexHtml(String path) throws Exception {
 		String expectedIndex = path + "/index.html";
@@ -60,13 +70,23 @@ class StaticPageControllerTest {
 		mockMvc.perform(get(path + "/"))
 			.andExpect(status().isOk())
 			.andExpect(forwardedUrl(expectedIndex));
+
+		mockMvc.perform(head(path))
+			.andExpect(status().isOk())
+			.andExpect(forwardedUrl(expectedIndex));
 	}
 
 	@Test
 	void queryParametersDoNotChangeTheForwardTarget() throws Exception {
-		mockMvc.perform(get("/chats/room").queryParam("chatId", "17"))
+		mockMvc.perform(get("/admin/users/detail").queryParam("userId", "10"))
 			.andExpect(status().isOk())
-			.andExpect(forwardedUrl("/chats/room/index.html"));
+			.andExpect(forwardedUrl("/admin/users/detail/index.html"));
+	}
+
+	@Test
+	void removedSettingsPageIsNotForwarded() throws Exception {
+		mockMvc.perform(get("/my/settings"))
+			.andExpect(status().isNotFound());
 	}
 
 	@TestConfiguration
