@@ -1,7 +1,10 @@
 package shinhan.fibri.ieum.main.chat.service;
 
+import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -21,27 +24,39 @@ import shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException;
 @RequiredArgsConstructor
 public class ChatMessageService {
 
+	private static final Logger log = LoggerFactory.getLogger(ChatMessageService.class);
 	private static final int MAX_CONTENT_LENGTH = 2000;
 
 	private final ChatMemberRepository chatMemberRepository;
 	private final MessageRepository messageRepository;
-	private final OneToOneChatMemberService oneToOneChatMemberService;
 	private final RoomEventPublisher roomEventPublisher;
 	private final ChatNotificationPublisher chatNotificationPublisher;
+	private final ChatRoomListChangeEmitter chatRoomListChangeEmitter;
 
 	@Transactional
 	public ChatMessageResponse send(AuthenticatedUser principal, Long roomId, SendChatMessageRequest request) {
 		validatePayload(request);
-		RoomType roomType = chatMemberRepository.findActiveRoomTypeByRoomIdAndUserId(roomId, principal.userId())
+		ChatMember member = chatMemberRepository.findActiveByRoomIdAndUserId(roomId, principal.userId())
 			.orElseThrow(NotRoomMemberException::new);
-		ChatMember member = roomType == RoomType.group
-			? chatMemberRepository.findActiveByRoomIdAndUserId(roomId, principal.userId())
-				.orElseThrow(NotRoomMemberException::new)
-			: oneToOneChatMemberService.prepareSend(roomId, principal.userId());
+		restoreLeftMembersForReopenableRoom(member, principal.userId());
 		Message message = messageRepository.save(toMessage(member, request));
+		List<Long> activeUserIds = chatMemberRepository.findActiveUserIdsByRoomId(roomId);
+		chatRoomListChangeEmitter.upsert(roomId, activeUserIds);
 		WsMessageEvent event = toEvent(message);
-		publishAfterCommit(event);
+		ChatPushTrigger pushTrigger = new ChatPushTrigger(
+			message.getId(),
+			message.getRoom().getId(),
+			message.getSender().getId()
+		);
+		publishAfterCommit(event, pushTrigger);
 		return ChatMessageResponse.from(message);
+	}
+
+	private void restoreLeftMembersForReopenableRoom(ChatMember senderMember, Long senderId) {
+		if (senderMember.getRoom().getRoomType() == RoomType.group) {
+			return;
+		}
+		chatMemberRepository.restoreLeftMembersByRoomIdExceptSender(senderMember.getRoom().getId(), senderId);
 	}
 
 	private void validatePayload(SendChatMessageRequest request) {
@@ -81,21 +96,42 @@ public class ChatMessageService {
 		);
 	}
 
-	private void publishAfterCommit(WsMessageEvent event) {
+	private void publishAfterCommit(WsMessageEvent event, ChatPushTrigger pushTrigger) {
 		if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-			publish(event);
+			publish(event, pushTrigger);
 			return;
 		}
 		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
 			@Override
 			public void afterCommit() {
-				publish(event);
+				publish(event, pushTrigger);
 			}
 		});
 	}
 
-	private void publish(WsMessageEvent event) {
-		roomEventPublisher.publish(event);
-		chatNotificationPublisher.messageCreated(event);
+	private void publish(WsMessageEvent event, ChatPushTrigger pushTrigger) {
+		try {
+			roomEventPublisher.publish(event);
+		}
+		catch (RuntimeException exception) {
+			log.warn(
+				"event=chat_fanout_failed channel=websocket roomId={} messageId={} failureType={}",
+				event.roomId(),
+				event.messageId(),
+				exception.getClass().getSimpleName()
+			);
+		}
+
+		try {
+			chatNotificationPublisher.messageCreated(pushTrigger);
+		}
+		catch (RuntimeException exception) {
+			log.warn(
+				"event=chat_fanout_failed channel=web_push roomId={} messageId={} failureType={}",
+				pushTrigger.roomId(),
+				pushTrigger.messageId(),
+				exception.getClass().getSimpleName()
+			);
+		}
 	}
 }

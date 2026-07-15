@@ -31,6 +31,7 @@ dependencies {
 	// WebSocket (SSE 자체는 webmvc 만으로 동작)
 	implementation("org.springframework.boot:spring-boot-starter-websocket")
 	implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.2")
+	implementation("com.interaso:webpush:1.3.0")
 
 	compileOnly("org.projectlombok:lombok")
 	developmentOnly("org.springframework.boot:spring-boot-devtools")

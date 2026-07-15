@@ -34,6 +34,7 @@ import shinhan.fibri.ieum.main.admin.user.exception.InvalidSanctionRequestExcept
 import shinhan.fibri.ieum.main.admin.user.exception.UserNotSanctionedException;
 import shinhan.fibri.ieum.main.admin.user.repository.UserSanctionRepository;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
+import shinhan.fibri.ieum.main.notification.push.WebPushSubscriptionCleanup;
 import shinhan.fibri.ieum.main.notification.sse.SseConnectionRegistry;
 
 class AdminSanctionServiceTest {
@@ -41,11 +42,13 @@ class AdminSanctionServiceTest {
 	private final UserRepository userRepository = mock(UserRepository.class);
 	private final UserSanctionRepository sanctionRepository = mock(UserSanctionRepository.class);
 	private final RedisAuthSessionStore sessionStore = mock(RedisAuthSessionStore.class);
+	private final WebPushSubscriptionCleanup webPushSubscriptionCleanup = mock(WebPushSubscriptionCleanup.class);
 	private final SseConnectionRegistry sseConnectionRegistry = mock(SseConnectionRegistry.class);
 	private final AdminSanctionService service = new AdminSanctionService(
 		userRepository,
 		sanctionRepository,
 		sessionStore,
+		webPushSubscriptionCleanup,
 		sseConnectionRegistry
 	);
 
@@ -80,6 +83,7 @@ class AdminSanctionServiceTest {
 		assertThat(response.sanctionId()).isEqualTo(99L);
 		assertThat(target.getStatus()).isEqualTo(UserStatus.suspended);
 		verify(sessionStore, never()).revokeAllSessionsOfUser(10L);
+		verify(webPushSubscriptionCleanup, never()).deleteForUser(10L);
 		verify(sseConnectionRegistry, never()).closeUser(10L);
 
 		for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
@@ -87,6 +91,7 @@ class AdminSanctionServiceTest {
 		}
 
 		verify(sessionStore).revokeAllSessionsOfUser(10L);
+		verify(webPushSubscriptionCleanup).deleteForUser(10L);
 		verify(sseConnectionRegistry).closeUser(10L);
 	}
 
@@ -175,6 +180,25 @@ class AdminSanctionServiceTest {
 		);
 
 		verify(sseConnectionRegistry).closeUser(10L);
+		verify(webPushSubscriptionCleanup).deleteForUser(10L);
+	}
+
+	@Test
+	void sanctionRunsRemainingInvalidationActionsWhenPushCleanupFails() {
+		when(userRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(user()));
+		when(sanctionRepository.save(any(UserSanction.class))).thenAnswer(invocation -> invocation.getArgument(0));
+		doThrow(new IllegalStateException("database unavailable"))
+			.when(webPushSubscriptionCleanup).deleteForUser(10L);
+
+		service.sanction(
+			adminPrincipal(),
+			10L,
+			new CreateSanctionRequest(SanctionType.permanent, "abuse", null)
+		);
+
+		verify(sessionStore).revokeAllSessionsOfUser(10L);
+		verify(webPushSubscriptionCleanup).deleteForUser(10L);
+		verify(sseConnectionRegistry).closeUser(10L);
 	}
 
 	@Test
@@ -191,8 +215,28 @@ class AdminSanctionServiceTest {
 		)).isInstanceOf(DataIntegrityViolationException.class);
 
 		verify(sessionStore, never()).revokeAllSessionsOfUser(10L);
+		verify(webPushSubscriptionCleanup, never()).deleteForUser(10L);
 		verify(sseConnectionRegistry, never()).closeUser(10L);
 		assertThat(TransactionSynchronizationManager.getSynchronizations()).isEmpty();
+	}
+
+	@Test
+	void sanctionDoesNotRunRegisteredInvalidationActionsAfterRollback() {
+		TransactionSynchronizationManager.initSynchronization();
+		when(userRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(user()));
+		when(sanctionRepository.save(any(UserSanction.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+		service.sanction(
+			adminPrincipal(),
+			10L,
+			new CreateSanctionRequest(SanctionType.permanent, "abuse", null)
+		);
+		TransactionSynchronizationManager.getSynchronizations()
+			.forEach(synchronization -> synchronization.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK));
+
+		verify(sessionStore, never()).revokeAllSessionsOfUser(10L);
+		verify(webPushSubscriptionCleanup, never()).deleteForUser(10L);
+		verify(sseConnectionRegistry, never()).closeUser(10L);
 	}
 
 	@Test
@@ -228,6 +272,8 @@ class AdminSanctionServiceTest {
 		}
 
 		verify(sessionStore).revokeAllSessionsOfUser(10L);
+		verify(webPushSubscriptionCleanup).deleteForUser(10L);
+		verify(sseConnectionRegistry).closeUser(10L);
 	}
 
 	@Test
@@ -358,6 +404,7 @@ class AdminSanctionServiceTest {
 
 		assertThat(target.getStatus()).isEqualTo(UserStatus.suspended);
 		assertThat(sanction.getReleasedBy()).isEqualTo(1L);
+		verify(webPushSubscriptionCleanup, never()).deleteForUser(10L);
 	}
 
 	private static AuthenticatedUser adminPrincipal() {

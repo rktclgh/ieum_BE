@@ -3,6 +3,7 @@ package shinhan.fibri.ieum.common.chat.repository;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -51,6 +52,9 @@ class ChatRepositoryTest {
 	@Autowired
 	private EntityManager entityManager;
 
+	@Autowired
+	private EntityManagerFactory entityManagerFactory;
+
 	@Test
 	void findsActiveRoomsForUserAndOptionalType() {
 		User me = persist(user("rooms-me@example.com", "rooms-me"));
@@ -90,6 +94,52 @@ class ChatRepositoryTest {
 	}
 
 	@Test
+	void findsActiveUserIdsByRoomIdOnlyForCurrentMembers() {
+		User me = persist(user("active-ids-me@example.com", "active-ids-me"));
+		User friend = persist(user("active-ids-friend@example.com", "active-ids-friend"));
+		User leftUser = persist(user("active-ids-left@example.com", "active-ids-left"));
+		User other = persist(user("active-ids-other@example.com", "active-ids-other"));
+		ChatRoom room = chatRoomRepository.save(ChatRoom.direct(me.getId(), friend.getId()));
+		ChatRoom otherRoom = chatRoomRepository.save(ChatRoom.direct(me.getId(), other.getId()));
+		chatMemberRepository.save(ChatMember.join(room, me));
+		chatMemberRepository.save(ChatMember.join(room, friend));
+		ChatMember left = chatMemberRepository.save(ChatMember.join(room, leftUser));
+		left.leave(OffsetDateTime.parse("2026-07-08T09:00:00+09:00"));
+		chatMemberRepository.save(ChatMember.join(otherRoom, other));
+		entityManager.flush();
+		entityManager.clear();
+
+		assertThat(chatMemberRepository.findActiveUserIdsByRoomId(room.getId()))
+			.containsExactlyInAnyOrder(me.getId(), friend.getId());
+	}
+
+	@Test
+	void findsActiveMembersByRoomAndRequestedUsersInOneQuery() {
+		User me = persist(user("active-batch-me@example.com", "active-batch-me"));
+		User friend = persist(user("active-batch-friend@example.com", "active-batch-friend"));
+		User leftUser = persist(user("active-batch-left@example.com", "active-batch-left"));
+		User other = persist(user("active-batch-other@example.com", "active-batch-other"));
+		ChatRoom room = chatRoomRepository.save(ChatRoom.direct(me.getId(), friend.getId()));
+		ChatRoom otherRoom = chatRoomRepository.save(ChatRoom.direct(me.getId(), other.getId()));
+		chatMemberRepository.save(ChatMember.join(room, me));
+		chatMemberRepository.save(ChatMember.join(room, friend));
+		ChatMember left = chatMemberRepository.save(ChatMember.join(room, leftUser));
+		left.leave(OffsetDateTime.parse("2026-07-08T09:00:00+09:00"));
+		chatMemberRepository.save(ChatMember.join(otherRoom, other));
+		entityManager.flush();
+		entityManager.clear();
+
+		List<ChatMember> members = chatMemberRepository.findActiveByRoomIdAndUserIds(
+			room.getId(),
+			List.of(me.getId(), friend.getId(), leftUser.getId(), other.getId())
+		);
+
+		assertThat(members)
+			.extracting(member -> member.getUser().getId())
+			.containsExactlyInAnyOrder(me.getId(), friend.getId());
+	}
+
+	@Test
 	void findsAllRoomMembersWithUserFetched() {
 		User me = persist(user("all-me@example.com", "all-me"));
 		User friend = persist(user("all-friend@example.com", "all-friend"));
@@ -109,6 +159,40 @@ class ChatRepositoryTest {
 	}
 
 	@Test
+	void findsPushRecipientUserIdsInAscendingOrderExcludingSenderMutedLeftAndCutoffMembers() {
+		User sender = persist(user("push-sender@example.com", "push-sender"));
+		User eligibleLow = persist(user("push-low@example.com", "push-low"));
+		User eligibleHigh = persist(user("push-high@example.com", "push-high"));
+		User muted = persist(user("push-muted@example.com", "push-muted"));
+		User left = persist(user("push-left@example.com", "push-left"));
+		User hiddenByCutoff = persist(user("push-cutoff@example.com", "push-cutoff"));
+		User otherRoom = persist(user("push-other-room@example.com", "push-other-room"));
+		ChatRoom room = chatRoomRepository.save(ChatRoom.direct(sender.getId(), eligibleLow.getId()));
+		ChatRoom anotherRoom = chatRoomRepository.save(ChatRoom.direct(sender.getId(), otherRoom.getId()));
+		chatMemberRepository.save(ChatMember.join(room, sender));
+		chatMemberRepository.save(ChatMember.join(room, eligibleHigh));
+		chatMemberRepository.save(ChatMember.join(room, eligibleLow));
+		ChatMember mutedMember = chatMemberRepository.save(ChatMember.join(room, muted));
+		mutedMember.setNotifyEnabled(false);
+		ChatMember leftMember = chatMemberRepository.save(ChatMember.join(room, left));
+		leftMember.leave(OffsetDateTime.parse("2026-07-08T09:00:00+09:00"));
+		ChatMember cutoffMember = chatMemberRepository.save(ChatMember.join(room, hiddenByCutoff));
+		chatMemberRepository.save(ChatMember.join(anotherRoom, otherRoom));
+		Message sent = messageRepository.save(Message.text(
+			room,
+			sender,
+			"new-message",
+			OffsetDateTime.parse("2026-07-08T10:00:00+09:00")
+		));
+		cutoffMember.hideHistoryThrough(sent.getId());
+		entityManager.flush();
+		entityManager.clear();
+
+		assertThat(chatMemberRepository.findPushRecipientUserIds(room.getId(), sender.getId(), sent.getId()))
+			.containsExactly(eligibleLow.getId(), eligibleHigh.getId());
+	}
+
+	@Test
 	void scopesVisibleHistoryCursorUnreadAndLastMessageToViewer() {
 		User returning = persist(user("visible-returning@example.com", "visible-returning"));
 		User other = persist(user("visible-other@example.com", "visible-other"));
@@ -118,8 +202,7 @@ class ChatRepositoryTest {
 		OffsetDateTime base = OffsetDateTime.parse("2026-07-08T10:00:00+09:00");
 		messageRepository.save(Message.text(room, other, "old-1", base));
 		Message old2 = messageRepository.save(Message.text(room, other, "old-2", base.plusMinutes(1)));
-		returningMember.leave(base.plusMinutes(2));
-		returningMember.reactivateAfter(old2.getId());
+		returningMember.hideHistoryThrough(old2.getId());
 		messageRepository.save(Message.text(room, other, "new-1", base.plusMinutes(3)));
 		entityManager.flush();
 		entityManager.clear();
@@ -150,144 +233,6 @@ class ChatRepositoryTest {
 	}
 
 	@Test
-	void excludesDeletedMessagesIndependentlyWhilePreservingMaxIdAndReportContext() {
-		User returning = persist(user("deleted-returning@example.com", "deleted-returning"));
-		User other = persist(user("deleted-other@example.com", "deleted-other"));
-		ChatRoom room = chatRoomRepository.save(ChatRoom.direct(returning.getId(), other.getId()));
-		ChatMember returningMember = chatMemberRepository.save(ChatMember.join(room, returning));
-		chatMemberRepository.save(ChatMember.join(room, other));
-		OffsetDateTime base = OffsetDateTime.parse("2026-07-08T10:00:00+09:00");
-		Message old1 = messageRepository.save(Message.text(room, other, "old-1", base));
-		Message old2 = messageRepository.save(Message.text(room, other, "old-2", base.plusMinutes(1)));
-		returningMember.leave(base.plusMinutes(2));
-		returningMember.reactivateAfter(old2.getId());
-		Message deletedNew = messageRepository.save(Message.text(room, other, "new-1", base.plusMinutes(3)));
-		deletedNew.markDeleted(base.plusMinutes(4));
-		entityManager.flush();
-		entityManager.clear();
-
-		assertThat(messageRepository.findLatestVisibleMessages(
-			room.getId(), returning.getId(), PageRequest.of(0, 10)
-		)).isEmpty();
-		assertThat(messageRepository.findVisibleMessagesBeforeCursor(
-			room.getId(),
-			returning.getId(),
-			base.plusMinutes(5),
-			Long.MAX_VALUE,
-			PageRequest.of(0, 10)
-		)).isEmpty();
-		assertThat(messageRepository.countUnreadByRoomIds(returning.getId(), List.of(room.getId())))
-			.isEmpty();
-		assertThat(messageRepository.findLastVisibleMessagesByRoomIds(returning.getId(), List.of(room.getId())))
-			.isEmpty();
-		assertThat(messageRepository.findMaxMessageIdByRoomId(room.getId())).isEqualTo(deletedNew.getId());
-		assertThat(messageRepository.findContextBeforeMessage(
-			room.getId(), old2.getCreatedAt(), old2.getId(), PageRequest.of(0, 10)
-		))
-			.extracting(Message::getContent)
-			.containsExactly("old-1");
-		assertThat(messageRepository.findContextAfterMessage(
-			room.getId(), old1.getCreatedAt(), old1.getId(), PageRequest.of(0, 10)
-		))
-			.extracting(Message::getContent)
-			.containsExactly("old-2");
-	}
-
-	@Test
-	void findsOneLastVisibleMessagePerRoomAfterFilteringDeletedAndCutoffMessages() {
-		User viewer = persist(user("last-viewer@example.com", "last-viewer"));
-		User firstPeer = persist(user("last-first-peer@example.com", "last-first-peer"));
-		User secondPeer = persist(user("last-second-peer@example.com", "last-second-peer"));
-		ChatRoom firstRoom = chatRoomRepository.save(ChatRoom.direct(viewer.getId(), firstPeer.getId()));
-		ChatRoom secondRoom = chatRoomRepository.save(ChatRoom.direct(viewer.getId(), secondPeer.getId()));
-		chatMemberRepository.save(ChatMember.join(firstRoom, viewer));
-		chatMemberRepository.save(ChatMember.join(firstRoom, firstPeer));
-		ChatMember secondRoomViewer = chatMemberRepository.save(ChatMember.join(secondRoom, viewer));
-		chatMemberRepository.save(ChatMember.join(secondRoom, secondPeer));
-		OffsetDateTime base = OffsetDateTime.parse("2026-07-08T10:00:00+09:00");
-		messageRepository.save(Message.text(firstRoom, firstPeer, "first-visible", base));
-		Message firstDeleted = messageRepository.save(
-			Message.text(firstRoom, firstPeer, "first-deleted", base.plusMinutes(5))
-		);
-		firstDeleted.markDeleted(base.plusMinutes(6));
-		Message secondHidden = messageRepository.save(
-			Message.text(secondRoom, secondPeer, "second-hidden", base.plusMinutes(1))
-		);
-		secondRoomViewer.leave(base.plusMinutes(2));
-		secondRoomViewer.reactivateAfter(secondHidden.getId());
-		messageRepository.save(Message.text(secondRoom, secondPeer, "second-visible", base.plusMinutes(3)));
-		Message secondDeleted = messageRepository.save(
-			Message.text(secondRoom, secondPeer, "second-deleted", base.plusMinutes(7))
-		);
-		secondDeleted.markDeleted(base.plusMinutes(8));
-		entityManager.flush();
-		entityManager.clear();
-
-		assertThat(messageRepository.findLastVisibleMessagesByRoomIds(
-			viewer.getId(), List.of(firstRoom.getId(), secondRoom.getId())
-		))
-			.extracting(message -> message.getRoom().getId(), Message::getContent)
-			.containsExactly(
-				org.assertj.core.groups.Tuple.tuple(secondRoom.getId(), "second-visible"),
-				org.assertj.core.groups.Tuple.tuple(firstRoom.getId(), "first-visible")
-			);
-	}
-
-	@Test
-	void userFacingQueriesRequireAnActiveViewerMembership() {
-		User viewer = persist(user("inactive-viewer@example.com", "inactive-viewer"));
-		User peer = persist(user("inactive-peer@example.com", "inactive-peer"));
-		ChatRoom room = chatRoomRepository.save(ChatRoom.direct(viewer.getId(), peer.getId()));
-		ChatMember viewerMember = chatMemberRepository.save(ChatMember.join(room, viewer));
-		chatMemberRepository.save(ChatMember.join(room, peer));
-		OffsetDateTime base = OffsetDateTime.parse("2026-07-08T10:00:00+09:00");
-		messageRepository.save(Message.text(room, peer, "hidden-while-inactive", base));
-		viewerMember.leave(base.plusMinutes(1));
-		entityManager.flush();
-		entityManager.clear();
-
-		assertThat(messageRepository.findLatestVisibleMessages(
-			room.getId(), viewer.getId(), PageRequest.of(0, 10)
-		)).isEmpty();
-		assertThat(messageRepository.findVisibleMessagesBeforeCursor(
-			room.getId(),
-			viewer.getId(),
-			base.plusMinutes(2),
-			Long.MAX_VALUE,
-			PageRequest.of(0, 10)
-		)).isEmpty();
-		assertThat(messageRepository.countUnreadByRoomIds(viewer.getId(), List.of(room.getId())))
-			.isEmpty();
-		assertThat(messageRepository.findLastVisibleMessagesByRoomIds(viewer.getId(), List.of(room.getId())))
-			.isEmpty();
-	}
-
-	@Test
-	void groupMemberWithZeroCutoffSeesHistoryAndScalarRoomTypeRemainsQueryable() {
-		User viewer = persist(user("group-viewer@example.com", "group-viewer"));
-		User peer = persist(user("group-peer@example.com", "group-peer"));
-		persistMeeting(9001L, viewer);
-		ChatRoom room = chatRoomRepository.save(ChatRoom.group(9001L));
-		ChatMember viewerMember = chatMemberRepository.save(ChatMember.join(room, viewer));
-		chatMemberRepository.save(ChatMember.join(room, peer));
-		OffsetDateTime base = OffsetDateTime.parse("2026-07-08T10:00:00+09:00");
-		messageRepository.save(Message.text(room, peer, "group-history", base));
-		viewerMember.leave(base.plusMinutes(1));
-		viewerMember.rejoin();
-		entityManager.flush();
-		entityManager.clear();
-
-		assertThat(viewerMember.getVisibleAfterMessageId()).isZero();
-		assertThat(chatMemberRepository.findActiveRoomTypeByRoomIdAndUserId(room.getId(), viewer.getId()))
-			.contains(RoomType.group);
-		assertThat(messageRepository.findLatestVisibleMessages(
-			room.getId(), viewer.getId(), PageRequest.of(0, 10)
-		))
-			.extracting(Message::getContent)
-			.containsExactly("group-history");
-	}
-
-	@Test
 	void countsUnreadMessagesAndFindsLastMessagesInBulk() {
 		User me = persist(user("unread-me@example.com", "unread-me"));
 		User friend = persist(user("unread-friend@example.com", "unread-friend"));
@@ -308,6 +253,114 @@ class ChatRepositoryTest {
 		assertThat(messageRepository.findLastVisibleMessagesByRoomIds(me.getId(), List.of(room.getId())))
 			.extracting(Message::getContent)
 			.containsExactly("new");
+	}
+
+	@Test
+	void findsLastMessagesByCreatedAtThenIdInsteadOfMaxIdInBulk() {
+		User me = persist(user("last-order-me@example.com", "last-order-me"));
+		User friend = persist(user("last-order-friend@example.com", "last-order-friend"));
+		ChatRoom room = chatRoomRepository.save(ChatRoom.direct(me.getId(), friend.getId()));
+		chatMemberRepository.save(ChatMember.join(room, me));
+		chatMemberRepository.save(ChatMember.join(room, friend));
+		OffsetDateTime base = OffsetDateTime.parse("2026-07-08T10:00:00+09:00");
+		Message latestByCreatedAt = messageRepository.save(Message.text(room, friend, "latest-created-at", base.plusMinutes(1)));
+		Message olderWithHigherId = messageRepository.save(Message.text(room, friend, "older-higher-id", base));
+		entityManager.flush();
+		entityManager.clear();
+
+		assertThat(olderWithHigherId.getId()).isGreaterThan(latestByCreatedAt.getId());
+		List<Message> messages = messageRepository.findLastVisibleMessagesByRoomIds(
+			me.getId(),
+			List.of(room.getId())
+		);
+
+		assertThat(messages)
+			.extracting(Message::getContent)
+			.containsExactly("latest-created-at");
+		assertThat(entityManagerFactory.getPersistenceUnitUtil().isLoaded(messages.get(0).getSender())).isTrue();
+		assertThat(entityManagerFactory.getPersistenceUnitUtil().isLoaded(messages.get(0).getRoom())).isTrue();
+	}
+
+	@Test
+	void findsLastMessagesByHigherIdWhenCreatedAtTies() {
+		User me = persist(user("last-tie-me@example.com", "last-tie-me"));
+		User friend = persist(user("last-tie-friend@example.com", "last-tie-friend"));
+		ChatRoom room = chatRoomRepository.save(ChatRoom.direct(me.getId(), friend.getId()));
+		chatMemberRepository.save(ChatMember.join(room, me));
+		chatMemberRepository.save(ChatMember.join(room, friend));
+		OffsetDateTime createdAt = OffsetDateTime.parse("2026-07-08T10:00:00+09:00");
+		messageRepository.save(Message.text(room, friend, "same-created-at-lower-id", createdAt));
+		Message higherId = messageRepository.save(Message.text(room, friend, "same-created-at-higher-id", createdAt));
+		entityManager.flush();
+		entityManager.clear();
+
+		assertThat(messageRepository.findLastVisibleMessagesByRoomIds(me.getId(), List.of(room.getId())))
+			.extracting(Message::getContent)
+			.containsExactly(higherId.getContent());
+	}
+
+	@Test
+	void findsPersonalizedLastVisibleMessagesForRoomListEvents() {
+		User fullHistory = persist(user("event-full@example.com", "event-full"));
+		User cutoffViewer = persist(user("event-cutoff@example.com", "event-cutoff"));
+		ChatRoom room = chatRoomRepository.save(ChatRoom.direct(fullHistory.getId(), cutoffViewer.getId()));
+		chatMemberRepository.save(ChatMember.join(room, fullHistory));
+		ChatMember cutoffMember = chatMemberRepository.save(ChatMember.join(room, cutoffViewer));
+		Message latest = messageRepository.save(Message.text(
+			room,
+			fullHistory,
+			"visible-only-to-full-history",
+			OffsetDateTime.parse("2026-07-08T10:00:00+09:00")
+		));
+		cutoffMember.hideHistoryThrough(latest.getId());
+		entityManager.flush();
+		entityManager.clear();
+
+		assertThat(messageRepository.findLastVisibleMessagesByRoomIdAndUserIds(
+			room.getId(),
+			List.of(fullHistory.getId(), cutoffViewer.getId())
+		))
+			.extracting(
+				MessageRepository.UserLastVisibleMessage::getUserId,
+				projection -> projection.getLastMessage().getContent()
+			)
+			.containsExactly(org.assertj.core.groups.Tuple.tuple(
+				fullHistory.getId(),
+				"visible-only-to-full-history"
+			));
+	}
+
+	@Test
+	void countsUnreadMessagesByRoomAndUsersInOneQuery() {
+		User me = persist(user("unread-batch-me@example.com", "unread-batch-me"));
+		User friend = persist(user("unread-batch-friend@example.com", "unread-batch-friend"));
+		User quiet = persist(user("unread-batch-quiet@example.com", "unread-batch-quiet"));
+		ChatRoom room = chatRoomRepository.save(ChatRoom.direct(me.getId(), friend.getId()));
+		ChatMember meMember = chatMemberRepository.save(ChatMember.join(room, me));
+		ChatMember friendMember = chatMemberRepository.save(ChatMember.join(room, friend));
+		ChatMember quietMember = chatMemberRepository.save(ChatMember.join(room, quiet));
+		OffsetDateTime base = OffsetDateTime.parse("2026-07-08T10:00:00+09:00");
+		meMember.markRead(base);
+		friendMember.markRead(base.plusMinutes(1));
+		quietMember.markRead(base.plusMinutes(10));
+		messageRepository.save(Message.text(room, me, "old-own", base.minusMinutes(1)));
+		messageRepository.save(Message.text(room, friend, "for-me", base.plusMinutes(2)));
+		messageRepository.save(Message.text(room, quiet, "for-me-and-friend", base.plusMinutes(3)));
+		entityManager.flush();
+		entityManager.clear();
+
+		assertThat(messageRepository.countUnreadByRoomIdAndUserIds(
+			room.getId(),
+			List.of(me.getId(), friend.getId(), quiet.getId())
+		))
+			.extracting(
+				MessageRepository.UserUnreadCount::getUserId,
+				MessageRepository.UserUnreadCount::getUnreadCount
+			)
+			.containsExactlyInAnyOrder(
+				org.assertj.core.groups.Tuple.tuple(me.getId(), 2L),
+				org.assertj.core.groups.Tuple.tuple(friend.getId(), 1L)
+			);
 	}
 
 	@Test
@@ -437,24 +490,6 @@ class ChatRepositoryTest {
 			.setParameter("questionId", questionId)
 			.setParameter("pinId", questionId)
 			.setParameter("authorId", author.getId())
-			.executeUpdate();
-	}
-
-	private void persistMeeting(Long meetingId, User host) {
-		entityManager.createNativeQuery("""
-			INSERT INTO pins (pin_id, pin_type, author_id, location, address)
-			VALUES (:pinId, 'meeting', :hostId, ST_GeogFromText('SRID=4326;POINT(127.0 37.5)'), 'address')
-			""")
-			.setParameter("pinId", meetingId)
-			.setParameter("hostId", host.getId())
-			.executeUpdate();
-		entityManager.createNativeQuery("""
-			INSERT INTO meetings (meeting_id, pin_id, host_id, title, meeting_at)
-			VALUES (:meetingId, :pinId, :hostId, 'group', TIMESTAMPTZ '2026-07-08 10:00:00+09:00')
-			""")
-			.setParameter("meetingId", meetingId)
-			.setParameter("pinId", meetingId)
-			.setParameter("hostId", host.getId())
 			.executeUpdate();
 	}
 

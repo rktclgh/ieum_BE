@@ -12,6 +12,7 @@ import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +29,7 @@ import shinhan.fibri.ieum.main.meeting.domain.Meeting;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingRecurrenceRule;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingParticipant;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingSchedule;
+import shinhan.fibri.ieum.main.meeting.domain.MeetingScheduleStatus;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingStatus;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingType;
 import shinhan.fibri.ieum.main.meeting.domain.ParticipantStatus;
@@ -59,6 +61,7 @@ import shinhan.fibri.ieum.main.meeting.exception.ParticipantNotFoundException;
 import shinhan.fibri.ieum.main.meeting.exception.ScheduleAlreadyExistsException;
 import shinhan.fibri.ieum.main.meeting.exception.ScheduleNotCancellableException;
 import shinhan.fibri.ieum.main.meeting.exception.ScheduleNotFoundException;
+import shinhan.fibri.ieum.main.meeting.exception.SchedulePermissionDeniedException;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingDetailProjection;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingCalendarProjection;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingParticipantRepository;
@@ -92,6 +95,7 @@ public class MeetingService {
 	@Transactional
 	public CreateMeetingResponse create(AuthenticatedUser principal, CreateMeetingRequest request) {
 		validateCreateRuleCombination(request);
+		validateScheduleWindow(request.schedule(), "schedule.endsAt");
 		validateRecurrenceRule(request);
 		OffsetDateTime meetingAtCache = initialMeetingAtCache(request);
 		UUID imageFileId = validateImage(request.imageFileId(), principal.userId());
@@ -107,7 +111,7 @@ public class MeetingService {
 			imageFileId,
 			imageFileId
 		));
-		List<MeetingSchedule> schedules = createInitialSchedules(meeting.getId(), request);
+		List<MeetingSchedule> schedules = createInitialSchedules(meeting.getId(), principal.userId(), request);
 		MeetingSchedule firstSchedule = null;
 		for (MeetingSchedule schedule : schedules) {
 			MeetingSchedule saved = meetingScheduleRepository.save(schedule);
@@ -123,7 +127,12 @@ public class MeetingService {
 		eventPublisher.publishEvent(new MeetingCreatedEvent(
 			meeting.getId(), principal.userId(), meeting.getTitle(), request.location().lat(), request.location().lng()
 		));
-		return new CreateMeetingResponse(meeting.getId(), pinId, roomId, firstSchedule.getId());
+		return new CreateMeetingResponse(
+			meeting.getId(),
+			pinId,
+			roomId,
+			firstSchedule == null ? null : firstSchedule.getId()
+		);
 	}
 
 	@Transactional(readOnly = true)
@@ -150,10 +159,13 @@ public class MeetingService {
 			detail.getRoomId(),
 			detail.getTitle(),
 			detail.getContent(),
-			detail.getMeetingAt().atZone(RESPONSE_ZONE).toOffsetDateTime(),
+			detail.getMeetingAt() == null ? null : detail.getMeetingAt().atZone(RESPONSE_ZONE).toOffsetDateTime(),
 			detail.getType(),
 			"open".equals(detail.getStatus()) && nextSchedule.isPresent(),
-			nextSchedule.map(this::toScheduleItem).orElse(null),
+			nextSchedule.map(schedule -> toScheduleItem(
+				schedule,
+				canDeleteSchedule(principal, detail.getHostUserId(), participant, schedule)
+			)).orElse(null),
 			recurrenceRule,
 			detail.getStatus(),
 			detail.getMaxMembers(),
@@ -206,7 +218,11 @@ public class MeetingService {
 		List<MeetingScheduleItem> items = meetingScheduleRepository
 			.findSchedulesInRange(meetingId, resolvedFrom, resolvedTo, SCHEDULE_QUERY_LIMIT)
 			.stream()
-			.map(this::toScheduleItem)
+			.map(schedule -> toScheduleItem(
+				schedule,
+				isScheduleOperator(principal, meeting.getHostId())
+					|| Objects.equals(schedule.getCreatedBy(), principal.userId())
+			))
 			.toList();
 		return new MeetingSchedulesResponse(items);
 	}
@@ -222,7 +238,7 @@ public class MeetingService {
 				SCHEDULE_QUERY_LIMIT
 			)
 			.stream()
-			.map(this::toCalendarItem)
+			.map(row -> toCalendarItem(principal, row))
 			.toList();
 		return new MeetingCalendarResponse(items);
 	}
@@ -280,9 +296,10 @@ public class MeetingService {
 		Long meetingId,
 		CreateMeetingScheduleRequest request
 	) {
+		validateScheduleWindow(request, "endsAt");
 		Meeting meeting = meetingRepository.findActiveByIdForUpdate(meetingId)
 			.orElseThrow(MeetingNotFoundException::new);
-		ensureScheduleManager(principal, meeting);
+		ensureJoinedMeetingMember(meetingId, principal.userId());
 		if (meeting.getType() == MeetingType.recurring) {
 			throw new InvalidMeetingRequestException(
 				"VALIDATION_FAILED",
@@ -296,6 +313,7 @@ public class MeetingService {
 		}
 		MeetingSchedule schedule = meetingScheduleRepository.save(createSchedule(
 			meetingId,
+			principal.userId(),
 			request.startsAt(),
 			request.endsAt(),
 			meetingScheduleRepository.findMaxSequenceNoByMeetingId(meetingId) + 1
@@ -308,23 +326,51 @@ public class MeetingService {
 	public void cancelSchedule(AuthenticatedUser principal, Long meetingId, Long scheduleId) {
 		Meeting meeting = meetingRepository.findActiveByIdForUpdate(meetingId)
 			.orElseThrow(MeetingNotFoundException::new);
-		ensureScheduleManager(principal, meeting);
+		boolean operator = isScheduleOperator(principal, meeting.getHostId());
+		if (!operator) {
+			ensureJoinedMeetingMember(meetingId, principal.userId());
+		}
 		MeetingSchedule schedule = meetingScheduleRepository
 			.findByIdAndMeetingIdAndDeletedAtIsNull(scheduleId, meetingId)
 			.orElseThrow(ScheduleNotFoundException::new);
+		if (!operator && !Objects.equals(schedule.getCreatedBy(), principal.userId())) {
+			throw new SchedulePermissionDeniedException();
+		}
 		try {
 			schedule.cancel();
 		} catch (IllegalStateException exception) {
 			throw new ScheduleNotCancellableException();
 		}
 		meetingScheduleRepository.findNextActiveStartsAt(meetingId, OffsetDateTime.now())
-			.ifPresent(meeting::updateMeetingAtCache);
+			.ifPresentOrElse(meeting::updateMeetingAtCache, meeting::clearMeetingAtCache);
 	}
 
-	private void ensureScheduleManager(AuthenticatedUser principal, Meeting meeting) {
-		if (!meeting.getHostId().equals(principal.userId()) && principal.role() != UserRole.admin) {
-			throw new NotHostException();
+	private void ensureJoinedMeetingMember(Long meetingId, Long userId) {
+		Optional<MeetingParticipant> participant = participantRepository.findByIdMeetingIdAndIdUserId(
+			meetingId,
+			userId
+		);
+		ensureNotKicked(participant);
+		participant
+			.filter(row -> row.getStatus() == ParticipantStatus.joined)
+			.orElseThrow(NotMeetingMemberException::new);
+	}
+
+	private boolean isScheduleOperator(AuthenticatedUser principal, Long hostId) {
+		return hostId.equals(principal.userId()) || principal.role() == UserRole.admin;
+	}
+
+	private boolean canDeleteSchedule(
+		AuthenticatedUser principal,
+		Long hostId,
+		Optional<MeetingParticipant> participant,
+		MeetingSchedule schedule
+	) {
+		if (isScheduleOperator(principal, hostId)) {
+			return true;
 		}
+		return participant.map(row -> row.getStatus() == ParticipantStatus.joined).orElse(false)
+			&& Objects.equals(schedule.getCreatedBy(), principal.userId());
 	}
 
 	private void ensureNotKicked(Optional<MeetingParticipant> participant) {
@@ -373,6 +419,26 @@ public class MeetingService {
 				"recurrenceRule is required for recurring meeting"
 			);
 		}
+		if (request.type() == MeetingType.recurring && request.schedule() == null) {
+			throw new InvalidMeetingRequestException(
+				"VALIDATION_FAILED",
+				"schedule",
+				"schedule is required for recurring meeting"
+			);
+		}
+	}
+
+	private void validateScheduleWindow(CreateMeetingScheduleRequest schedule, String field) {
+		if (schedule == null || schedule.startsAt() == null || schedule.endsAt() == null) {
+			return;
+		}
+		if (!schedule.endsAt().isAfter(schedule.startsAt())) {
+			throw new InvalidMeetingRequestException(
+				"VALIDATION_FAILED",
+				field,
+				"endsAt must be after startsAt"
+			);
+		}
 	}
 
 	private void validateRecurrenceRule(CreateMeetingRequest request) {
@@ -390,9 +456,22 @@ public class MeetingService {
 		}
 	}
 
-	private List<MeetingSchedule> createInitialSchedules(Long meetingId, CreateMeetingRequest request) {
+	private List<MeetingSchedule> createInitialSchedules(
+		Long meetingId,
+		Long createdBy,
+		CreateMeetingRequest request
+	) {
 		if (request.type() == MeetingType.one_time) {
-			return List.of(createSchedule(meetingId, request.schedule().startsAt(), request.schedule().endsAt(), 1));
+			if (request.schedule() == null) {
+				return List.of();
+			}
+			return List.of(createSchedule(
+				meetingId,
+				createdBy,
+				request.schedule().startsAt(),
+				request.schedule().endsAt(),
+				1
+			));
 		}
 		List<OffsetDateTime> startsAtList = recurringStartsAt(request);
 		List<MeetingSchedule> schedules = new ArrayList<>(startsAtList.size());
@@ -402,7 +481,7 @@ public class MeetingService {
 		for (int index = 0; index < startsAtList.size(); index++) {
 			OffsetDateTime startsAt = startsAtList.get(index);
 			OffsetDateTime endsAt = duration == null ? null : startsAt.plus(duration);
-			schedules.add(createSchedule(meetingId, startsAt, endsAt, index + 1));
+			schedules.add(createSchedule(meetingId, createdBy, startsAt, endsAt, index + 1));
 		}
 		if (schedules.isEmpty()) {
 			throw new InvalidMeetingRequestException(
@@ -416,7 +495,7 @@ public class MeetingService {
 
 	private OffsetDateTime initialMeetingAtCache(CreateMeetingRequest request) {
 		if (request.type() == MeetingType.one_time) {
-			return request.schedule().startsAt();
+			return request.schedule() == null ? null : request.schedule().startsAt();
 		}
 		List<OffsetDateTime> startsAtList = recurringStartsAt(request);
 		if (startsAtList.isEmpty()) {
@@ -429,9 +508,16 @@ public class MeetingService {
 		return startsAtList.getFirst();
 	}
 
-	private MeetingSchedule createSchedule(Long meetingId, OffsetDateTime startsAt, OffsetDateTime endsAt, int sequenceNo) {
+	private MeetingSchedule createSchedule(
+		Long meetingId,
+		Long createdBy,
+		OffsetDateTime startsAt,
+		OffsetDateTime endsAt,
+		int sequenceNo
+	) {
 		return MeetingSchedule.create(
 			meetingId,
+			createdBy,
 			startsAt,
 			endsAt,
 			MeetingScheduleTimePolicy.visibleUntil(startsAt),
@@ -680,16 +766,18 @@ public class MeetingService {
 		return resolvedTo;
 	}
 
-	private MeetingScheduleItem toScheduleItem(MeetingSchedule schedule) {
+	private MeetingScheduleItem toScheduleItem(MeetingSchedule schedule, boolean canDelete) {
 		return new MeetingScheduleItem(
 			schedule.getId(),
 			toResponseTime(schedule.getStartsAt()),
 			toResponseTime(schedule.getEndsAt()),
-			schedule.getStatus().name()
+			schedule.getStatus().name(),
+			schedule.getCreatedBy(),
+			canDelete && schedule.getStatus() == MeetingScheduleStatus.scheduled
 		);
 	}
 
-	private MeetingCalendarItem toCalendarItem(MeetingCalendarProjection row) {
+	private MeetingCalendarItem toCalendarItem(AuthenticatedUser principal, MeetingCalendarProjection row) {
 		return new MeetingCalendarItem(
 			row.getMeetingId(),
 			row.getScheduleId(),
@@ -700,6 +788,11 @@ public class MeetingService {
 			toResponseTime(row.getStartsAt()),
 			toResponseTime(row.getEndsAt()),
 			row.getStatus(),
+			row.getCreatedByUserId(),
+			!"unscheduled".equals(row.getStatus())
+				&& (principal.role() == UserRole.admin
+					|| Boolean.TRUE.equals(row.getHost())
+					|| Objects.equals(row.getCreatedByUserId(), principal.userId())),
 			row.getRoomId(),
 			Boolean.TRUE.equals(row.getHost())
 		);

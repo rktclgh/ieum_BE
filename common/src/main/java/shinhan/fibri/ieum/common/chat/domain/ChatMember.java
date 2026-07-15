@@ -70,16 +70,12 @@ public class ChatMember {
 		this.leftAt = null;
 	}
 
-	public void reactivateAfter(long messageId) {
-		if (leftAt == null) {
-			return;
-		}
+	public void hideHistoryThrough(long messageId) {
 		if (messageId < 0) {
 			throw new IllegalArgumentException("messageId must not be negative");
 		}
 		visibleAfterMessageId = messageId;
 		lastReadAt = null;
-		leftAt = null;
 	}
 
 	public void markRead(OffsetDateTime readAt) {

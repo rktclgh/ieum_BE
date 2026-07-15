@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
+import shinhan.fibri.ieum.main.notification.push.WebPushSubscriptionCleanup;
 import shinhan.fibri.ieum.main.notification.sse.SseConnectionRegistry;
 import shinhan.fibri.ieum.main.report.ai.service.ReportAiPostCommitActions;
 
@@ -16,13 +17,16 @@ public class DefaultReportAiPostCommitActions implements ReportAiPostCommitActio
 
 	private static final Logger log = LoggerFactory.getLogger(DefaultReportAiPostCommitActions.class);
 	private final RedisAuthSessionStore sessionStore;
+	private final WebPushSubscriptionCleanup webPushSubscriptionCleanup;
 	private final SseConnectionRegistry sseConnections;
 
 	public DefaultReportAiPostCommitActions(
 		RedisAuthSessionStore sessionStore,
+		WebPushSubscriptionCleanup webPushSubscriptionCleanup,
 		SseConnectionRegistry sseConnections
 	) {
 		this.sessionStore = sessionStore;
+		this.webPushSubscriptionCleanup = webPushSubscriptionCleanup;
 		this.sseConnections = sseConnections;
 	}
 
@@ -47,6 +51,11 @@ public class DefaultReportAiPostCommitActions implements ReportAiPostCommitActio
 			() -> sessionStore.revokeAllSessionsOfUser(userId)
 		);
 		runSafely(
+			"report_ai_push_cleanup_failed",
+			userId,
+			() -> webPushSubscriptionCleanup.deleteForUser(userId)
+		);
+		runSafely(
 			"report_ai_sse_close_failed",
 			userId,
 			() -> sseConnections.closeUser(userId)
@@ -59,7 +68,9 @@ public class DefaultReportAiPostCommitActions implements ReportAiPostCommitActio
 		} catch (RuntimeException failure) {
 			log.error(
 				"event={} userId={} failureType={}",
-				event, userId, failure.getClass().getSimpleName(), failure
+				event,
+				userId,
+				failure.getClass().getSimpleName()
 			);
 		}
 	}

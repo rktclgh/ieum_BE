@@ -25,6 +25,9 @@ public class MeetingSchedule {
 	@Column(name = "meeting_id", nullable = false)
 	private Long meetingId;
 
+	@Column(name = "created_by")
+	private Long createdBy;
+
 	@Column(name = "starts_at", nullable = false)
 	private OffsetDateTime startsAt;
 
@@ -56,12 +59,14 @@ public class MeetingSchedule {
 
 	private MeetingSchedule(
 		Long meetingId,
+		Long createdBy,
 		OffsetDateTime startsAt,
 		OffsetDateTime endsAt,
 		OffsetDateTime visibleUntil,
 		int sequenceNo
 	) {
 		this.meetingId = Objects.requireNonNull(meetingId, "meetingId must not be null");
+		this.createdBy = createdBy;
 		this.startsAt = Objects.requireNonNull(startsAt, "startsAt must not be null");
 		this.endsAt = endsAt;
 		this.visibleUntil = Objects.requireNonNull(visibleUntil, "visibleUntil must not be null");
@@ -82,12 +87,13 @@ public class MeetingSchedule {
 
 	public static MeetingSchedule create(
 		Long meetingId,
+		Long createdBy,
 		OffsetDateTime startsAt,
 		OffsetDateTime endsAt,
 		OffsetDateTime visibleUntil,
 		int sequenceNo
 	) {
-		return new MeetingSchedule(meetingId, startsAt, endsAt, visibleUntil, sequenceNo);
+		return new MeetingSchedule(meetingId, createdBy, startsAt, endsAt, visibleUntil, sequenceNo);
 	}
 
 	public void complete() {
@@ -120,6 +126,10 @@ public class MeetingSchedule {
 
 	public Long getMeetingId() {
 		return meetingId;
+	}
+
+	public Long getCreatedBy() {
+		return createdBy;
 	}
 
 	public OffsetDateTime getStartsAt() {

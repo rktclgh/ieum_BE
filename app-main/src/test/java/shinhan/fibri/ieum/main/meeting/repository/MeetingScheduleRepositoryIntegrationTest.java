@@ -101,6 +101,7 @@ class MeetingScheduleRepositoryIntegrationTest {
 			CREATE TABLE IF NOT EXISTS meeting_schedules (
 				schedule_id BIGSERIAL PRIMARY KEY,
 				meeting_id BIGINT NOT NULL,
+				created_by BIGINT,
 				starts_at TIMESTAMPTZ NOT NULL,
 				ends_at TIMESTAMPTZ,
 				visible_until TIMESTAMPTZ NOT NULL,

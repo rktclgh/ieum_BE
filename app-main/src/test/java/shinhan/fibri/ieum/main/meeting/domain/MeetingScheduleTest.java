@@ -14,9 +14,10 @@ class MeetingScheduleTest {
 		OffsetDateTime endsAt = OffsetDateTime.parse("2026-07-10T21:00:00+09:00");
 		OffsetDateTime visibleUntil = OffsetDateTime.parse("2026-07-10T23:59:59+09:00");
 
-		MeetingSchedule schedule = MeetingSchedule.create(3L, startsAt, endsAt, visibleUntil, 1);
+		MeetingSchedule schedule = MeetingSchedule.create(3L, 42L, startsAt, endsAt, visibleUntil, 1);
 
 		assertThat(schedule.getMeetingId()).isEqualTo(3L);
+		assertThat(schedule.getCreatedBy()).isEqualTo(42L);
 		assertThat(schedule.getStartsAt()).isEqualTo(startsAt);
 		assertThat(schedule.getEndsAt()).isEqualTo(endsAt);
 		assertThat(schedule.getVisibleUntil()).isEqualTo(visibleUntil);
@@ -32,6 +33,7 @@ class MeetingScheduleTest {
 
 		assertThatThrownBy(() -> MeetingSchedule.create(
 			3L,
+			42L,
 			startsAt,
 			startsAt,
 			OffsetDateTime.parse("2026-07-10T23:59:59+09:00"),
@@ -54,6 +56,7 @@ class MeetingScheduleTest {
 	private MeetingSchedule schedule() {
 		return MeetingSchedule.create(
 			3L,
+			42L,
 			OffsetDateTime.parse("2026-07-10T19:00:00+09:00"),
 			null,
 			OffsetDateTime.parse("2026-07-10T23:59:59+09:00"),

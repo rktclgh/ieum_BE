@@ -29,13 +29,12 @@ class ChatRoomLifecycleServiceTest {
 	private final UserRepository userRepository = org.mockito.Mockito.mock(UserRepository.class);
 	private final ChatRoomRepository chatRoomRepository = org.mockito.Mockito.mock(ChatRoomRepository.class);
 	private final ChatMemberRepository chatMemberRepository = org.mockito.Mockito.mock(ChatMemberRepository.class);
-	private final OneToOneChatMemberService oneToOneChatMemberService =
-		org.mockito.Mockito.mock(OneToOneChatMemberService.class);
+	private final ChatRoomListChangeEmitter chatRoomListChangeEmitter = org.mockito.Mockito.mock(ChatRoomListChangeEmitter.class);
 	private final ChatRoomLifecycleService service = new ChatRoomLifecycleService(
 		userRepository,
 		chatRoomRepository,
 		chatMemberRepository,
-		oneToOneChatMemberService
+		chatRoomListChangeEmitter
 	);
 
 	@Test
@@ -52,6 +51,7 @@ class ChatRoomLifecycleServiceTest {
 
 		assertThat(roomId).isEqualTo(100L);
 		verify(chatMemberRepository).save(any(ChatMember.class));
+		verify(chatRoomListChangeEmitter).upsert(100L, List.of(42L));
 	}
 
 	@Test
@@ -81,43 +81,23 @@ class ChatRoomLifecycleServiceTest {
 	}
 
 	@Test
-	void getOrCreateQuestionRoomCreatesRoomAndInitialMembers() {
+	void getOrCreateQuestionRoomReturnsExistingRoomAndRestoresMembers() {
 		User first = user(42L, "first@example.com", "first");
 		User second = user(77L, "second@example.com", "second");
+		ChatRoom room = room(ChatRoom.question(9L, 42L, 77L), 100L);
+		ChatMember firstMember = ChatMember.join(room, first);
+		firstMember.leave(OffsetDateTime.parse("2026-07-08T09:00:00+09:00"));
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(first));
 		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(second));
-		when(chatRoomRepository.findByRoomKeyForUpdate("q:9:42:77")).thenReturn(Optional.empty());
-		when(chatRoomRepository.saveAndFlush(any(ChatRoom.class))).thenAnswer(invocation -> {
-			ChatRoom room = invocation.getArgument(0);
-			setField(room, "id", 100L);
-			return room;
-		});
+		when(chatRoomRepository.findByRoomKey("q:9:42:77")).thenReturn(Optional.of(room));
+		when(chatMemberRepository.findByRoom_Id(100L)).thenReturn(List.of(firstMember));
 
 		Long roomId = service.getOrCreateQuestionRoom(9L, 42L, 77L);
 
 		assertThat(roomId).isEqualTo(100L);
-		verify(oneToOneChatMemberService).addInitialMembers(any(ChatRoom.class),
-			org.mockito.Mockito.same(first), org.mockito.Mockito.same(second));
-	}
-
-	@Test
-	void getOrCreateQuestionRoomActivatesOnlyRequesterInExistingRoom() {
-		User requester = user(42L, "requester@example.com", "requester");
-		User target = user(77L, "target@example.com", "target");
-		ChatRoom room = room(ChatRoom.question(9L, 42L, 77L), 100L);
-		ChatMember targetMember = ChatMember.join(room, target);
-		targetMember.leave(OffsetDateTime.parse("2026-07-08T09:00:00+09:00"));
-		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(requester));
-		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(target));
-		when(chatRoomRepository.findByRoomKeyForUpdate("q:9:42:77")).thenReturn(Optional.of(room));
-
-		Long roomId = service.getOrCreateQuestionRoom(9L, 42L, 77L);
-
-		assertThat(roomId).isEqualTo(100L);
-		verify(oneToOneChatMemberService).activateRequester(room, 42L);
-		verify(oneToOneChatMemberService, never()).activateRequester(room, 77L);
-		assertThat(targetMember.isActive()).isFalse();
-		verify(chatMemberRepository, never()).findByRoom_Id(100L);
+		assertThat(firstMember.getLeftAt()).isNull();
+		verify(chatMemberRepository).save(any(ChatMember.class));
+		verify(chatRoomListChangeEmitter).upsert(100L, List.of(42L, 77L));
 	}
 
 	@Test
@@ -140,7 +120,7 @@ class ChatRoomLifecycleServiceTest {
 		User second = user(77L, "second@example.com", "second");
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(first));
 		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(second));
-		when(chatRoomRepository.findByRoomKeyForUpdate("q:9:42:77")).thenReturn(Optional.empty());
+		when(chatRoomRepository.findByRoomKey("q:9:42:77")).thenReturn(Optional.empty());
 		when(chatRoomRepository.saveAndFlush(any(ChatRoom.class)))
 			.thenThrow(new DataIntegrityViolationException("uidx_chat_rooms_room_key"));
 
@@ -148,45 +128,6 @@ class ChatRoomLifecycleServiceTest {
 			.isInstanceOf(DataIntegrityViolationException.class);
 
 		verify(chatRoomRepository).saveAndFlush(any(ChatRoom.class));
-	}
-
-	@Test
-	void getOrCreateDirectRoomCreatesRoomAndInitialMembers() {
-		User requester = user(42L, "requester@example.com", "requester");
-		User target = user(77L, "target@example.com", "target");
-		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(requester));
-		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(target));
-		when(chatRoomRepository.findByRoomKeyForUpdate("d:42:77")).thenReturn(Optional.empty());
-		when(chatRoomRepository.saveAndFlush(any(ChatRoom.class))).thenAnswer(invocation -> {
-			ChatRoom room = invocation.getArgument(0);
-			setField(room, "id", 100L);
-			return room;
-		});
-
-		Long roomId = service.getOrCreateDirectRoom(42L, 77L);
-
-		assertThat(roomId).isEqualTo(100L);
-		verify(oneToOneChatMemberService).addInitialMembers(any(ChatRoom.class),
-			org.mockito.Mockito.same(requester), org.mockito.Mockito.same(target));
-	}
-
-	@Test
-	void getOrCreateDirectRoomActivatesOnlyRequesterInExistingRoom() {
-		User requester = user(42L, "requester@example.com", "requester");
-		User target = user(77L, "target@example.com", "target");
-		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
-		ChatMember targetMember = ChatMember.join(room, target);
-		targetMember.leave(OffsetDateTime.parse("2026-07-08T09:00:00+09:00"));
-		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(requester));
-		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(target));
-		when(chatRoomRepository.findByRoomKeyForUpdate("d:42:77")).thenReturn(Optional.of(room));
-
-		Long roomId = service.getOrCreateDirectRoom(42L, 77L);
-
-		assertThat(roomId).isEqualTo(100L);
-		verify(oneToOneChatMemberService).activateRequester(room, 42L);
-		verify(oneToOneChatMemberService, never()).activateRequester(room, 77L);
-		assertThat(targetMember.isActive()).isFalse();
 	}
 
 	@Test
@@ -202,6 +143,7 @@ class ChatRoomLifecycleServiceTest {
 		service.addMember(100L, 42L);
 
 		assertThat(member.getLeftAt()).isNull();
+		verify(chatRoomListChangeEmitter).upsert(100L, List.of(42L));
 	}
 
 	@Test
@@ -209,11 +151,22 @@ class ChatRoomLifecycleServiceTest {
 		User user = user(42L, "member@example.com", "member");
 		ChatRoom room = room(ChatRoom.group(7L), 100L);
 		ChatMember member = ChatMember.join(room, user);
-		when(chatMemberRepository.findByRoomIdAndUserIdForUpdate(100L, 42L)).thenReturn(Optional.of(member));
+		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(member));
 
 		service.removeMember(100L, 42L);
 
 		assertThat(member.getLeftAt()).isNotNull();
+		verify(chatRoomListChangeEmitter).remove(100L, List.of(42L));
+	}
+
+	@Test
+	void removeMemberDoesNotEmitWhenActiveMemberIsMissing() {
+		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.removeMember(100L, 42L))
+			.isInstanceOf(shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException.class);
+
+		verify(chatRoomListChangeEmitter, never()).remove(any(), any());
 	}
 
 	private User user(Long id, String email, String nickname) {

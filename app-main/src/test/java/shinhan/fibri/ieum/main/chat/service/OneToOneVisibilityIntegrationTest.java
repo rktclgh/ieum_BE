@@ -2,9 +2,7 @@ package shinhan.fibri.ieum.main.chat.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.verifyNoInteractions;
 
-import java.util.UUID;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -12,23 +10,21 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.context.annotation.Import;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionTemplate;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
+import shinhan.fibri.ieum.common.chat.domain.RoomType;
 import shinhan.fibri.ieum.main.chat.dto.ChatCursorPage;
 import shinhan.fibri.ieum.main.chat.dto.ChatMessageResponse;
 import shinhan.fibri.ieum.main.chat.dto.ChatRoomResponse;
 import shinhan.fibri.ieum.main.chat.dto.SendChatMessageRequest;
+import shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException;
 import shinhan.fibri.ieum.main.friend.service.FriendRequestNotifier;
 import shinhan.fibri.ieum.main.friend.service.FriendService;
 import shinhan.fibri.ieum.testsupport.CanonicalPostgresContainer;
@@ -40,7 +36,7 @@ import shinhan.fibri.ieum.testsupport.CanonicalPostgresDataSource;
 	ChatService.class,
 	ChatMessageService.class,
 	ChatRoomLifecycleService.class,
-	OneToOneChatMemberService.class,
+	ChatRoomSummaryQueryService.class,
 	FriendService.class
 })
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -65,9 +61,6 @@ class OneToOneVisibilityIntegrationTest {
 	@Autowired
 	private JdbcTemplate jdbc;
 
-	@Autowired
-	private PlatformTransactionManager transactionManager;
-
 	@MockitoBean
 	private FriendRequestNotifier friendRequestNotifier;
 
@@ -76,6 +69,9 @@ class OneToOneVisibilityIntegrationTest {
 
 	@MockitoBean
 	private ChatNotificationPublisher chatNotificationPublisher;
+
+	@MockitoBean
+	private ChatRoomListChangeEmitter chatRoomListChangeEmitter;
 
 	@AfterAll
 	static void cleanUpDatabase() {
@@ -89,102 +85,61 @@ class OneToOneVisibilityIntegrationTest {
 	}
 
 	@Test
-	void relationshipFreeQuestionRoomUsesPerMemberCutoffsAcrossPostLeaveAndSend() {
+	void questionRoomLeaveRemovesRoomAndLaterMessageRestoresOnlyNewHistory() {
 		long authorId = insertUser("visibility-author");
 		long requesterId = insertUser("visibility-requester");
-		long targetId = insertUser("visibility-target");
-		long controlTargetId = insertUser("visibility-control-target");
+		long peerId = insertUser("visibility-peer");
 		long questionId = insertQuestion(authorId, "integration-question");
 
-		assertThat(requesterId).isNotEqualTo(authorId);
-		assertThat(jdbc.queryForObject(
-			"SELECT count(*) FROM answers WHERE question_id = ?",
-			Integer.class,
-			questionId
-		)).isZero();
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM answers", Integer.class)).isZero();
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM friendships", Integer.class)).isZero();
 
-		ChatRoomResponse created = chatService.createQuestionRoom(
+		ChatRoomResponse room = chatService.createQuestionRoom(
 			principal(requesterId),
 			questionId,
-			targetId
+			peerId
 		);
-		assertThat(created.questionTitle()).isEqualTo("integration-question");
+		assertThat(room.roomType()).isEqualTo(RoomType.question);
+		assertThat(room.questionTitle()).isEqualTo("integration-question");
 
-		long old1 = insertTextMessage(created.roomId(), requesterId, "old-1");
-		long old2 = insertTextMessage(created.roomId(), targetId, "old-2");
-		assertThat(old2).isGreaterThan(old1);
+		long oldMessageId = insertTextMessage(room.roomId(), requesterId, "old-1");
+		long cutoffMessageId = insertTextMessage(room.roomId(), peerId, "old-2");
+		assertThat(cutoffMessageId).isGreaterThan(oldMessageId);
 
-		chatService.leaveRoom(principal(requesterId), created.roomId());
-		chatService.leaveRoom(principal(targetId), created.roomId());
+		chatService.leaveRoom(principal(requesterId), room.roomId());
 
-		ChatRoomResponse reopened = chatService.createQuestionRoom(
-			principal(requesterId),
-			questionId,
-			targetId
-		);
-		assertThat(reopened.roomId()).isEqualTo(created.roomId());
-		assertThat(memberState(created.roomId(), requesterId))
-			.isEqualTo(new MemberState(true, old2));
-		assertThat(memberState(created.roomId(), targetId))
-			.isEqualTo(new MemberState(false, 0));
-		assertThat(messages(requesterId, created.roomId()).items()).isEmpty();
+		assertThat(memberState(room.roomId(), requesterId))
+			.isEqualTo(new MemberState(false, cutoffMessageId));
+		assertThat(memberState(room.roomId(), peerId))
+			.isEqualTo(new MemberState(true, 0));
+		assertThat(chatService.listRooms(principal(requesterId), RoomType.question)).isEmpty();
+		assertThatThrownBy(() -> messages(requesterId, room.roomId()))
+			.isInstanceOf(NotRoomMemberException.class);
+		assertThat(messages(peerId, room.roomId()).items())
+			.extracting(ChatMessageResponse::content)
+			.containsExactly("old-2", "old-1");
 
 		ChatMessageResponse newMessage = chatMessageService.send(
-			principal(requesterId),
-			created.roomId(),
+			principal(peerId),
+			room.roomId(),
 			new SendChatMessageRequest("new-message", null)
 		);
 
-		assertThat(newMessage.messageId()).isGreaterThan(old2);
-		assertThat(memberState(created.roomId(), targetId))
-			.isEqualTo(new MemberState(true, old2));
-		assertThat(messages(requesterId, created.roomId()).items())
+		assertThat(newMessage.messageId()).isGreaterThan(cutoffMessageId);
+		assertThat(memberState(room.roomId(), requesterId))
+			.isEqualTo(new MemberState(true, cutoffMessageId));
+		assertThat(messages(requesterId, room.roomId()).items())
 			.extracting(ChatMessageResponse::content)
 			.containsExactly("new-message");
-		assertThat(messages(targetId, created.roomId()).items())
+		assertThat(messages(peerId, room.roomId()).items())
 			.extracting(ChatMessageResponse::content)
-			.containsExactly("new-message");
-
-		chatService.createQuestionRoom(principal(requesterId), questionId, targetId);
-		assertThat(memberState(created.roomId(), requesterId))
-			.isEqualTo(new MemberState(true, old2));
-
-		ChatRoomResponse controlRoom = chatService.createQuestionRoom(
-			principal(requesterId),
-			questionId,
-			controlTargetId
-		);
-		insertTextMessage(controlRoom.roomId(), requesterId, "control-old-1");
-		insertTextMessage(controlRoom.roomId(), requesterId, "control-old-2");
-
-		assertThat(memberState(controlRoom.roomId(), controlTargetId))
-			.isEqualTo(new MemberState(true, 0));
-		assertThat(messages(controlTargetId, controlRoom.roomId()).items())
-			.extracting(ChatMessageResponse::content)
-			.containsExactly("control-old-2", "control-old-1");
-	}
-
-	@Test
-	void failedImageInsertRollsBackRecipientActivationAndMessage() {
-		long authorId = insertUser("rollback-author");
-		long senderId = insertUser("rollback-sender");
-		long targetId = insertUser("rollback-target");
-		long questionId = insertQuestion(authorId, "rollback-question");
-		ChatRoomResponse room = chatService.createQuestionRoom(principal(senderId), questionId, targetId);
-		long oldMessageId = insertTextMessage(room.roomId(), senderId, "existing-message");
-		chatService.leaveRoom(principal(targetId), room.roomId());
-
-		assertThatThrownBy(() -> chatMessageService.send(
-			principal(senderId),
-			room.roomId(),
-			new SendChatMessageRequest(null, UUID.fromString("11111111-1111-1111-1111-111111111111"))
-		)).isInstanceOf(DataIntegrityViolationException.class);
-
-		RollbackSnapshot snapshot = rollbackSnapshotInRequiresNew(room.roomId(), targetId);
-		assertThat(snapshot.memberState()).isEqualTo(new MemberState(false, 0));
-		assertThat(snapshot.messageCount()).isOne();
-		assertThat(snapshot.maxMessageId()).isEqualTo(oldMessageId);
-		verifyNoInteractions(roomEventPublisher, chatNotificationPublisher);
+			.containsExactly("new-message", "old-2", "old-1");
+		assertThat(chatService.listRooms(principal(requesterId), RoomType.question))
+			.singleElement()
+			.satisfies(summary -> {
+				assertThat(summary.lastMessage().content()).isEqualTo("new-message");
+				assertThat(summary.unreadCount()).isOne();
+			});
 	}
 
 	private ChatCursorPage<ChatMessageResponse> messages(long userId, long roomId) {
@@ -205,25 +160,6 @@ class OneToOneVisibilityIntegrationTest {
 			roomId,
 			userId
 		);
-	}
-
-	private RollbackSnapshot rollbackSnapshotInRequiresNew(long roomId, long userId) {
-		TransactionTemplate transaction = new TransactionTemplate(transactionManager);
-		transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
-		transaction.setReadOnly(true);
-		return transaction.execute(status -> new RollbackSnapshot(
-			memberState(roomId, userId),
-			jdbc.queryForObject(
-				"SELECT count(*) FROM messages WHERE room_id = ?",
-				Long.class,
-				roomId
-			),
-			jdbc.queryForObject(
-				"SELECT COALESCE(MAX(message_id), 0) FROM messages WHERE room_id = ?",
-				Long.class,
-				roomId
-			)
-		));
 	}
 
 	private long insertUser(String nickname) {
@@ -265,8 +201,5 @@ class OneToOneVisibilityIntegrationTest {
 	}
 
 	private record MemberState(boolean active, long visibleAfterMessageId) {
-	}
-
-	private record RollbackSnapshot(MemberState memberState, long messageCount, long maxMessageId) {
 	}
 }

@@ -1,12 +1,7 @@
 package shinhan.fibri.ieum.main.chat.service;
 
-import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -61,6 +56,8 @@ public class ChatService {
 	private final MeetingRepository meetingRepository;
 	private final QuestionRepository questionRepository;
 	private final ChatRoomLifecycle chatRoomLifecycle;
+	private final ChatRoomSummaryQueryService chatRoomSummaryQueryService;
+	private final ChatRoomListChangeEmitter chatRoomListChangeEmitter;
 	private final PlatformTransactionManager transactionManager;
 
 	public ChatRoomResponse createDirectRoom(AuthenticatedUser principal, Long friendId) {
@@ -93,9 +90,10 @@ public class ChatService {
 			throw new BlockedChatException();
 		}
 
-		Long roomId = chatRoomLifecycle.getOrCreateDirectRoom(currentUser.getId(), friend.getId());
-		ChatRoom room = chatRoomRepository.findById(roomId)
-			.orElseThrow(ChatRoomNotFoundException::new);
+		ChatRoom room = chatRoomRepository.findByRoomKey(ChatRoom.directRoomKey(currentUser.getId(), friend.getId()))
+			.orElseGet(() -> insertDirectRoom(currentUser, friend));
+		restoreDirectMembers(room, currentUser, friend);
+		chatRoomListChangeEmitter.upsert(room.getId(), List.of(currentUser.getId(), friend.getId()));
 		return ChatRoomResponse.from(room, null);
 	}
 
@@ -148,40 +146,7 @@ public class ChatService {
 
 	@Transactional(readOnly = true)
 	public List<ChatRoomSummaryResponse> listRooms(AuthenticatedUser principal, RoomType roomType) {
-		List<ChatRoom> rooms = roomType == null
-			? chatRoomRepository.findActiveRoomsByUserId(principal.userId())
-			: chatRoomRepository.findActiveRoomsByUserIdAndRoomType(principal.userId(), roomType);
-		if (rooms.isEmpty()) {
-			return List.of();
-		}
-		List<Long> roomIds = rooms.stream().map(ChatRoom::getId).toList();
-		Map<Long, ChatMember> membersByRoomId = chatMemberRepository
-			.findActiveByUserIdAndRoomIds(principal.userId(), roomIds)
-			.stream()
-			.collect(Collectors.toMap(member -> member.getRoom().getId(), Function.identity()));
-		Map<Long, Long> unreadByRoomId = messageRepository.countUnreadByRoomIds(principal.userId(), roomIds)
-			.stream()
-			.collect(Collectors.toMap(
-				MessageRepository.RoomUnreadCount::getRoomId,
-				MessageRepository.RoomUnreadCount::getUnreadCount
-			));
-		Map<Long, Message> lastMessageByRoomId = messageRepository
-			.findLastVisibleMessagesByRoomIds(principal.userId(), roomIds)
-			.stream()
-			.collect(Collectors.toMap(message -> message.getRoom().getId(), Function.identity()));
-		Map<Long, String> titleByQuestionId = findQuestionTitles(rooms);
-
-		return rooms.stream()
-			.filter(room -> membersByRoomId.containsKey(room.getId()))
-			.map(room -> ChatRoomSummaryResponse.from(
-				room,
-				membersByRoomId.get(room.getId()),
-				unreadByRoomId.getOrDefault(room.getId(), 0L),
-				lastMessageByRoomId.get(room.getId()),
-				titleByQuestionId.get(room.getQuestionId())
-			))
-			.sorted(roomSummaryComparator())
-			.toList();
+		return chatRoomSummaryQueryService.listForUser(principal.userId(), roomType);
 	}
 
 	@Transactional(readOnly = true)
@@ -220,28 +185,31 @@ public class ChatService {
 
 	@Transactional
 	public void markRead(AuthenticatedUser principal, Long roomId) {
-		findActiveMemberForUpdate(roomId, principal.userId()).markRead(java.time.OffsetDateTime.now());
+		findActiveMember(roomId, principal.userId()).markRead(java.time.OffsetDateTime.now());
+		chatRoomListChangeEmitter.upsert(roomId, List.of(principal.userId()));
 	}
 
 	@Transactional
 	public void setPinned(AuthenticatedUser principal, Long roomId, boolean pinned) {
-		findActiveMemberForUpdate(roomId, principal.userId()).setPinned(pinned, java.time.OffsetDateTime.now());
+		findActiveMember(roomId, principal.userId()).setPinned(pinned, java.time.OffsetDateTime.now());
+		chatRoomListChangeEmitter.upsert(roomId, List.of(principal.userId()));
 	}
 
 	@Transactional
 	public void setNotifyEnabled(AuthenticatedUser principal, Long roomId, boolean enabled) {
-		findActiveMemberForUpdate(roomId, principal.userId()).setNotifyEnabled(enabled);
+		findActiveMember(roomId, principal.userId()).setNotifyEnabled(enabled);
+		chatRoomListChangeEmitter.upsert(roomId, List.of(principal.userId()));
 	}
 
 	@Transactional
 	public void leaveRoom(AuthenticatedUser principal, Long roomId) {
-		ChatRoom room = chatRoomRepository.findByIdForUpdate(roomId)
-			.orElseThrow(ChatRoomNotFoundException::new);
-		ChatMember member = findActiveMemberForUpdate(roomId, principal.userId());
-		if (room.getRoomType() == RoomType.group) {
+		ChatMember member = findActiveMember(roomId, principal.userId());
+		if (member.getRoom().getRoomType() == RoomType.group) {
 			throw new GroupLeaveViaMeetingException();
 		}
+		member.hideHistoryThrough(messageRepository.findMaxMessageIdByRoomId(roomId));
 		member.leave(java.time.OffsetDateTime.now());
+		chatRoomListChangeEmitter.remove(roomId, List.of(principal.userId()));
 	}
 
 	@Transactional
@@ -257,23 +225,26 @@ public class ChatService {
 		if (!meetingRepository.existsByIdAndHostIdAndDeletedAtIsNull(room.getMeetingId(), principal.userId())) {
 			throw new NotHostException();
 		}
+		List<Long> activeUserIds = chatMemberRepository.findActiveUserIdsByRoomId(roomId);
 		chatRoomRepository.delete(room);
+		chatRoomListChangeEmitter.remove(roomId, activeUserIds);
 	}
 
-	private Map<Long, String> findQuestionTitles(List<ChatRoom> rooms) {
-		List<Long> questionIds = rooms.stream()
-			.map(ChatRoom::getQuestionId)
-			.filter(Objects::nonNull)
-			.distinct()
-			.toList();
-		if (questionIds.isEmpty()) {
-			return Map.of();
-		}
-		return questionRepository.findTitlesByIds(questionIds).stream()
-			.collect(Collectors.toMap(
-				QuestionTitleProjection::getQuestionId,
-				QuestionTitleProjection::getTitle
-			));
+	private ChatRoom insertDirectRoom(User currentUser, User friend) {
+		return chatRoomRepository.saveAndFlush(ChatRoom.direct(currentUser.getId(), friend.getId()));
+	}
+
+	private void restoreDirectMembers(ChatRoom room, User currentUser, User friend) {
+		List<ChatMember> members = chatMemberRepository.findByRoom_Id(room.getId());
+		restoreMember(room, currentUser, members);
+		restoreMember(room, friend, members);
+	}
+
+	private void restoreMember(ChatRoom room, User user, List<ChatMember> members) {
+		members.stream()
+			.filter(member -> member.getUser().getId().equals(user.getId()))
+			.findFirst()
+			.ifPresentOrElse(ChatMember::rejoin, () -> chatMemberRepository.save(ChatMember.join(room, user)));
 	}
 
 	private String findQuestionTitle(Long questionId) {
@@ -296,12 +267,6 @@ public class ChatService {
 			.orElseThrow(NotRoomMemberException::new);
 	}
 
-	private ChatMember findActiveMemberForUpdate(Long roomId, Long userId) {
-		return chatMemberRepository.findByRoomIdAndUserIdForUpdate(roomId, userId)
-			.filter(ChatMember::isActive)
-			.orElseThrow(NotRoomMemberException::new);
-	}
-
 	private int normalizeMessagePageSize(Integer size) {
 		if (size == null) {
 			return DEFAULT_MESSAGE_PAGE_SIZE;
@@ -310,16 +275,6 @@ public class ChatService {
 			throw new IllegalArgumentException("size must be positive");
 		}
 		return Math.min(size, MAX_MESSAGE_PAGE_SIZE);
-	}
-
-	private Comparator<ChatRoomSummaryResponse> roomSummaryComparator() {
-		return Comparator
-			.comparing(ChatRoomSummaryResponse::pinned).reversed()
-			.thenComparing(
-				response -> response.lastMessage() == null ? null : response.lastMessage().createdAt(),
-				Comparator.nullsLast(Comparator.reverseOrder())
-			)
-			.thenComparing(ChatRoomSummaryResponse::roomId, Comparator.reverseOrder());
 	}
 
 	private boolean isChatRoomConstraintViolation(DataIntegrityViolationException exception) {

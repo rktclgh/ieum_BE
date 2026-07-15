@@ -62,6 +62,19 @@ class StaticFrontendHttpIntegrationTest {
 	}
 
 	@Test
+	void servesRootServiceWorkerWithRevalidationHeaders() throws Exception {
+		HttpResponse<String> response = get("/sw.js", null);
+
+		assertThat(response.statusCode()).isEqualTo(200);
+		assertThat(response.headers().firstValue("Content-Type")).hasValueSatisfying(
+			value -> assertThat(value).containsIgnoringCase("javascript")
+		);
+		assertThat(response.headers().firstValue("Cache-Control")).contains("no-cache");
+		assertThat(response.headers().firstValue("Service-Worker-Allowed")).isEmpty();
+		assertThat(response.body()).contains("IEUM_TEST_SERVICE_WORKER");
+	}
+
+	@Test
 	void returnsNextHtml404ForFrontendAndJsonUnauthorizedForApi() throws Exception {
 		HttpResponse<String> frontend = get("/missing/frontend/path", null);
 		HttpResponse<String> api = get("/api/missing/path", null);

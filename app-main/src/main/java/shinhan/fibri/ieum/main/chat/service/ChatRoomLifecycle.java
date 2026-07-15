@@ -4,9 +4,7 @@ public interface ChatRoomLifecycle {
 
 	Long createGroupRoom(Long meetingId, Long hostUserId);
 
-	Long getOrCreateDirectRoom(Long requesterUserId, Long targetUserId);
-
-	Long getOrCreateQuestionRoom(Long questionId, Long requesterUserId, Long targetUserId);
+	Long getOrCreateQuestionRoom(Long questionId, Long firstUserId, Long secondUserId);
 
 	void addMember(Long roomId, Long userId);
 

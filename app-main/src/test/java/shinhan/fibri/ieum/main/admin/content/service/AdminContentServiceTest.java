@@ -97,10 +97,17 @@ class AdminContentServiceTest {
 	}
 
 	private QuestionDeletionState deletionState(Long authorId, Instant deletedAt) {
-		QuestionDeletionState state = mock(QuestionDeletionState.class);
-		when(state.getAuthorId()).thenReturn(authorId);
-		when(state.getDeletedAt()).thenReturn(deletedAt);
-		return state;
+		return new QuestionDeletionState() {
+			@Override
+			public Long getAuthorId() {
+				return authorId;
+			}
+
+			@Override
+			public Instant getDeletedAt() {
+				return deletedAt;
+			}
+		};
 	}
 
 	private void setId(Question question, Long id) {

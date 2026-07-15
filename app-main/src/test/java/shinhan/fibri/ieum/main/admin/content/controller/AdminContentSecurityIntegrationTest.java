@@ -28,6 +28,7 @@ import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.main.admin.content.service.AdminContentService;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
+import shinhan.fibri.ieum.main.auth.session.ValidatedAuthSession;
 import shinhan.fibri.ieum.testsupport.CanonicalPostgresDataSource;
 
 @SpringBootTest
@@ -55,7 +56,8 @@ class AdminContentSecurityIntegrationTest {
 
 	@Test
 	void normalUserAdminContentDeleteReturnsForbidden() throws Exception {
-		when(sessionTokenValidator.validate("user-token")).thenReturn(Optional.of(user()));
+		when(sessionTokenValidator.validateSession("user-token"))
+			.thenReturn(Optional.of(new ValidatedAuthSession(user(), "user-session")));
 
 		mockMvc.perform(delete("/api/v1/admin/content/question/200")
 				.cookie(
@@ -71,7 +73,8 @@ class AdminContentSecurityIntegrationTest {
 
 	@Test
 	void adminContentDeleteWithoutCsrfReturnsCsrfFailed() throws Exception {
-		when(sessionTokenValidator.validate("admin-token")).thenReturn(Optional.of(admin()));
+		when(sessionTokenValidator.validateSession("admin-token"))
+			.thenReturn(Optional.of(new ValidatedAuthSession(admin(), "admin-session")));
 
 		mockMvc.perform(delete("/api/v1/admin/content/question/200")
 				.cookie(new MockCookie("access_token", "admin-token")))
@@ -83,7 +86,8 @@ class AdminContentSecurityIntegrationTest {
 
 	@Test
 	void adminContentDeleteWithMatchingCsrfSucceeds() throws Exception {
-		when(sessionTokenValidator.validate("admin-token")).thenReturn(Optional.of(admin()));
+		when(sessionTokenValidator.validateSession("admin-token"))
+			.thenReturn(Optional.of(new ValidatedAuthSession(admin(), "admin-session")));
 
 		mockMvc.perform(delete("/api/v1/admin/content/question/200")
 				.cookie(

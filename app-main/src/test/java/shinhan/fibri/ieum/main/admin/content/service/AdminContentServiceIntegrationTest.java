@@ -15,6 +15,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import shinhan.fibri.ieum.main.ai.question.repository.JdbcQuestionAnswerTicketWriter;
 import shinhan.fibri.ieum.main.pin.repository.JdbcPinWriter;
+import shinhan.fibri.ieum.main.question.repository.QuestionRepository;
 import shinhan.fibri.ieum.main.question.service.QuestionDeletionExecutor;
 import shinhan.fibri.ieum.testsupport.CanonicalPostgresContainer;
 import shinhan.fibri.ieum.testsupport.SqlScriptRunner;
@@ -46,6 +47,9 @@ class AdminContentServiceIntegrationTest {
 	@Autowired
 	private JdbcTemplate jdbc;
 
+	@Autowired
+	private QuestionRepository questionRepository;
+
 	@AfterAll
 	static void cleanUpDatabase() {
 		JdbcTemplate admin = new JdbcTemplate(CanonicalPostgresContainer.dataSource("postgres"));
@@ -65,6 +69,7 @@ class AdminContentServiceIntegrationTest {
 		jdbc.update("INSERT INTO ai_question_tasks (question_id) VALUES (?)", questionId);
 
 		service.hide("question", questionId);
+		questionRepository.flush();
 
 		OffsetDateTime questionDeletedAt = jdbc.queryForObject(
 			"SELECT deleted_at FROM questions WHERE question_id = ?",

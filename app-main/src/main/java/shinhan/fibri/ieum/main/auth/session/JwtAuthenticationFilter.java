@@ -45,7 +45,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 		FilterChain filterChain
 	) throws ServletException, IOException {
 		findAccessToken(request)
-			.flatMap(sessionTokenValidator::validate)
+			.flatMap(sessionTokenValidator::validateSession)
 			.ifPresent(this::setAuthentication);
 		filterChain.doFilter(request, response);
 	}
@@ -61,12 +61,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 			.findFirst();
 	}
 
-	private void setAuthentication(AuthenticatedUser principal) {
+	private void setAuthentication(ValidatedAuthSession session) {
+		AuthenticatedUser principal = session.principal();
 		UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
 			principal,
 			null,
 			List.of(new SimpleGrantedAuthority("ROLE_" + principal.role().name()))
 		);
+		authentication.setDetails(new AuthenticatedSessionDetails(session.sessionId()));
 		SecurityContextHolder.getContext().setAuthentication(authentication);
 	}
 }

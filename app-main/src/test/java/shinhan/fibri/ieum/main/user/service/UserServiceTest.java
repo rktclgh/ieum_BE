@@ -38,6 +38,7 @@ import shinhan.fibri.ieum.common.file.domain.File;
 import shinhan.fibri.ieum.common.file.repository.FileRepository;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
 import shinhan.fibri.ieum.main.friend.service.FriendService;
+import shinhan.fibri.ieum.main.notification.push.WebPushSubscriptionCleanup;
 import shinhan.fibri.ieum.main.notification.sse.SseConnectionRegistry;
 import shinhan.fibri.ieum.main.notification.presence.PresenceRegistry;
 import shinhan.fibri.ieum.main.user.dto.ProfileImageResponse;
@@ -61,6 +62,7 @@ class UserServiceTest {
 	private final FileRepository fileRepository = mock(FileRepository.class);
 	private final ProfileFileCleanupService profileFileCleanupService = mock(ProfileFileCleanupService.class);
 	private final FriendService friendService = mock(FriendService.class);
+	private final WebPushSubscriptionCleanup webPushSubscriptionCleanup = mock(WebPushSubscriptionCleanup.class);
 	private final SseConnectionRegistry sseConnectionRegistry = mock(SseConnectionRegistry.class);
 	private final PresenceRegistry presenceRegistry = mock(PresenceRegistry.class);
 	private final UserService service = new UserService(
@@ -71,6 +73,7 @@ class UserServiceTest {
 		fileRepository,
 		profileFileCleanupService,
 		friendService,
+		webPushSubscriptionCleanup,
 		sseConnectionRegistry,
 		presenceRegistry
 	);
@@ -352,6 +355,8 @@ class UserServiceTest {
 			assertThat(user.getDeletedAt()).isNotNull();
 			verify(userRepository, never()).delete(user);
 			verify(sessionStore, never()).revokeAllSessionsOfUser(42L);
+			verify(webPushSubscriptionCleanup, never()).deleteForUser(42L);
+			verify(sseConnectionRegistry, never()).closeUser(42L);
 
 			TransactionSynchronizationManager.getSynchronizations()
 				.forEach(TransactionSynchronization::afterCommit);
@@ -359,13 +364,14 @@ class UserServiceTest {
 			TransactionSynchronizationManager.clearSynchronization();
 		}
 
-		InOrder order = inOrder(sessionStore, sseConnectionRegistry);
+		InOrder order = inOrder(sessionStore, webPushSubscriptionCleanup, sseConnectionRegistry);
 		order.verify(sessionStore).revokeAllSessionsOfUser(42L);
+		order.verify(webPushSubscriptionCleanup).deleteForUser(42L);
 		order.verify(sseConnectionRegistry).closeUser(42L);
 	}
 
 	@Test
-	void withdrawKeepsSoftDeleteWhenSessionRevocationFails() {
+	void withdrawKeepsSoftDeleteAndRunsRemainingInvalidationActionsWhenSessionRevocationFails() {
 		User user = user();
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user));
 		doThrow(new IllegalStateException("redis unavailable"))
@@ -376,6 +382,42 @@ class UserServiceTest {
 
 		assertThat(user.getDeletedAt()).isNotNull();
 		verify(sessionStore).revokeAllSessionsOfUser(42L);
+		verify(webPushSubscriptionCleanup).deleteForUser(42L);
+		verify(sseConnectionRegistry).closeUser(42L);
+	}
+
+	@Test
+	void withdrawRunsRemainingInvalidationActionsWhenPushCleanupFails() {
+		User user = user();
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user));
+		doThrow(new IllegalStateException("database unavailable"))
+			.when(webPushSubscriptionCleanup)
+			.deleteForUser(42L);
+
+		service.withdraw(principal());
+
+		assertThat(user.getDeletedAt()).isNotNull();
+		verify(sessionStore).revokeAllSessionsOfUser(42L);
+		verify(webPushSubscriptionCleanup).deleteForUser(42L);
+		verify(sseConnectionRegistry).closeUser(42L);
+	}
+
+	@Test
+	void withdrawDoesNotRunInvalidationActionsWhenTransactionRollsBack() {
+		User user = user();
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user));
+
+		TransactionSynchronizationManager.initSynchronization();
+		try {
+			service.withdraw(principal());
+			TransactionSynchronizationManager.getSynchronizations()
+				.forEach(synchronization -> synchronization.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK));
+		} finally {
+			TransactionSynchronizationManager.clearSynchronization();
+		}
+
+		verify(sessionStore, never()).revokeAllSessionsOfUser(42L);
+		verify(webPushSubscriptionCleanup, never()).deleteForUser(42L);
 		verify(sseConnectionRegistry, never()).closeUser(42L);
 	}
 

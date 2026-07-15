@@ -33,6 +33,7 @@ import shinhan.fibri.ieum.main.admin.report.service.AdminReportDecisionService;
 import shinhan.fibri.ieum.main.admin.report.service.AdminReportDetailService;
 import shinhan.fibri.ieum.main.admin.report.service.AdminReportQueryService;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
+import shinhan.fibri.ieum.main.auth.session.ValidatedAuthSession;
 import shinhan.fibri.ieum.testsupport.CanonicalPostgresDataSource;
 
 @SpringBootTest
@@ -73,7 +74,8 @@ class AdminReportSecurityIntegrationTest {
 
 	@Test
 	void normalUserAdminReportGetReturnsForbidden() throws Exception {
-		when(sessionTokenValidator.validate("user-token")).thenReturn(Optional.of(user()));
+		when(sessionTokenValidator.validateSession("user-token"))
+			.thenReturn(Optional.of(new ValidatedAuthSession(user(), "user-session")));
 
 		mockMvc.perform(get("/api/v1/admin/reports").cookie(new MockCookie("access_token", "user-token")))
 			.andExpect(status().isForbidden())
@@ -82,7 +84,8 @@ class AdminReportSecurityIntegrationTest {
 
 	@Test
 	void adminAdminReportGetSucceeds() throws Exception {
-		when(sessionTokenValidator.validate("admin-token")).thenReturn(Optional.of(admin()));
+		when(sessionTokenValidator.validateSession("admin-token"))
+			.thenReturn(Optional.of(new ValidatedAuthSession(admin(), "admin-session")));
 		when(queryService.getReports(any())).thenReturn(new AdminReportListResponse(List.of(), null));
 
 		mockMvc.perform(get("/api/v1/admin/reports").cookie(new MockCookie("access_token", "admin-token")))
@@ -101,7 +104,8 @@ class AdminReportSecurityIntegrationTest {
 
 	@Test
 	void adminDecisionWithoutCsrfReturnsCsrfFailed() throws Exception {
-		when(sessionTokenValidator.validate("admin-token")).thenReturn(Optional.of(admin()));
+		when(sessionTokenValidator.validateSession("admin-token"))
+			.thenReturn(Optional.of(new ValidatedAuthSession(admin(), "admin-session")));
 
 		mockMvc.perform(post("/api/v1/admin/reports/10/confirm")
 				.cookie(new MockCookie("access_token", "admin-token")))
@@ -111,7 +115,8 @@ class AdminReportSecurityIntegrationTest {
 
 	@Test
 	void adminDecisionWithMatchingCsrfSucceeds() throws Exception {
-		when(sessionTokenValidator.validate("admin-token")).thenReturn(Optional.of(admin()));
+		when(sessionTokenValidator.validateSession("admin-token"))
+			.thenReturn(Optional.of(new ValidatedAuthSession(admin(), "admin-session")));
 
 		mockMvc.perform(post("/api/v1/admin/reports/10/confirm")
 				.cookie(

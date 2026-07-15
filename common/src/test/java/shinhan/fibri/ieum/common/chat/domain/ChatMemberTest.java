@@ -47,37 +47,31 @@ class ChatMemberTest {
 	}
 
 	@Test
-	void reactivateAfterAdvancesVisibilityForAnInactiveMemberOnly() {
+	void hideHistoryThroughAdvancesVisibilityWithoutLeavingTheRoom() {
 		ChatRoom room = ChatRoom.direct(1L, 2L);
-		User user = user("reactivated-member@example.com", "reactivated-member");
+		User user = user("history-hidden@example.com", "history-hidden");
 		ChatMember member = ChatMember.join(room, user);
 		OffsetDateTime now = OffsetDateTime.parse("2026-07-08T10:00:00+09:00");
 
 		assertThat(member.getVisibleAfterMessageId()).isZero();
 		member.markRead(now.plusMinutes(1));
-		member.leave(now.plusMinutes(2));
-		member.reactivateAfter(41L);
+		member.hideHistoryThrough(41L);
 
 		assertThat(member.isActive()).isTrue();
 		assertThat(member.getVisibleAfterMessageId()).isEqualTo(41L);
 		assertThat(member.getLastReadAt()).isNull();
-
-		member.reactivateAfter(99L);
-		assertThat(member.getVisibleAfterMessageId()).isEqualTo(41L);
 	}
 
 	@Test
-	void reactivateAfterRejectsANegativeMessageIdForAnInactiveMember() {
+	void hideHistoryThroughRejectsANegativeMessageId() {
 		ChatRoom room = ChatRoom.direct(1L, 2L);
 		User user = user("invalid-watermark@example.com", "invalid-watermark");
 		ChatMember member = ChatMember.join(room, user);
-		OffsetDateTime now = OffsetDateTime.parse("2026-07-08T10:00:00+09:00");
-		member.leave(now);
 
-		assertThatThrownBy(() -> member.reactivateAfter(-1L))
+		assertThatThrownBy(() -> member.hideHistoryThrough(-1L))
 			.isInstanceOf(IllegalArgumentException.class)
 			.hasMessage("messageId must not be negative");
-		assertThat(member.isActive()).isFalse();
+		assertThat(member.isActive()).isTrue();
 		assertThat(member.getVisibleAfterMessageId()).isZero();
 	}
 
