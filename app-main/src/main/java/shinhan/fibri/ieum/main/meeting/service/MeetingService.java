@@ -107,7 +107,7 @@ public class MeetingService {
 			imageFileId,
 			imageFileId
 		));
-		List<MeetingSchedule> schedules = createInitialSchedules(meeting.getId(), request);
+		List<MeetingSchedule> schedules = createInitialSchedules(meeting.getId(), principal.userId(), request);
 		MeetingSchedule firstSchedule = null;
 		for (MeetingSchedule schedule : schedules) {
 			MeetingSchedule saved = meetingScheduleRepository.save(schedule);
@@ -296,6 +296,7 @@ public class MeetingService {
 		}
 		MeetingSchedule schedule = meetingScheduleRepository.save(createSchedule(
 			meetingId,
+			principal.userId(),
 			request.startsAt(),
 			request.endsAt(),
 			meetingScheduleRepository.findMaxSequenceNoByMeetingId(meetingId) + 1
@@ -390,9 +391,19 @@ public class MeetingService {
 		}
 	}
 
-	private List<MeetingSchedule> createInitialSchedules(Long meetingId, CreateMeetingRequest request) {
+	private List<MeetingSchedule> createInitialSchedules(
+		Long meetingId,
+		Long createdBy,
+		CreateMeetingRequest request
+	) {
 		if (request.type() == MeetingType.one_time) {
-			return List.of(createSchedule(meetingId, request.schedule().startsAt(), request.schedule().endsAt(), 1));
+			return List.of(createSchedule(
+				meetingId,
+				createdBy,
+				request.schedule().startsAt(),
+				request.schedule().endsAt(),
+				1
+			));
 		}
 		List<OffsetDateTime> startsAtList = recurringStartsAt(request);
 		List<MeetingSchedule> schedules = new ArrayList<>(startsAtList.size());
@@ -402,7 +413,7 @@ public class MeetingService {
 		for (int index = 0; index < startsAtList.size(); index++) {
 			OffsetDateTime startsAt = startsAtList.get(index);
 			OffsetDateTime endsAt = duration == null ? null : startsAt.plus(duration);
-			schedules.add(createSchedule(meetingId, startsAt, endsAt, index + 1));
+			schedules.add(createSchedule(meetingId, createdBy, startsAt, endsAt, index + 1));
 		}
 		if (schedules.isEmpty()) {
 			throw new InvalidMeetingRequestException(
@@ -429,9 +440,16 @@ public class MeetingService {
 		return startsAtList.getFirst();
 	}
 
-	private MeetingSchedule createSchedule(Long meetingId, OffsetDateTime startsAt, OffsetDateTime endsAt, int sequenceNo) {
+	private MeetingSchedule createSchedule(
+		Long meetingId,
+		Long createdBy,
+		OffsetDateTime startsAt,
+		OffsetDateTime endsAt,
+		int sequenceNo
+	) {
 		return MeetingSchedule.create(
 			meetingId,
+			createdBy,
 			startsAt,
 			endsAt,
 			MeetingScheduleTimePolicy.visibleUntil(startsAt),

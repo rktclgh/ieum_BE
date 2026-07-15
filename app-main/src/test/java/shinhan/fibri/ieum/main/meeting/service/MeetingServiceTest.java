@@ -390,6 +390,7 @@ class MeetingServiceTest {
 			.thenReturn(Optional.of(MeetingParticipant.join(3L, 42L, createdAt)));
 		MeetingSchedule nextSchedule = MeetingSchedule.create(
 			3L,
+			42L,
 			OffsetDateTime.parse("2026-07-14T19:00:00+09:00"),
 			OffsetDateTime.parse("2026-07-14T20:00:00+09:00"),
 			OffsetDateTime.parse("2026-07-14T23:59:59+09:00"),
@@ -542,6 +543,7 @@ class MeetingServiceTest {
 		Meeting meeting = meeting(3L, 42L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
 		MeetingSchedule first = MeetingSchedule.create(
 			3L,
+			42L,
 			OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
 			OffsetDateTime.parse("2099-07-10T20:00:00+09:00"),
 			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"),
@@ -550,6 +552,7 @@ class MeetingServiceTest {
 		setField(first, "id", 31L);
 		MeetingSchedule second = MeetingSchedule.create(
 			3L,
+			42L,
 			OffsetDateTime.parse("2099-07-20T19:00:00+09:00"),
 			null,
 			OffsetDateTime.parse("2099-07-20T23:59:59+09:00"),
@@ -868,6 +871,7 @@ class MeetingServiceTest {
 		Meeting meeting = meeting(3L, 42L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
 		MeetingSchedule schedule = MeetingSchedule.create(
 			3L,
+			42L,
 			OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
 			null,
 			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"),
@@ -889,6 +893,7 @@ class MeetingServiceTest {
 		Meeting meeting = meeting(3L, 42L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
 		MeetingSchedule schedule = MeetingSchedule.create(
 			3L,
+			42L,
 			OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
 			null,
 			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"),
@@ -919,6 +924,7 @@ class MeetingServiceTest {
 		Meeting meeting = meeting(3L, 42L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
 		MeetingSchedule schedule = MeetingSchedule.create(
 			3L,
+			42L,
 			OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
 			null,
 			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"),
