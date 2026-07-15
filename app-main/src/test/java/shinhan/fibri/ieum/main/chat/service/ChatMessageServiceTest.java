@@ -1,8 +1,10 @@
 package shinhan.fibri.ieum.main.chat.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -60,7 +62,9 @@ class ChatMessageServiceTest {
 		ArgumentCaptor<WsMessageEvent> eventCaptor = ArgumentCaptor.forClass(WsMessageEvent.class);
 		verify(roomEventPublisher).publish(eventCaptor.capture());
 		assertThat(eventCaptor.getValue().content()).isEqualTo("hello");
-		verify(chatNotificationPublisher).messageCreated(eventCaptor.getValue());
+		ArgumentCaptor<ChatPushTrigger> triggerCaptor = ArgumentCaptor.forClass(ChatPushTrigger.class);
+		verify(chatNotificationPublisher).messageCreated(triggerCaptor.capture());
+		assertThat(triggerCaptor.getValue()).isEqualTo(new ChatPushTrigger(501L, 100L, 42L));
 	}
 
 	@Test
@@ -114,7 +118,60 @@ class ChatMessageServiceTest {
 		try {
 			service.send(principal(42L), 100L, new SendChatMessageRequest("hello", null));
 			verify(roomEventPublisher, never()).publish(any());
+			verify(chatNotificationPublisher, never()).messageCreated(any());
 			TransactionSynchronizationManager.getSynchronizations().forEach(TransactionSynchronization::afterCommit);
+		} finally {
+			TransactionSynchronizationManager.clearSynchronization();
+		}
+
+		verify(roomEventPublisher).publish(any());
+		verify(chatNotificationPublisher).messageCreated(new ChatPushTrigger(501L, 100L, 42L));
+	}
+
+	@Test
+	void rollbackPublishesNeitherWebSocketNorChatPush() {
+		prepareSuccessfulTextMessage();
+
+		TransactionSynchronizationManager.initSynchronization();
+		try {
+			service.send(principal(42L), 100L, new SendChatMessageRequest("hello", null));
+			TransactionSynchronizationManager.getSynchronizations()
+				.forEach(synchronization -> synchronization.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK));
+		} finally {
+			TransactionSynchronizationManager.clearSynchronization();
+		}
+
+		verify(roomEventPublisher, never()).publish(any());
+		verify(chatNotificationPublisher, never()).messageCreated(any());
+	}
+
+	@Test
+	void webSocketFailureAfterCommitStillAttemptsChatPushAndDoesNotEscape() {
+		prepareSuccessfulTextMessage();
+		doThrow(new IllegalStateException("secret websocket detail")).when(roomEventPublisher).publish(any());
+
+		TransactionSynchronizationManager.initSynchronization();
+		try {
+			service.send(principal(42L), 100L, new SendChatMessageRequest("hello", null));
+			assertThatCode(() -> TransactionSynchronizationManager.getSynchronizations()
+				.forEach(TransactionSynchronization::afterCommit)).doesNotThrowAnyException();
+		} finally {
+			TransactionSynchronizationManager.clearSynchronization();
+		}
+
+		verify(chatNotificationPublisher).messageCreated(new ChatPushTrigger(501L, 100L, 42L));
+	}
+
+	@Test
+	void chatPushFailureAfterCommitDoesNotEscapeAfterWebSocketAttempt() {
+		prepareSuccessfulTextMessage();
+		doThrow(new IllegalStateException("secret push detail")).when(chatNotificationPublisher).messageCreated(any());
+
+		TransactionSynchronizationManager.initSynchronization();
+		try {
+			service.send(principal(42L), 100L, new SendChatMessageRequest("hello", null));
+			assertThatCode(() -> TransactionSynchronizationManager.getSynchronizations()
+				.forEach(TransactionSynchronization::afterCommit)).doesNotThrowAnyException();
 		} finally {
 			TransactionSynchronizationManager.clearSynchronization();
 		}
@@ -153,6 +210,18 @@ class ChatMessageServiceTest {
 
 		assertThatThrownBy(() -> service.send(principal(42L), 100L, new SendChatMessageRequest("hello", null)))
 			.isInstanceOf(NotRoomMemberException.class);
+	}
+
+	private void prepareSuccessfulTextMessage() {
+		User me = user(42L, "me@example.com", "me");
+		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
+		ChatMember member = ChatMember.join(room, me);
+		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(member));
+		when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> {
+			Message message = invocation.getArgument(0);
+			setField(message, "id", 501L);
+			return message;
+		});
 	}
 
 	private AuthenticatedUser principal(Long userId) {

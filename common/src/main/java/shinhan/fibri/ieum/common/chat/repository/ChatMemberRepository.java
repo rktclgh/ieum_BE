@@ -35,6 +35,20 @@ public interface ChatMemberRepository extends JpaRepository<ChatMember, ChatMemb
 		""")
 	List<ChatMember> findByRoom_Id(@Param("roomId") Long roomId);
 
+	@Query("""
+		SELECT member.user.id
+		FROM ChatMember member
+		WHERE member.room.id = :roomId
+		  AND member.user.id <> :senderId
+		  AND member.leftAt IS NULL
+		  AND member.notifyEnabled = true
+		ORDER BY member.user.id
+		""")
+	List<Long> findPushRecipientUserIds(
+		@Param("roomId") Long roomId,
+		@Param("senderId") Long senderId
+	);
+
 	@Modifying
 	@Query("""
 		UPDATE ChatMember member

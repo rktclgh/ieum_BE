@@ -109,6 +109,31 @@ class ChatRepositoryTest {
 	}
 
 	@Test
+	void findsPushRecipientUserIdsInAscendingOrderExcludingSenderMutedAndLeftMembers() {
+		User sender = persist(user("push-sender@example.com", "push-sender"));
+		User eligibleLow = persist(user("push-low@example.com", "push-low"));
+		User eligibleHigh = persist(user("push-high@example.com", "push-high"));
+		User muted = persist(user("push-muted@example.com", "push-muted"));
+		User left = persist(user("push-left@example.com", "push-left"));
+		User otherRoom = persist(user("push-other-room@example.com", "push-other-room"));
+		ChatRoom room = chatRoomRepository.save(ChatRoom.direct(sender.getId(), eligibleLow.getId()));
+		ChatRoom anotherRoom = chatRoomRepository.save(ChatRoom.direct(sender.getId(), otherRoom.getId()));
+		chatMemberRepository.save(ChatMember.join(room, sender));
+		chatMemberRepository.save(ChatMember.join(room, eligibleHigh));
+		chatMemberRepository.save(ChatMember.join(room, eligibleLow));
+		ChatMember mutedMember = chatMemberRepository.save(ChatMember.join(room, muted));
+		mutedMember.setNotifyEnabled(false);
+		ChatMember leftMember = chatMemberRepository.save(ChatMember.join(room, left));
+		leftMember.leave(OffsetDateTime.parse("2026-07-08T09:00:00+09:00"));
+		chatMemberRepository.save(ChatMember.join(anotherRoom, otherRoom));
+		entityManager.flush();
+		entityManager.clear();
+
+		assertThat(chatMemberRepository.findPushRecipientUserIds(room.getId(), sender.getId()))
+			.containsExactly(eligibleLow.getId(), eligibleHigh.getId());
+	}
+
+	@Test
 	void restoresLeftMembersExceptSender() {
 		User me = persist(user("restore-me@example.com", "restore-me"));
 		User friend = persist(user("restore-friend@example.com", "restore-friend"));
