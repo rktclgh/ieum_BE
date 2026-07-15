@@ -10,6 +10,9 @@ import shinhan.fibri.ieum.common.chat.domain.Message;
 
 public interface MessageRepository extends JpaRepository<Message, Long> {
 
+	@Query("SELECT COALESCE(MAX(message.id), 0) FROM Message message WHERE message.room.id = :roomId")
+	long findMaxMessageIdByRoomId(@Param("roomId") Long roomId);
+
 	@Query("""
 		SELECT message
 		FROM Message message
