@@ -23,7 +23,21 @@ class FriendRequestResponseTest {
 		assertThat(response.userId()).isEqualTo(77L);
 		assertThat(response.nickname()).isEqualTo("requester");
 		assertThat(response.profileImageUrl()).isEqualTo("/api/v1/files/22222222-2222-2222-2222-222222222222");
+		assertThat(response.nationality()).isEqualTo("KR");
 		assertThat(response.requestedAt()).isEqualTo(requestedAt);
+	}
+
+	@Test
+	void fromReturnsNullNationalityWhenUserHasNone() {
+		User user = user(77L, "requester");
+		ReflectionTestUtils.setField(user, "nationality", null);
+
+		FriendRequestResponse response = FriendRequestResponse.from(
+			user,
+			OffsetDateTime.parse("2026-07-08T12:00:00+09:00")
+		);
+
+		assertThat(response.nationality()).isNull();
 	}
 
 	@Test

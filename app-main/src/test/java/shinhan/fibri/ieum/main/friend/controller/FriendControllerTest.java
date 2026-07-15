@@ -70,13 +70,14 @@ class FriendControllerTest {
 	void listFriendsReturnsFriends() throws Exception {
 		OffsetDateTime lastActiveAt = OffsetDateTime.parse("2026-07-08T10:00:00+09:00");
 		when(friendService.listFriends(any(AuthenticatedUser.class)))
-			.thenReturn(List.of(new FriendResponse(7L, "friend", "/api/v1/files/3", lastActiveAt, true)));
+			.thenReturn(List.of(new FriendResponse(7L, "friend", "/api/v1/files/3", "KR", lastActiveAt, true)));
 
 		mockMvc.perform(get("/api/v1/friends").with(authenticated()))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$[0].userId", is(7)))
 			.andExpect(jsonPath("$[0].nickname", is("friend")))
 			.andExpect(jsonPath("$[0].profileImageUrl", is("/api/v1/files/3")))
+			.andExpect(jsonPath("$[0].nationality", is("KR")))
 			.andExpect(jsonPath("$[0].lastActiveAt", is("2026-07-08T10:00:00+09:00")))
 			.andExpect(jsonPath("$[0].active", is(true)));
 
@@ -87,7 +88,7 @@ class FriendControllerTest {
 	void listFriendRequestsReturnsRequests() throws Exception {
 		OffsetDateTime requestedAt = OffsetDateTime.parse("2026-07-08T09:30:00+09:00");
 		when(friendService.listFriendRequests(any(AuthenticatedUser.class), eq("received")))
-			.thenReturn(List.of(new FriendRequestResponse(7L, "requester", null, requestedAt)));
+			.thenReturn(List.of(new FriendRequestResponse(7L, "requester", null, "JP", requestedAt)));
 
 		mockMvc.perform(get("/api/v1/friends/requests")
 				.param("direction", "received")
@@ -96,6 +97,7 @@ class FriendControllerTest {
 			.andExpect(jsonPath("$[0].userId", is(7)))
 			.andExpect(jsonPath("$[0].nickname", is("requester")))
 			.andExpect(jsonPath("$[0].profileImageUrl").doesNotExist())
+			.andExpect(jsonPath("$[0].nationality", is("JP")))
 			.andExpect(jsonPath("$[0].requestedAt", is("2026-07-08T09:30:00+09:00")));
 
 		verify(friendService).listFriendRequests(any(AuthenticatedUser.class), eq("received"));
