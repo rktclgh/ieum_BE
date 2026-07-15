@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.main.notification.push;
 
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -24,8 +25,26 @@ public record WebPushProperties(
 		else if (vapidPublicKey.isBlank() || !vapidPublicKey.equals(vapidPublicKey.trim())) {
 			throw new IllegalStateException("app.web-push.vapid-public-key must be configured");
 		}
+		else if (!isRawUncompressedPublicKey(vapidPublicKey)) {
+			throw new IllegalStateException(
+				"app.web-push.vapid-public-key must be a base64url raw uncompressed P-256 public key"
+			);
+		}
 		else if (allowedEndpointHosts.isEmpty()) {
 			throw new IllegalStateException("app.web-push.allowed-endpoint-hosts must be configured");
+		}
+	}
+
+	private static boolean isRawUncompressedPublicKey(String value) {
+		if (!value.matches("[A-Za-z0-9_-]+")) {
+			return false;
+		}
+		try {
+			byte[] decoded = Base64.getUrlDecoder().decode(value);
+			return decoded.length == 65 && decoded[0] == 0x04;
+		}
+		catch (IllegalArgumentException exception) {
+			return false;
 		}
 	}
 

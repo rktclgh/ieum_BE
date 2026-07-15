@@ -20,6 +20,7 @@ import org.mockito.ArgumentCaptor;
 class WebPushSubscriptionServiceTest {
 
 	private static final Instant NOW = Instant.parse("2026-07-15T00:00:00Z");
+	private static final String PUBLIC_VAPID_KEY = WebPushTestKeys.generateVapidKeys().publicKey();
 	private WebPushSubscriptionRepository repository;
 	private WebPushSubscriptionService service;
 
@@ -28,7 +29,7 @@ class WebPushSubscriptionServiceTest {
 		repository = mock(WebPushSubscriptionRepository.class);
 		WebPushProperties properties = new WebPushProperties(
 			true,
-			"public-vapid-key",
+			PUBLIC_VAPID_KEY,
 			"fcm.googleapis.com"
 		);
 		WebPushSubscriptionValidator validator = new WebPushSubscriptionValidator(
@@ -59,7 +60,7 @@ class WebPushSubscriptionServiceTest {
 
 		WebPushConfigResponse response = service.config(42L, "session-42");
 
-		assertThat(response).isEqualTo(new WebPushConfigResponse(true, "public-vapid-key", true));
+		assertThat(response).isEqualTo(new WebPushConfigResponse(true, PUBLIC_VAPID_KEY, true));
 		verify(repository).existsActiveByUserIdAndSessionId(42L, "session-42");
 	}
 

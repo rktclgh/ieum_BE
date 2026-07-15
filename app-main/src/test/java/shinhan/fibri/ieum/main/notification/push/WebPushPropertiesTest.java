@@ -19,9 +19,10 @@ class WebPushPropertiesTest {
 
 	@Test
 	void enabledModeNormalizesAllowedHosts() {
+		String publicKey = WebPushTestKeys.generateVapidKeys().publicKey();
 		WebPushProperties properties = new WebPushProperties(
 			true,
-			"public-key",
+			publicKey,
 			" FCM.GOOGLEAPIS.COM, push.services.mozilla.com "
 		);
 
@@ -33,7 +34,21 @@ class WebPushPropertiesTest {
 	void enabledModeRequiresPublicKeyAndHostAllowList() {
 		assertThatThrownBy(() -> new WebPushProperties(true, " ", "fcm.googleapis.com"))
 			.isInstanceOf(IllegalStateException.class);
-		assertThatThrownBy(() -> new WebPushProperties(true, "public-key", " "))
+		assertThatThrownBy(() -> new WebPushProperties(
+			true,
+			WebPushTestKeys.generateVapidKeys().publicKey(),
+			" "
+		))
 			.isInstanceOf(IllegalStateException.class);
+	}
+
+	@Test
+	void rejectsMalformedEnabledPublicKeyWithoutLeakingIt() {
+		String malformed = "not-base64url+secret";
+
+		assertThatThrownBy(() -> new WebPushProperties(true, malformed, "fcm.googleapis.com"))
+			.isInstanceOf(IllegalStateException.class)
+			.hasMessageContaining("app.web-push.vapid-public-key")
+			.hasMessageNotContaining(malformed);
 	}
 }
