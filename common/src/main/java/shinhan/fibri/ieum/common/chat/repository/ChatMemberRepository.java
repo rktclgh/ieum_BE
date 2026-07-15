@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import shinhan.fibri.ieum.common.chat.domain.ChatMember;
 import shinhan.fibri.ieum.common.chat.domain.ChatMemberId;
+import shinhan.fibri.ieum.common.chat.domain.RoomType;
 
 public interface ChatMemberRepository extends JpaRepository<ChatMember, ChatMemberId> {
 
@@ -33,6 +34,18 @@ public interface ChatMemberRepository extends JpaRepository<ChatMember, ChatMemb
 		ORDER BY member.user.id
 		""")
 	List<ChatMember> findByRoomIdForUpdateOrderByUserId(@Param("roomId") Long roomId);
+
+	@Query("""
+		SELECT member.room.roomType
+		FROM ChatMember member
+		WHERE member.room.id = :roomId
+		  AND member.user.id = :userId
+		  AND member.leftAt IS NULL
+		""")
+	Optional<RoomType> findActiveRoomTypeByRoomIdAndUserId(
+		@Param("roomId") Long roomId,
+		@Param("userId") Long userId
+	);
 
 	@Query("""
 		SELECT member

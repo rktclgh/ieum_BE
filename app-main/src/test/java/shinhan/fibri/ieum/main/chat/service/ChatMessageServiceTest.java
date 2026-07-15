@@ -54,7 +54,8 @@ class ChatMessageServiceTest {
 		User me = user(42L, "me@example.com", "me");
 		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
 		ChatMember member = ChatMember.join(room, me);
-		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(member));
+		when(chatMemberRepository.findActiveRoomTypeByRoomIdAndUserId(100L, 42L))
+			.thenReturn(Optional.of(RoomType.direct));
 		when(oneToOneChatMemberService.prepareSend(100L, 42L)).thenReturn(member);
 		when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> {
 			Message message = invocation.getArgument(0);
@@ -65,9 +66,11 @@ class ChatMessageServiceTest {
 		var response = service.send(principal(42L), 100L, new SendChatMessageRequest("hello", null));
 
 		assertThat(response.messageId()).isEqualTo(501L);
-		var order = org.mockito.Mockito.inOrder(oneToOneChatMemberService, messageRepository);
+		var order = org.mockito.Mockito.inOrder(chatMemberRepository, oneToOneChatMemberService, messageRepository);
+		order.verify(chatMemberRepository).findActiveRoomTypeByRoomIdAndUserId(100L, 42L);
 		order.verify(oneToOneChatMemberService).prepareSend(100L, 42L);
 		order.verify(messageRepository).save(any(Message.class));
+		verify(chatMemberRepository, never()).findActiveByRoomIdAndUserId(anyLong(), anyLong());
 		ArgumentCaptor<WsMessageEvent> eventCaptor = ArgumentCaptor.forClass(WsMessageEvent.class);
 		verify(roomEventPublisher).publish(eventCaptor.capture());
 		assertThat(eventCaptor.getValue().content()).isEqualTo("hello");
@@ -79,7 +82,8 @@ class ChatMessageServiceTest {
 		User me = user(42L, "me@example.com", "me");
 		ChatRoom room = room(ChatRoom.question(9L, 42L, 77L), 100L);
 		ChatMember member = ChatMember.join(room, me);
-		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(member));
+		when(chatMemberRepository.findActiveRoomTypeByRoomIdAndUserId(100L, 42L))
+			.thenReturn(Optional.of(RoomType.question));
 		when(oneToOneChatMemberService.prepareSend(100L, 42L)).thenReturn(member);
 		when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> {
 			Message message = invocation.getArgument(0);
@@ -89,9 +93,11 @@ class ChatMessageServiceTest {
 
 		service.send(principal(42L), 100L, new SendChatMessageRequest("hello", null));
 
-		var order = org.mockito.Mockito.inOrder(oneToOneChatMemberService, messageRepository);
+		var order = org.mockito.Mockito.inOrder(chatMemberRepository, oneToOneChatMemberService, messageRepository);
+		order.verify(chatMemberRepository).findActiveRoomTypeByRoomIdAndUserId(100L, 42L);
 		order.verify(oneToOneChatMemberService).prepareSend(100L, 42L);
 		order.verify(messageRepository).save(any(Message.class));
+		verify(chatMemberRepository, never()).findActiveByRoomIdAndUserId(anyLong(), anyLong());
 	}
 
 	@Test
@@ -99,6 +105,8 @@ class ChatMessageServiceTest {
 		User me = user(42L, "me@example.com", "me");
 		ChatRoom room = room(ChatRoom.group(7L), 100L);
 		ChatMember member = ChatMember.join(room, me);
+		when(chatMemberRepository.findActiveRoomTypeByRoomIdAndUserId(100L, 42L))
+			.thenReturn(Optional.of(RoomType.group));
 		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(member));
 		when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> {
 			Message message = invocation.getArgument(0);
@@ -109,6 +117,10 @@ class ChatMessageServiceTest {
 		service.send(principal(42L), 100L, new SendChatMessageRequest("hello", null));
 
 		verify(oneToOneChatMemberService, never()).prepareSend(anyLong(), anyLong());
+		var order = org.mockito.Mockito.inOrder(chatMemberRepository, messageRepository);
+		order.verify(chatMemberRepository).findActiveRoomTypeByRoomIdAndUserId(100L, 42L);
+		order.verify(chatMemberRepository).findActiveByRoomIdAndUserId(100L, 42L);
+		order.verify(messageRepository).save(any(Message.class));
 		assertThat(member.getRoom().getRoomType()).isEqualTo(RoomType.group);
 	}
 
@@ -133,7 +145,8 @@ class ChatMessageServiceTest {
 			roomEventPublisher,
 			chatNotificationPublisher
 		);
-		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(sender));
+		when(chatMemberRepository.findActiveRoomTypeByRoomIdAndUserId(100L, 42L))
+			.thenReturn(Optional.of(RoomType.question));
 		when(chatRoomRepository.findByIdForUpdate(100L)).thenReturn(Optional.of(room));
 		when(chatMemberRepository.findByRoomIdForUpdateOrderByUserId(100L))
 			.thenReturn(List.of(sender, recipient));
@@ -146,6 +159,7 @@ class ChatMessageServiceTest {
 		actualService.send(principal(42L), 100L, new SendChatMessageRequest("hello", null));
 
 		verify(messageRepository, never()).findMaxMessageIdByRoomId(anyLong());
+		verify(chatMemberRepository, never()).findActiveByRoomIdAndUserId(anyLong(), anyLong());
 		assertThat(recipient.getVisibleAfterMessageId()).isEqualTo(63L);
 	}
 
@@ -154,7 +168,8 @@ class ChatMessageServiceTest {
 		User me = user(42L, "me@example.com", "me");
 		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
 		ChatMember member = ChatMember.join(room, me);
-		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(member));
+		when(chatMemberRepository.findActiveRoomTypeByRoomIdAndUserId(100L, 42L))
+			.thenReturn(Optional.of(RoomType.direct));
 		when(oneToOneChatMemberService.prepareSend(100L, 42L)).thenReturn(member);
 		when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> {
 			Message message = invocation.getArgument(0);
@@ -200,11 +215,14 @@ class ChatMessageServiceTest {
 	}
 
 	@Test
-	void sendRequiresActiveMembership() {
-		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.empty());
+	void sendRejectsInactiveOrMissingMembershipFromScalarRoomTypeLookup() {
+		when(chatMemberRepository.findActiveRoomTypeByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.empty());
 
 		assertThatThrownBy(() -> service.send(principal(42L), 100L, new SendChatMessageRequest("hello", null)))
 			.isInstanceOf(NotRoomMemberException.class);
+		verify(chatMemberRepository, never()).findActiveByRoomIdAndUserId(anyLong(), anyLong());
+		verify(oneToOneChatMemberService, never()).prepareSend(anyLong(), anyLong());
+		verify(messageRepository, never()).save(any(Message.class));
 	}
 
 	private AuthenticatedUser principal(Long userId) {

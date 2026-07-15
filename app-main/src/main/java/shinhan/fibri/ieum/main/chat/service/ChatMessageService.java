@@ -32,11 +32,12 @@ public class ChatMessageService {
 	@Transactional
 	public ChatMessageResponse send(AuthenticatedUser principal, Long roomId, SendChatMessageRequest request) {
 		validatePayload(request);
-		ChatMember member = chatMemberRepository.findActiveByRoomIdAndUserId(roomId, principal.userId())
+		RoomType roomType = chatMemberRepository.findActiveRoomTypeByRoomIdAndUserId(roomId, principal.userId())
 			.orElseThrow(NotRoomMemberException::new);
-		if (member.getRoom().getRoomType() != RoomType.group) {
-			member = oneToOneChatMemberService.prepareSend(roomId, principal.userId());
-		}
+		ChatMember member = roomType == RoomType.group
+			? chatMemberRepository.findActiveByRoomIdAndUserId(roomId, principal.userId())
+				.orElseThrow(NotRoomMemberException::new)
+			: oneToOneChatMemberService.prepareSend(roomId, principal.userId());
 		Message message = messageRepository.save(toMessage(member, request));
 		WsMessageEvent event = toEvent(message);
 		publishAfterCommit(event);
