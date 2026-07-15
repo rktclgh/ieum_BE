@@ -35,7 +35,7 @@ public class JdbcContentPurgeRepository implements ContentPurgeRepository {
 		List<FileRow> files = selectFiles(params);
 		logPurgeKeys(questionIds, files);
 
-		deleteByQuestionIds("""
+		int answerImageDeletes = deleteByQuestionIds("""
 			DELETE FROM answer_images
 			 WHERE answer_id IN (
 			       SELECT answer_id
@@ -43,13 +43,26 @@ public class JdbcContentPurgeRepository implements ContentPurgeRepository {
 			        WHERE question_id IN (:questionIds)
 			 )
 			""", params);
-		deleteByQuestionIds("DELETE FROM question_images WHERE question_id IN (:questionIds)", params);
-		deleteKnowledgeRows(params);
-		deleteByQuestionIds("DELETE FROM ai_question_tasks WHERE question_id IN (:questionIds)", params);
-		deleteByQuestionIds("DELETE FROM answers WHERE question_id IN (:questionIds)", params);
-		deleteByQuestionIds("DELETE FROM questions WHERE question_id IN (:questionIds)", params);
-		deleteByIds("DELETE FROM pins WHERE pin_id IN (:ids)", pinIds);
-		deleteFiles(files);
+		int questionImageDeletes = deleteByQuestionIds("DELETE FROM question_images WHERE question_id IN (:questionIds)", params);
+		KnowledgeDeleteCounts knowledgeDeletes = deleteKnowledgeRows(params);
+		int aiTaskDeletes = deleteByQuestionIds("DELETE FROM ai_question_tasks WHERE question_id IN (:questionIds)", params);
+		int answerDeletes = deleteByQuestionIds("DELETE FROM answers WHERE question_id IN (:questionIds)", params);
+		int questionDeletes = deleteByQuestionIds("DELETE FROM questions WHERE question_id IN (:questionIds)", params);
+		int pinDeletes = deleteByIds("DELETE FROM pins WHERE pin_id IN (:ids)", pinIds);
+		int fileDeletes = deleteFiles(files);
+		log.info(
+			"Content purge DB deletes completed. questions={}, pins={}, answers={}, answerImages={}, questionImages={}, knowledgeSources={}, knowledgeChunks={}, knowledgeRelations={}, aiTasks={}, files={}",
+			questionDeletes,
+			pinDeletes,
+			answerDeletes,
+			answerImageDeletes,
+			questionImageDeletes,
+			knowledgeDeletes.sources(),
+			knowledgeDeletes.chunks(),
+			knowledgeDeletes.relations(),
+			aiTaskDeletes,
+			fileDeletes
+		);
 
 		return new ContentPurgeChunk(targets.size(), files.stream().map(FileRow::s3Key).toList());
 	}
@@ -112,7 +125,7 @@ public class JdbcContentPurgeRepository implements ContentPurgeRepository {
 		);
 	}
 
-	private void deleteKnowledgeRows(MapSqlParameterSource params) {
+	private KnowledgeDeleteCounts deleteKnowledgeRows(MapSqlParameterSource params) {
 		String sourceFilter = """
 			question_id IN (:questionIds)
 			OR answer_id IN (
@@ -121,29 +134,34 @@ public class JdbcContentPurgeRepository implements ContentPurgeRepository {
 			       WHERE question_id IN (:questionIds)
 			)
 			""";
-		jdbc.update("DELETE FROM knowledge_relations WHERE source_id IN (SELECT source_id FROM knowledge_sources WHERE " + sourceFilter + ")", params);
-		jdbc.update("DELETE FROM knowledge_chunks WHERE source_id IN (SELECT source_id FROM knowledge_sources WHERE " + sourceFilter + ")", params);
-		jdbc.update("DELETE FROM knowledge_sources WHERE " + sourceFilter, params);
+		int relations = jdbc.update("DELETE FROM knowledge_relations WHERE source_id IN (SELECT source_id FROM knowledge_sources WHERE " + sourceFilter + ")", params);
+		int chunks = jdbc.update("DELETE FROM knowledge_chunks WHERE source_id IN (SELECT source_id FROM knowledge_sources WHERE " + sourceFilter + ")", params);
+		int sources = jdbc.update("DELETE FROM knowledge_sources WHERE " + sourceFilter, params);
+		return new KnowledgeDeleteCounts(relations, chunks, sources);
 	}
 
-	private void deleteByQuestionIds(String sql, MapSqlParameterSource params) {
-		jdbc.update(sql, params);
+	private int deleteByQuestionIds(String sql, MapSqlParameterSource params) {
+		return jdbc.update(sql, params);
 	}
 
-	private void deleteByIds(String sql, List<?> ids) {
+	private int deleteByIds(String sql, List<?> ids) {
 		if (!ids.isEmpty()) {
-			jdbc.update(sql, new MapSqlParameterSource("ids", ids));
+			return jdbc.update(sql, new MapSqlParameterSource("ids", ids));
 		}
+		return 0;
 	}
 
-	private void deleteFiles(List<FileRow> files) {
+	private int deleteFiles(List<FileRow> files) {
 		List<UUID> fileIds = files.stream().map(FileRow::fileId).toList();
-		deleteByIds("DELETE FROM files WHERE file_id IN (:ids)", fileIds);
+		return deleteByIds("DELETE FROM files WHERE file_id IN (:ids)", fileIds);
 	}
 
 	private record TargetRow(Long questionId, Long pinId) {
 	}
 
 	private record FileRow(UUID fileId, String s3Key) {
+	}
+
+	private record KnowledgeDeleteCounts(int relations, int chunks, int sources) {
 	}
 }
