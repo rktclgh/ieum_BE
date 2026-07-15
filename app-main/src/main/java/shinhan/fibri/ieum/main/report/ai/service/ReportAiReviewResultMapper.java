@@ -33,7 +33,7 @@ public class ReportAiReviewResultMapper {
 		if (!valid(response, reviewedAt)) {
 			throw invalid();
 		}
-		Duration sanctionDuration = sanctionDuration(response.decision(), response.severity());
+		Duration sanctionDuration = sanctionDuration(response);
 		String recommendation = switch (response.decision()) {
 			case "suspend" -> "temporary_suspend";
 			case "hold" -> "hold";
@@ -110,30 +110,12 @@ public class ReportAiReviewResultMapper {
 			return false;
 		}
 
-		JsonNode snapshot = response.policySnapshot();
-		if (!response.policySetHash().equals(text(snapshot, "policySetHash"))) {
-			return false;
-		}
-		JsonNode rules = snapshot.get("rules");
-		if (rules == null || !rules.isArray()) {
-			return false;
-		}
-		JsonNode snapshotRule = null;
-		for (JsonNode rule : rules) {
-			if (rule != null
-				&& rule.isObject()
-				&& ruleCode.equals(text(rule, "ruleCode"))
-				&& revisionNode.asInt() == integer(rule.get("revision"))) {
-				if (snapshotRule != null) {
-					return false;
-				}
-				snapshotRule = rule;
-			}
-		}
+		JsonNode snapshotRule = selectedSnapshotRule(response, ruleCode, revisionNode.asInt());
 		if (snapshotRule == null
 			|| !"suspend".equals(text(snapshotRule, "decision"))
 			|| !response.severity().equals(text(snapshotRule, "severity"))
-			|| !response.category().equals(text(snapshotRule, "category"))) {
+			|| !response.category().equals(text(snapshotRule, "category"))
+			|| !validAutomaticSanctionDays(snapshotRule.get("automaticSanctionDays"))) {
 			return false;
 		}
 		JsonNode minConfidence = snapshotRule.get("minConfidence");
@@ -142,6 +124,30 @@ public class ReportAiReviewResultMapper {
 			&& minConfidence.decimalValue().compareTo(BigDecimal.ZERO) >= 0
 			&& minConfidence.decimalValue().compareTo(BigDecimal.ONE) <= 0
 			&& response.confidence().compareTo(minConfidence.decimalValue()) >= 0;
+	}
+
+	private JsonNode selectedSnapshotRule(ReportReviewResponse response, String ruleCode, int revision) {
+		JsonNode snapshot = response.policySnapshot();
+		if (!response.policySetHash().equals(text(snapshot, "policySetHash"))) {
+			return null;
+		}
+		JsonNode rules = snapshot.get("rules");
+		if (rules == null || !rules.isArray()) {
+			return null;
+		}
+		JsonNode selected = null;
+		for (JsonNode rule : rules) {
+			if (rule != null
+				&& rule.isObject()
+				&& ruleCode.equals(text(rule, "ruleCode"))
+				&& revision == integer(rule.get("revision"))) {
+				if (selected != null) {
+					return null;
+				}
+				selected = rule;
+			}
+		}
+		return selected;
 	}
 
 	private boolean validEvidence(JsonNode evidence) {
@@ -177,11 +183,27 @@ public class ReportAiReviewResultMapper {
 		return positiveInteger(value) ? value.asInt() : -1;
 	}
 
-	private Duration sanctionDuration(String decision, String severity) {
-		if (!"suspend".equals(decision)) {
+	private Duration sanctionDuration(ReportReviewResponse response) {
+		if (!"suspend".equals(response.decision())) {
 			return null;
 		}
-		return "critical".equals(severity) ? Duration.ofDays(7) : Duration.ofHours(72);
+		JsonNode matchedRule = response.matchedRules().get(0);
+		JsonNode snapshotRule = selectedSnapshotRule(
+			response,
+			text(matchedRule, "ruleCode"),
+			integer(matchedRule.get("revision"))
+		);
+		JsonNode automaticSanctionDays = snapshotRule.get("automaticSanctionDays");
+		if (automaticSanctionDays != null && !automaticSanctionDays.isNull()) {
+			return Duration.ofDays(automaticSanctionDays.asInt());
+		}
+		return "critical".equals(response.severity()) ? Duration.ofDays(7) : Duration.ofHours(72);
+	}
+
+	private boolean validAutomaticSanctionDays(JsonNode value) {
+		return value == null
+			|| value.isNull()
+			|| (positiveInteger(value) && value.asInt() <= 365);
 	}
 
 	private boolean isArray(JsonNode node, boolean requireItem) {

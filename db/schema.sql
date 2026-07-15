@@ -639,6 +639,7 @@ CREATE TABLE ai_report_policy_rules (
     criteria TEXT NOT NULL CHECK (btrim(criteria) <> ''),
     decision VARCHAR(16) NOT NULL CHECK (decision IN ('suspend','hold','normal')),
     severity VARCHAR(16) NOT NULL CHECK (severity IN ('low','medium','high','critical')),
+    automatic_sanction_days SMALLINT,
     min_confidence NUMERIC(5,4) NOT NULL CHECK (min_confidence BETWEEN 0 AND 1),
     evidence_types VARCHAR(10) NOT NULL CHECK (evidence_types IN ('text','image','both')),
     priority INTEGER NOT NULL DEFAULT 0 CHECK (priority BETWEEN -1000 AND 1000),
@@ -651,6 +652,10 @@ CREATE TABLE ai_report_policy_rules (
     updated_by BIGINT REFERENCES users(user_id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_ai_report_policy_rules_automatic_sanction_days
+        CHECK (automatic_sanction_days IS NULL OR (
+            decision = 'suspend' AND automatic_sanction_days BETWEEN 1 AND 365
+        )),
     CHECK (decision <> 'suspend' OR severity IN ('high','critical'))
 );
 CREATE INDEX idx_ai_report_policy_rules_snapshot

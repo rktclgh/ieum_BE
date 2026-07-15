@@ -195,7 +195,7 @@ for workflow in "$main_workflow" "$ai_workflow"; do
     exit 1
   }
   grep -Fq 'scp "${scp_opts[@]}" deploy/scripts/apply-admin-dashboard-migrations.sh "$remote:$DEPLOY_PATH/deploy/scripts/apply-admin-dashboard-migrations.sh"' "$workflow"
-  grep -Fq 'scp "${scp_opts[@]}" db/migrations/v25_user_auth_version.sql db/migrations/v26_admin_audit_logs.sql "$remote:$DEPLOY_PATH/db/migrations/"' "$workflow"
+  grep -Fq 'scp "${scp_opts[@]}" db/migrations/v24_seed_report_policy_rules.sql db/migrations/v25_user_auth_version.sql db/migrations/v26_admin_audit_logs.sql db/migrations/v27_report_policy_sanction_durations.sql "$remote:$DEPLOY_PATH/db/migrations/"' "$workflow"
   forbid_regex 'scp .*db/migrations/.*[?*]' "$workflow"
   test "$(grep -Fc '"$deploy_path/deploy/scripts/apply-admin-dashboard-migrations.sh"' "$workflow")" -eq 1 || {
     echo "Remote migration helper must be executed exactly once: $workflow" >&2
@@ -203,7 +203,7 @@ for workflow in "$main_workflow" "$ai_workflow"; do
   }
 
   helper_copy_line="$(grep -n -m1 -F 'scp "${scp_opts[@]}" deploy/scripts/apply-admin-dashboard-migrations.sh' "$workflow" | cut -d: -f1)"
-  migration_copy_line="$(grep -n -m1 -F 'scp "${scp_opts[@]}" db/migrations/v25_user_auth_version.sql db/migrations/v26_admin_audit_logs.sql' "$workflow" | cut -d: -f1)"
+  migration_copy_line="$(grep -n -m1 -F 'scp "${scp_opts[@]}" db/migrations/v24_seed_report_policy_rules.sql db/migrations/v25_user_auth_version.sql db/migrations/v26_admin_audit_logs.sql db/migrations/v27_report_policy_sanction_durations.sql' "$workflow" | cut -d: -f1)"
   migration_line="$(grep -n -m1 -F '"$deploy_path/deploy/scripts/apply-admin-dashboard-migrations.sh"' "$workflow" | cut -d: -f1)"
   binary_build_line="$(grep -n -m1 -E 'run: ./gradlew :app-(main|ai):test :app-(main|ai):bootJar' "$workflow" | cut -d: -f1)"
   image_build_line="$(grep -n -m1 -F 'docker build --file' "$workflow" | cut -d: -f1)"

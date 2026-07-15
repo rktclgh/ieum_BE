@@ -134,9 +134,35 @@ class ReportPolicySeedMigrationIntegrationTest {
 		assertThat(override.get("content_hash")).isEqualTo("f".repeat(64));
 	}
 
+	@Test
+	void v27AddsSevenAndThirtyDayRulesWithoutChangingExistingRules() {
+		SqlScriptRunner.run(
+			DATABASE,
+			"migrations/v24_seed_report_policy_rules.sql",
+			"migrations/v27_report_policy_sanction_durations.sql"
+		);
+
+		assertThat(jdbc.sql("SELECT count(*) FROM ai_report_policy_rules").query(Long.class).single()).isEqualTo(30L);
+		assertThat(((Number) ruleWithDuration("HARASSMENT-TARGETED-PROFANITY-001").get("automatic_sanction_days")).intValue())
+			.isEqualTo(7);
+		assertThat(((Number) ruleWithDuration("SEXUAL-HARASSMENT-TARGETED-001").get("automatic_sanction_days")).intValue())
+			.isEqualTo(30);
+		assertThat(((Number) ruleWithDuration("SEXUAL-HARASSMENT-TARGETED-001").get("priority")).intValue())
+			.isEqualTo(930);
+		assertThat(ruleWithDuration("SAFETY-TARGETED-VIOLENCE-001").get("automatic_sanction_days")).isNull();
+	}
+
 	private Map<String, Object> rule(String ruleCode) {
 		return jdbc.sql("""
 			SELECT rule_code, criteria, decision, severity, min_confidence, evidence_types
+			FROM ai_report_policy_rules
+			WHERE rule_code = :ruleCode
+			""").param("ruleCode", ruleCode).query().singleRow();
+	}
+
+	private Map<String, Object> ruleWithDuration(String ruleCode) {
+		return jdbc.sql("""
+			SELECT rule_code, priority, automatic_sanction_days
 			FROM ai_report_policy_rules
 			WHERE rule_code = :ruleCode
 			""").param("ruleCode", ruleCode).query().singleRow();

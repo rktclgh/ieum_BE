@@ -1,5 +1,6 @@
 package shinhan.fibri.ieum.ai.report.domain;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -28,7 +29,22 @@ class ReportPolicyRuleTest {
 			.hasMessageContaining("normal");
 	}
 
+	@Test
+	void acceptsOnlyValidSuspendAutomaticSanctionDurations() {
+		assertThat(rule(ReportPolicyDecision.suspend, ReportPolicySeverity.high, 7).automaticSanctionDays()).isEqualTo(7);
+		assertThatThrownBy(() -> rule(ReportPolicyDecision.hold, ReportPolicySeverity.medium, 7))
+			.isInstanceOf(IllegalArgumentException.class)
+			.hasMessageContaining("automaticSanctionDays");
+		assertThatThrownBy(() -> rule(ReportPolicyDecision.suspend, ReportPolicySeverity.high, 0))
+			.isInstanceOf(IllegalArgumentException.class)
+			.hasMessageContaining("automaticSanctionDays");
+	}
+
 	private ReportPolicyRule rule(ReportPolicyDecision decision, ReportPolicySeverity severity) {
+		return rule(decision, severity, null);
+	}
+
+	private ReportPolicyRule rule(ReportPolicyDecision decision, ReportPolicySeverity severity, Integer automaticSanctionDays) {
 		return new ReportPolicyRule(
 			"CONTENT-ABUSE-001",
 			"Abuse policy",
@@ -36,6 +52,7 @@ class ReportPolicyRuleTest {
 			"Abusive content criteria",
 			decision,
 			severity,
+			automaticSanctionDays,
 			new BigDecimal("0.8500"),
 			ReportEvidenceType.text,
 			100,

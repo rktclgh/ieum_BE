@@ -100,9 +100,12 @@ Secrets:
 The production database is a private RDS instance whose port 5432 accepts
 traffic only from the production EC2 security groups. GitHub-hosted runners
 must not receive database credentials and cannot connect to that private RDS
-endpoint. Each binary workflow therefore copies only the migration helper,
-`v25_user_auth_version.sql`, and `v26_admin_audit_logs.sql` to its production
-EC2 host and runs the helper there before either application binary is built.
+endpoint. Each binary workflow therefore copies only the migration helper and
+the explicitly ordered `v24_seed_report_policy_rules.sql`,
+`v25_user_auth_version.sql`, `v26_admin_audit_logs.sql`, and
+`v27_report_policy_sanction_durations.sql` files to its production EC2 host and
+runs the helper there before either application binary is built. The report
+policy files run only when the canonical `ai_report_policy_rules` table exists.
 
 Before enabling either workflow, install the PostgreSQL client on both EC2
 hosts. On each host, copy

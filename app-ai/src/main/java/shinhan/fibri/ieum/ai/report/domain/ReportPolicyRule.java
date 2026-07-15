@@ -12,6 +12,7 @@ public record ReportPolicyRule(
 	String criteria,
 	ReportPolicyDecision decision,
 	ReportPolicySeverity severity,
+	Integer automaticSanctionDays,
 	BigDecimal minConfidence,
 	ReportEvidenceType evidenceType,
 	int priority,
@@ -52,9 +53,48 @@ public record ReportPolicyRule(
 		if (decision == ReportPolicyDecision.suspend && !severity.isAtLeastHigh()) {
 			throw new IllegalArgumentException("suspend rules require high or critical severity");
 		}
+		if (automaticSanctionDays != null) {
+			if (decision != ReportPolicyDecision.suspend) {
+				throw new IllegalArgumentException("automaticSanctionDays requires a suspend rule");
+			}
+			if (automaticSanctionDays < 1 || automaticSanctionDays > 365) {
+				throw new IllegalArgumentException("automaticSanctionDays must be between 1 and 365");
+			}
+		}
 		if (decision == ReportPolicyDecision.normal && severity != ReportPolicySeverity.low) {
 			throw new IllegalArgumentException("normal rules require low severity");
 		}
+	}
+
+	public ReportPolicyRule(
+		String ruleCode,
+		String title,
+		String category,
+		String criteria,
+		ReportPolicyDecision decision,
+		ReportPolicySeverity severity,
+		BigDecimal minConfidence,
+		ReportEvidenceType evidenceType,
+		int priority,
+		int revision,
+		List<String> positiveExamples,
+		List<String> negativeExamples
+	) {
+		this(
+			ruleCode,
+			title,
+			category,
+			criteria,
+			decision,
+			severity,
+			null,
+			minConfidence,
+			evidenceType,
+			priority,
+			revision,
+			positiveExamples,
+			negativeExamples
+		);
 	}
 
 	private static List<String> immutableExamples(List<String> examples, String field) {

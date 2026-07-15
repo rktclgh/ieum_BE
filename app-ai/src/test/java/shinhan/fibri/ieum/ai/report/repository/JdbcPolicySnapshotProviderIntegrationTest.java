@@ -68,6 +68,22 @@ class JdbcPolicySnapshotProviderIntegrationTest {
 	}
 
 	@Test
+	void loadsRuleSpecificAutomaticSanctionDurationIntoTheImmutableSnapshot() {
+		insertRule("HARASSMENT-TARGETED-PROFANITY-001", "suspend", "high", 920, true, "7");
+		jdbc.sql("""
+			UPDATE ai_report_policy_rules
+			SET automatic_sanction_days = 7
+			WHERE rule_code = 'HARASSMENT-TARGETED-PROFANITY-001'
+			""").update();
+
+		ReportPolicySnapshot snapshot = provider.loadActiveSnapshot();
+
+		assertThat(snapshot.rules()).singleElement().satisfies(rule ->
+			assertThat(rule.automaticSanctionDays()).isEqualTo(7)
+		);
+	}
+
+	@Test
 	void producesTheSameHashForTheSameActiveRulesRegardlessOfInsertOrder() {
 		insertRule("CONTENT-B", "hold", "medium", 10, true, "1");
 		insertRule("CONTENT-A", "suspend", "high", 20, true, "2");

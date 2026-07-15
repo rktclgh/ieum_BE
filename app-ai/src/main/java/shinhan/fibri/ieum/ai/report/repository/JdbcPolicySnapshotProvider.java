@@ -32,7 +32,7 @@ public class JdbcPolicySnapshotProvider implements PolicySnapshotProvider {
 	@Override
 	public ReportPolicySnapshot loadActiveSnapshot() {
 		List<PolicyRow> rows = jdbc.sql("""
-			SELECT rule_code, title, category, criteria, decision, severity, min_confidence,
+			SELECT rule_code, title, category, criteria, decision, severity, automatic_sanction_days, min_confidence,
 			       evidence_types, priority, revision, positive_examples, negative_examples, content_hash
 			FROM ai_report_policy_rules
 			WHERE active = true
@@ -46,6 +46,7 @@ public class JdbcPolicySnapshotProvider implements PolicySnapshotProvider {
 					resultSet.getString("criteria"),
 					ReportPolicyDecision.valueOf(resultSet.getString("decision")),
 					ReportPolicySeverity.valueOf(resultSet.getString("severity")),
+					resultSet.getObject("automatic_sanction_days", Integer.class),
 					resultSet.getObject("min_confidence", BigDecimal.class),
 					ReportEvidenceType.valueOf(resultSet.getString("evidence_types")),
 					resultSet.getInt("priority"),

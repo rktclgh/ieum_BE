@@ -414,8 +414,14 @@ BEGIN
 END
 $preflight$;
 
+SELECT to_regclass('public.ai_report_policy_rules') IS NOT NULL AS apply_report_policy_migrations \gset
 SELECT pg_temp.auth_version_contract_state() = 'absent' AS apply_auth_version_migration \gset
 SELECT pg_temp.admin_audit_contract_state() = 'absent' AS apply_admin_audit_migration \gset
+
+\if :apply_report_policy_migrations
+\i db/migrations/v24_seed_report_policy_rules.sql
+\i db/migrations/v27_report_policy_sanction_durations.sql
+\endif
 
 \if :apply_auth_version_migration
 \i db/migrations/v25_user_auth_version.sql

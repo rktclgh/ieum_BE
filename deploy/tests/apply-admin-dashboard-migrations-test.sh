@@ -126,12 +126,18 @@ if grep -Fq "pg_get_expr(conbin, conrelid) LIKE" "$stdin_file"; then
   fail "check verification must compare normalized expressions exactly"
 fi
 
-v25_line="$(grep -n -m1 -F '\i db/migrations/v25_user_auth_version.sql' "$stdin_file" | cut -d: -f1)"
-v26_line="$(grep -n -m1 -F '\i db/migrations/v26_admin_audit_logs.sql' "$stdin_file" | cut -d: -f1)"
-test -n "$v25_line" && test -n "$v26_line" \
-  || fail "both migrations must be applied"
+v24_line="$(grep -n -m1 -F '\i db/migrations/v24_seed_report_policy_rules.sql' "$stdin_file" | cut -d: -f1 || true)"
+v25_line="$(grep -n -m1 -F '\i db/migrations/v25_user_auth_version.sql' "$stdin_file" | cut -d: -f1 || true)"
+v26_line="$(grep -n -m1 -F '\i db/migrations/v26_admin_audit_logs.sql' "$stdin_file" | cut -d: -f1 || true)"
+v27_line="$(grep -n -m1 -F '\i db/migrations/v27_report_policy_sanction_durations.sql' "$stdin_file" | cut -d: -f1 || true)"
+test -n "$v24_line" && test -n "$v25_line" && test -n "$v26_line" && test -n "$v27_line" \
+	|| fail "all v24-v27 migrations must be applied"
+(( v24_line < v27_line )) || fail "v24 must run before v27"
 (( v25_line < v26_line )) || fail "v25 must run before v26"
-auth_guard_line="$(grep -n -m1 -F '\if :apply_auth_version_migration' "$stdin_file" | cut -d: -f1)"
+report_policy_guard_line="$(grep -n -m1 -F '\if :apply_report_policy_migrations' "$stdin_file" | cut -d: -f1 || true)"
+test -n "$report_policy_guard_line" && (( report_policy_guard_line < v24_line )) \
+	|| fail "report policy migrations must be guarded by table presence"
+auth_guard_line="$(grep -n -m1 -F '\if :apply_auth_version_migration' "$stdin_file" | cut -d: -f1 || true)"
 test -n "$auth_guard_line" && (( auth_guard_line < v25_line )) \
   || fail "v25 must be guarded by the auth absent-state flag"
 

@@ -44,6 +44,36 @@ class ReportAiReviewResultMapperTest {
 	}
 
 	@Test
+	void mapsTheSelectedPolicyRulesSevenDayAutomaticSanctionDuration() {
+		MappedReportAiReview mapped = mapper.map(
+			response("suspend", "high", 7),
+			OffsetDateTime.parse("2026-07-15T10:00:00+09:00")
+		);
+
+		assertThat(mapped.automaticSanctionDuration()).isEqualTo(Duration.ofDays(7));
+	}
+
+	@Test
+	void mapsTheSelectedPolicyRulesThirtyDayAutomaticSanctionDuration() {
+		MappedReportAiReview mapped = mapper.map(
+			response("suspend", "high", 30),
+			OffsetDateTime.parse("2026-07-15T10:00:00+09:00")
+		);
+
+		assertThat(mapped.automaticSanctionDuration()).isEqualTo(Duration.ofDays(30));
+	}
+
+	@Test
+	void rejectsAnInvalidRuleSpecificAutomaticSanctionDuration() {
+		assertThatThrownBy(() -> mapper.map(
+			response("suspend", "high", 0),
+			OffsetDateTime.parse("2026-07-15T10:00:00+09:00")
+		))
+			.isInstanceOf(ReportAiPermanentException.class)
+			.hasMessage("REPORT_AI_RESPONSE_INVALID");
+	}
+
+	@Test
 	void acceptsNoMatchNormalWithoutSeverityAndCreatesNoSanction() {
 		ReportReviewResponse response = response("normal", null);
 
@@ -156,6 +186,10 @@ class ReportAiReviewResultMapperTest {
 	}
 
 	private ReportReviewResponse response(String decision, String severity) {
+		return response(decision, severity, null);
+	}
+
+	private ReportReviewResponse response(String decision, String severity, Integer automaticSanctionDays) {
 		var providerAttempts = objectMapper.createArrayNode();
 		providerAttempts.addObject()
 			.put("provider", "bedrock")
@@ -178,6 +212,10 @@ class ReportAiReviewResultMapperTest {
 				.put("severity", severity)
 				.put("minConfidence", 0.97)
 				.put("revision", 1);
+			if (automaticSanctionDays != null) {
+				((com.fasterxml.jackson.databind.node.ObjectNode) rules.get(0))
+					.put("automaticSanctionDays", automaticSanctionDays);
+			}
 		}
 		return new ReportReviewResponse(
 			decision,
