@@ -1,5 +1,6 @@
 package shinhan.fibri.ieum.main.question.repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -127,6 +128,15 @@ public interface QuestionRepository extends JpaRepository<Question, Long> {
 		nativeQuery = true
 	)
 	Optional<QuestionDeletionState> findDeletionState(@Param("questionId") Long questionId);
+
+	@Query("""
+		SELECT q.id AS questionId,
+		       q.title AS title
+		FROM Question q
+		WHERE q.id IN :questionIds
+		  AND q.deletedAt IS NULL
+		""")
+	List<QuestionTitleProjection> findTitlesByIds(@Param("questionIds") Collection<Long> questionIds);
 
 	@Lock(LockModeType.PESSIMISTIC_READ)
 	@Query("select q from Question q where q.id = :questionId")

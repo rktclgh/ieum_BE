@@ -34,6 +34,7 @@ import shinhan.fibri.ieum.main.auth.session.OpaqueTokenGenerator;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
 import shinhan.fibri.ieum.main.auth.session.RefreshTokenRotationResult;
 import shinhan.fibri.ieum.main.auth.session.Sha256TokenHasher;
+import shinhan.fibri.ieum.main.notification.push.WebPushSubscriptionCleanup;
 import shinhan.fibri.ieum.main.notification.sse.SseConnectionRegistry;
 
 class RefreshServiceTest {
@@ -95,6 +96,7 @@ class RefreshServiceTest {
 			"new-refresh-hash"
 		);
 		verifyNoInteractions(fixture.userRepository);
+		verify(fixture.webPushSubscriptionCleanup, never()).deleteForUser(42L);
 	}
 
 	@ParameterizedTest(name = "rejects stale refresh: {0}")
@@ -125,28 +127,56 @@ class RefreshServiceTest {
 	}
 
 	@Test
-	void previousRefreshTokenReuseEscalatesBeforeStaleSnapshotOrCanonicalRejection() {
+	void refreshRejectsSuspendedSessionSnapshotBeforeCanonicalLookup() {
 		Fixture fixture = new Fixture();
-		AuthSession staleSession = new AuthSession(
+		AuthSession session = new AuthSession(
+			"sid-1",
+			42L,
+			"admin@example.com",
+			"current-refresh-hash",
+			null,
+			UserRole.admin,
+			UserStatus.suspended,
+			OffsetDateTime.parse("2026-07-03T00:00Z"),
+			7L
+		);
+		when(fixture.tokenHasher.hash("refresh-token")).thenReturn("current-refresh-hash");
+		when(fixture.sessionStore.findByRefreshTokenHash("current-refresh-hash"))
+			.thenReturn(Optional.of(session));
+
+		assertThatThrownBy(() -> fixture.service.refresh("refresh-token"))
+			.isInstanceOf(InvalidRefreshTokenException.class);
+		verifyNoInteractions(fixture.userRepository, fixture.tokenGenerator, fixture.accessTokenIssuer);
+	}
+
+	@Test
+	void previousRefreshTokenReuseEscalatesBeforeCanonicalRejection() {
+		Fixture fixture = new Fixture();
+		AuthSession staleCanonicalSession = new AuthSession(
 			"sid-1",
 			42L,
 			"admin@example.com",
 			"current-refresh-hash",
 			"previous-refresh-hash",
 			UserRole.admin,
-			UserStatus.suspended,
+			UserStatus.active,
 			OffsetDateTime.parse("2026-07-03T00:00Z"),
 			7L
 		);
 		when(fixture.tokenHasher.hash("previous-refresh-token")).thenReturn("previous-refresh-hash");
 		when(fixture.sessionStore.findByRefreshTokenHash("previous-refresh-hash"))
-			.thenReturn(Optional.of(staleSession));
+			.thenReturn(Optional.of(staleCanonicalSession));
 
 		assertThatThrownBy(() -> fixture.service.refresh("previous-refresh-token"))
 			.isInstanceOf(RefreshTokenReusedException.class);
-		InOrder order = inOrder(fixture.sessionStore, fixture.sseConnectionRegistry);
+		InOrder order = inOrder(
+			fixture.sessionStore,
+			fixture.webPushSubscriptionCleanup,
+			fixture.sseConnectionRegistry
+		);
 		order.verify(fixture.sessionStore).findByRefreshTokenHash("previous-refresh-hash");
 		order.verify(fixture.sessionStore).revokeAllSessionsOfUser(42L);
+		order.verify(fixture.webPushSubscriptionCleanup).deleteForUser(42L);
 		order.verify(fixture.sseConnectionRegistry).closeUser(42L);
 		verify(fixture.sessionStore, never()).revokeSession(anyString());
 		verify(fixture.sessionStore, never()).compareAndRotateRefreshToken(
@@ -170,7 +200,11 @@ class RefreshServiceTest {
 		assertThatThrownBy(() -> fixture.service.refresh("refresh-token"))
 			.isInstanceOf(RefreshTokenReusedException.class);
 
-		InOrder order = inOrder(fixture.sessionStore, fixture.sseConnectionRegistry);
+		InOrder order = inOrder(
+			fixture.sessionStore,
+			fixture.webPushSubscriptionCleanup,
+			fixture.sseConnectionRegistry
+		);
 		order.verify(fixture.sessionStore).findByRefreshTokenHash("current-refresh-hash");
 		order.verify(fixture.sessionStore).compareAndRotateRefreshToken(
 			session,
@@ -178,6 +212,7 @@ class RefreshServiceTest {
 			"new-refresh-hash"
 		);
 		order.verify(fixture.sessionStore).revokeAllSessionsOfUser(42L);
+		order.verify(fixture.webPushSubscriptionCleanup).deleteForUser(42L);
 		order.verify(fixture.sseConnectionRegistry).closeUser(42L);
 		verify(fixture.sessionStore, never()).revokeSession(anyString());
 	}
@@ -198,7 +233,7 @@ class RefreshServiceTest {
 		);
 		verify(fixture.sessionStore, never()).revokeAllSessionsOfUser(any());
 		verify(fixture.sessionStore, never()).revokeSession(anyString());
-		verifyNoInteractions(fixture.sseConnectionRegistry);
+		verifyNoInteractions(fixture.webPushSubscriptionCleanup, fixture.sseConnectionRegistry);
 	}
 
 	@Test
@@ -218,7 +253,39 @@ class RefreshServiceTest {
 
 		verify(fixture.sessionStore, never()).revokeAllSessionsOfUser(any());
 		verify(fixture.sessionStore, never()).revokeSession(anyString());
-		verifyNoInteractions(fixture.sseConnectionRegistry);
+		verifyNoInteractions(fixture.webPushSubscriptionCleanup, fixture.sseConnectionRegistry);
+	}
+
+	@Test
+	void refreshReuseAttemptsEveryInvalidationAndAlwaysThrowsReuseException() {
+		Fixture fixture = new Fixture();
+		AuthSession session = new AuthSession(
+			"sid-1",
+			42L,
+			"admin@example.com",
+			"current-refresh-hash",
+			"previous-refresh-hash",
+			UserRole.admin,
+			UserStatus.active,
+			OffsetDateTime.parse("2026-07-03T00:00Z"),
+			7L
+		);
+		when(fixture.tokenHasher.hash("previous-refresh-token")).thenReturn("previous-refresh-hash");
+		when(fixture.sessionStore.findByRefreshTokenHash("previous-refresh-hash"))
+			.thenReturn(Optional.of(session));
+		doThrow(new IllegalStateException("redis secret"))
+			.when(fixture.sessionStore).revokeAllSessionsOfUser(42L);
+		doThrow(new IllegalStateException("database secret"))
+			.when(fixture.webPushSubscriptionCleanup).deleteForUser(42L);
+		doThrow(new IllegalStateException("sse secret"))
+			.when(fixture.sseConnectionRegistry).closeUser(42L);
+
+		assertThatThrownBy(() -> fixture.service.refresh("previous-refresh-token"))
+			.isInstanceOf(RefreshTokenReusedException.class);
+
+		verify(fixture.sessionStore).revokeAllSessionsOfUser(42L);
+		verify(fixture.webPushSubscriptionCleanup).deleteForUser(42L);
+		verify(fixture.sseConnectionRegistry).closeUser(42L);
 	}
 
 	private static void prepareRotation(
@@ -309,6 +376,8 @@ class RefreshServiceTest {
 		private final Sha256TokenHasher tokenHasher = mock(Sha256TokenHasher.class);
 		private final OpaqueTokenGenerator tokenGenerator = mock(OpaqueTokenGenerator.class);
 		private final AccessTokenIssuer accessTokenIssuer = mock(AccessTokenIssuer.class);
+		private final WebPushSubscriptionCleanup webPushSubscriptionCleanup =
+			mock(WebPushSubscriptionCleanup.class);
 		private final SseConnectionRegistry sseConnectionRegistry = mock(SseConnectionRegistry.class);
 		private final RefreshService service;
 
@@ -327,6 +396,7 @@ class RefreshServiceTest {
 				tokenHasher,
 				tokenGenerator,
 				accessTokenIssuer,
+				webPushSubscriptionCleanup,
 				sseConnectionRegistry
 			);
 		}

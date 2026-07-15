@@ -28,12 +28,34 @@ public interface ChatMemberRepository extends JpaRepository<ChatMember, ChatMemb
 	boolean existsByRoom_IdAndUser_IdAndLeftAtIsNull(Long roomId, Long userId);
 
 	@Query("""
+		SELECT member.user.id
+		FROM ChatMember member
+		WHERE member.room.id = :roomId
+		  AND member.leftAt IS NULL
+		""")
+	List<Long> findActiveUserIdsByRoomId(@Param("roomId") Long roomId);
+
+	@Query("""
 		SELECT member
 		FROM ChatMember member
 		JOIN FETCH member.user
 		WHERE member.room.id = :roomId
 		""")
 	List<ChatMember> findByRoom_Id(@Param("roomId") Long roomId);
+
+	@Query("""
+		SELECT member.user.id
+		FROM ChatMember member
+		WHERE member.room.id = :roomId
+		  AND member.user.id <> :senderId
+		  AND member.leftAt IS NULL
+		  AND member.notifyEnabled = true
+		ORDER BY member.user.id
+		""")
+	List<Long> findPushRecipientUserIds(
+		@Param("roomId") Long roomId,
+		@Param("senderId") Long senderId
+	);
 
 	@Modifying
 	@Query("""
@@ -60,4 +82,19 @@ public interface ChatMemberRepository extends JpaRepository<ChatMember, ChatMemb
 		@Param("userId") Long userId,
 		@Param("roomIds") List<Long> roomIds
 	);
+
+	@Query("""
+		SELECT member
+		FROM ChatMember member
+		JOIN FETCH member.room
+		JOIN FETCH member.user
+		WHERE member.room.id = :roomId
+		  AND member.user.id IN :userIds
+		  AND member.leftAt IS NULL
+		""")
+	List<ChatMember> findActiveByRoomIdAndUserIds(
+		@Param("roomId") Long roomId,
+		@Param("userIds") List<Long> userIds
+	);
+
 }

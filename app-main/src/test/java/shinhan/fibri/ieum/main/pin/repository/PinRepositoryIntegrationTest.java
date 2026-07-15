@@ -107,6 +107,11 @@ class PinRepositoryIntegrationTest {
 			"INSERT INTO meetings (pin_id, title, status, deleted_at) VALUES (7, 'outdated meeting', 'open'::meeting_status, NULL)"
 		);
 		insertSchedule(5L, "2026-07-01T19:00:00+09:00", "2026-07-01T23:59:59+09:00");
+
+		insertPin(66L, "meeting", 127.55, 37.96);
+		jdbcTemplate.update(
+			"INSERT INTO meetings (pin_id, title, status, deleted_at) VALUES (8, 'unscheduled meeting', 'open'::meeting_status, NULL)"
+		);
 	}
 
 	@Test
@@ -138,6 +143,23 @@ class PinRepositoryIntegrationTest {
 		assertThat(question.getTitle()).isEqualTo("alive question");
 		assertThat(question.getThumbnailFileId()).isEqualTo(QUESTION_IMAGE_ID);
 		assertThat(question.getMine()).isFalse();
+	}
+
+	@Test
+	void findMapPinsExcludesMeetingWithoutSchedule() {
+		List<PinProjection> rows = pinRepository.findMapPins(
+			42L,
+			null,
+			37.0,
+			126.0,
+			38.0,
+			128.0,
+			501
+		);
+
+		assertThat(rows)
+			.extracting(PinProjection::getTitle)
+			.doesNotContain("unscheduled meeting");
 	}
 
 	@Test

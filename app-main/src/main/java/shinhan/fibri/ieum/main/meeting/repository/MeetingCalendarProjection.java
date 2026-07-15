@@ -27,6 +27,8 @@ public interface MeetingCalendarProjection {
 
 	String getStatus();
 
+	Long getCreatedByUserId();
+
 	Long getRoomId();
 
 	Boolean getHost();

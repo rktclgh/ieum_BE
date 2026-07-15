@@ -29,6 +29,7 @@ import shinhan.fibri.ieum.main.admin.user.exception.InvalidSanctionRequestExcept
 import shinhan.fibri.ieum.main.admin.user.exception.UserNotSanctionedException;
 import shinhan.fibri.ieum.main.admin.user.repository.UserSanctionRepository;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
+import shinhan.fibri.ieum.main.notification.push.WebPushSubscriptionCleanup;
 import shinhan.fibri.ieum.main.notification.sse.SseConnectionRegistry;
 
 @Service
@@ -40,6 +41,7 @@ public class AdminSanctionService {
 	private final UserRepository userRepository;
 	private final UserSanctionRepository userSanctionRepository;
 	private final RedisAuthSessionStore sessionStore;
+	private final WebPushSubscriptionCleanup webPushSubscriptionCleanup;
 	private final SseConnectionRegistry sseConnectionRegistry;
 	private final AdminAuditLogWriter auditLogWriter;
 
@@ -169,15 +171,33 @@ public class AdminSanctionService {
 	}
 
 	private void revokeSessionsAndCloseSse(Long userId) {
+		runSafely(
+			"admin_user_session_revoke_failed",
+			userId,
+			() -> sessionStore.revokeAllSessionsOfUser(userId)
+		);
+		runSafely(
+			"admin_user_push_cleanup_failed",
+			userId,
+			() -> webPushSubscriptionCleanup.deleteForUser(userId)
+		);
+		runSafely(
+			"admin_user_sse_close_failed",
+			userId,
+			() -> sseConnectionRegistry.closeUser(userId)
+		);
+	}
+
+	private void runSafely(String event, Long userId, Runnable action) {
 		try {
-			sessionStore.revokeAllSessionsOfUser(userId);
+			action.run();
 		} catch (RuntimeException exception) {
-			log.error("Failed to revoke sessions for sanctioned user: userId={}", userId, exception);
-		}
-		try {
-			sseConnectionRegistry.closeUser(userId);
-		} catch (RuntimeException exception) {
-			log.error("Failed to close SSE for sanctioned user: userId={}", userId, exception);
+			log.error(
+				"event={} userId={} failureClass={}",
+				event,
+				userId,
+				exception.getClass().getSimpleName()
+			);
 		}
 	}
 }

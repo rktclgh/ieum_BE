@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.repository.UserAuthState;
 import shinhan.fibri.ieum.main.auth.dto.RefreshResponse;
 import shinhan.fibri.ieum.main.auth.exception.InvalidRefreshTokenException;
@@ -15,6 +16,7 @@ import shinhan.fibri.ieum.main.auth.session.OpaqueTokenGenerator;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
 import shinhan.fibri.ieum.main.auth.session.RefreshTokenRotationResult;
 import shinhan.fibri.ieum.main.auth.session.Sha256TokenHasher;
+import shinhan.fibri.ieum.main.notification.push.WebPushSubscriptionCleanup;
 import shinhan.fibri.ieum.main.notification.sse.SseConnectionRegistry;
 
 @Service
@@ -28,12 +30,16 @@ public class RefreshService {
 	private final Sha256TokenHasher tokenHasher;
 	private final OpaqueTokenGenerator tokenGenerator;
 	private final AccessTokenIssuer accessTokenIssuer;
+	private final WebPushSubscriptionCleanup webPushSubscriptionCleanup;
 	private final SseConnectionRegistry sseConnectionRegistry;
 
 	public RefreshResult refresh(String refreshToken) {
 		String refreshTokenHash = tokenHasher.hash(refreshToken);
 		AuthSession session = sessionStore.findByRefreshTokenHash(refreshTokenHash)
 			.orElseThrow(InvalidRefreshTokenException::new);
+		if (session.status() != UserStatus.active) {
+			throw new InvalidRefreshTokenException();
+		}
 		if (refreshTokenHash.equals(session.prevRefreshTokenHash())) {
 			throw revokeAllSessionsForReuse(session);
 		}
@@ -79,8 +85,21 @@ public class RefreshService {
 
 	private RefreshTokenReusedException revokeAllSessionsForReuse(AuthSession session) {
 		log.warn("Refresh token reuse detected — revoking all sessions: userId={}", session.userId());
-		sessionStore.revokeAllSessionsOfUser(session.userId());
-		sseConnectionRegistry.closeUser(session.userId());
+		runReuseInvalidation(
+			"redis",
+			session.userId(),
+			() -> sessionStore.revokeAllSessionsOfUser(session.userId())
+		);
+		runReuseInvalidation(
+			"push",
+			session.userId(),
+			() -> webPushSubscriptionCleanup.deleteForUser(session.userId())
+		);
+		runReuseInvalidation(
+			"sse",
+			session.userId(),
+			() -> sseConnectionRegistry.closeUser(session.userId())
+		);
 		return new RefreshTokenReusedException();
 	}
 
@@ -89,6 +108,19 @@ public class RefreshService {
 			sessionStore.revokeSession(session.sessionId());
 		} catch (RuntimeException exception) {
 			log.warn("Failed to revoke stale auth session: userId={}", session.userId(), exception);
+		}
+	}
+
+	private void runReuseInvalidation(String action, Long userId, Runnable operation) {
+		try {
+			operation.run();
+		} catch (RuntimeException exception) {
+			log.warn(
+				"Refresh reuse invalidation failed: action={} userId={} failureClass={}",
+				action,
+				userId,
+				exception.getClass().getSimpleName()
+			);
 		}
 	}
 }

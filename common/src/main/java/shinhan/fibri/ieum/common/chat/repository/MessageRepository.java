@@ -58,16 +58,39 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 	);
 
 	@Query("""
+		SELECT member.user.id AS userId, COUNT(message) AS unreadCount
+		FROM ChatMember member
+		JOIN Message message ON message.room = member.room
+		WHERE member.room.id = :roomId
+		  AND member.user.id IN :userIds
+		  AND member.leftAt IS NULL
+		  AND message.deletedAt IS NULL
+		  AND message.sender.id <> member.user.id
+		  AND (member.lastReadAt IS NULL OR message.createdAt > member.lastReadAt)
+		GROUP BY member.user.id
+		""")
+	List<UserUnreadCount> countUnreadByRoomIdAndUserIds(
+		@Param("roomId") Long roomId,
+		@Param("userIds") List<Long> userIds
+	);
+
+	@Query("""
 		SELECT message
 		FROM Message message
+		JOIN FETCH message.room
 		JOIN FETCH message.sender
-		WHERE message.id IN (
-			SELECT MAX(latest.id)
-			FROM Message latest
-			WHERE latest.room.id IN :roomIds
-			  AND latest.deletedAt IS NULL
-			GROUP BY latest.room.id
-		)
+		WHERE message.room.id IN :roomIds
+		  AND message.deletedAt IS NULL
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM Message newer
+			WHERE newer.room = message.room
+			  AND newer.deletedAt IS NULL
+			  AND (
+				newer.createdAt > message.createdAt
+				OR (newer.createdAt = message.createdAt AND newer.id > message.id)
+			  )
+		  )
 		ORDER BY message.createdAt DESC, message.id DESC
 		""")
 	List<Message> findLastMessagesByRoomIds(@Param("roomIds") List<Long> roomIds);
@@ -112,6 +135,12 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 
 	interface RoomUnreadCount {
 		Long getRoomId();
+
+		Long getUnreadCount();
+	}
+
+	interface UserUnreadCount {
+		Long getUserId();
 
 		Long getUnreadCount();
 	}

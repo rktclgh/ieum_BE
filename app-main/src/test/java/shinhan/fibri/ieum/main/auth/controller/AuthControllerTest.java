@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.main.auth.controller;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -9,7 +10,10 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockCookie;
+import org.springframework.security.authentication.TestingAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.main.auth.dto.LoginRequest;
 import shinhan.fibri.ieum.main.auth.dto.LoginResponse;
@@ -43,13 +47,17 @@ import shinhan.fibri.ieum.main.auth.service.SocialAuthResult;
 import shinhan.fibri.ieum.main.auth.service.SocialAuthService;
 import shinhan.fibri.ieum.main.auth.service.SocialSignupResult;
 import shinhan.fibri.ieum.main.auth.session.AuthCookieWriter;
+import shinhan.fibri.ieum.main.auth.session.AuthenticatedSessionDetails;
 import shinhan.fibri.ieum.main.auth.session.AuthSessionProperties;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
+import shinhan.fibri.ieum.common.auth.domain.UserStatus;
+import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.is;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -80,6 +88,12 @@ class AuthControllerTest {
 
 	@Autowired
 	private SocialAuthService socialAuthService;
+
+	@AfterEach
+	void clearSecurityContext() {
+		SecurityContextHolder.clearContext();
+		reset(logoutService);
+	}
 
 	@Test
 	void sendEmailVerificationCodeReturnsExpirySeconds() throws Exception {
@@ -462,12 +476,13 @@ class AuthControllerTest {
 					.contains("csrf_token=")
 					.contains("Max-Age=0")));
 
-		verify(logoutService).logout("refresh-token");
+		verify(logoutService).logout("refresh-token", null);
 	}
 
 	@Test
-	void logoutIsNoContentWhenRefreshCookieIsMissing() throws Exception {
+	void logoutUsesValidatedAccessSessionWhenRefreshCookieIsMissing() throws Exception {
 		mockMvc.perform(post("/api/v1/auth/logout")
+				.with(authenticationWithDetails(new AuthenticatedSessionDetails("access-session")))
 				.cookie(new MockCookie("csrf_token", "csrf-token"))
 				.header("X-CSRF-Token", "csrf-token"))
 			.andExpect(status().isNoContent())
@@ -475,6 +490,40 @@ class AuthControllerTest {
 				.anySatisfy(cookie -> assertThat(cookie).contains("access_token=").contains("Max-Age=0"))
 				.anySatisfy(cookie -> assertThat(cookie).contains("refresh_token=").contains("Max-Age=0"))
 				.anySatisfy(cookie -> assertThat(cookie).contains("csrf_token=").contains("Max-Age=0")));
+
+		verify(logoutService).logout(null, "access-session");
+	}
+
+	@Test
+	void logoutIsNoContentWithoutRefreshOrValidatedAccessSession() throws Exception {
+		mockMvc.perform(post("/api/v1/auth/logout")
+				.cookie(new MockCookie("csrf_token", "csrf-token"))
+				.header("X-CSRF-Token", "csrf-token"))
+			.andExpect(status().isNoContent());
+
+		verify(logoutService).logout(null, null);
+	}
+
+	@Test
+	void logoutIgnoresUntypedAuthenticationDetails() throws Exception {
+		mockMvc.perform(post("/api/v1/auth/logout")
+				.with(authenticationWithDetails("untrusted-session"))
+				.cookie(new MockCookie("csrf_token", "csrf-token"))
+				.header("X-CSRF-Token", "csrf-token"))
+			.andExpect(status().isNoContent());
+
+		verify(logoutService).logout(null, null);
+	}
+
+	@Test
+	void logoutIgnoresTypedDetailsFromUnauthenticatedPrincipal() throws Exception {
+		mockMvc.perform(post("/api/v1/auth/logout")
+				.with(unauthenticatedWithDetails(new AuthenticatedSessionDetails("untrusted-session")))
+				.cookie(new MockCookie("csrf_token", "csrf-token"))
+				.header("X-CSRF-Token", "csrf-token"))
+			.andExpect(status().isNoContent());
+
+		verify(logoutService).logout(null, null);
 	}
 
 	@Test
@@ -804,5 +853,41 @@ class AuthControllerTest {
 		AuthCookieWriter authCookieWriter() {
 			return new AuthCookieWriter(new AuthSessionProperties(true, "Lax", "", 1800, 1209600));
 		}
+	}
+
+	private static RequestPostProcessor authenticationWithDetails(Object details) {
+		return request -> {
+			AuthenticatedUser principal = new AuthenticatedUser(
+				42L,
+				"user@example.com",
+				UserRole.user,
+				UserStatus.active
+			);
+			TestingAuthenticationToken authentication = new TestingAuthenticationToken(
+				principal,
+				null,
+				"ROLE_user"
+			);
+			authentication.setDetails(details);
+			SecurityContextHolder.getContext().setAuthentication(authentication);
+			request.setUserPrincipal(authentication);
+			return request;
+		};
+	}
+
+	private static RequestPostProcessor unauthenticatedWithDetails(Object details) {
+		return request -> {
+			AuthenticatedUser principal = new AuthenticatedUser(
+				42L,
+				"user@example.com",
+				UserRole.user,
+				UserStatus.active
+			);
+			TestingAuthenticationToken authentication = new TestingAuthenticationToken(principal, null);
+			authentication.setDetails(details);
+			SecurityContextHolder.getContext().setAuthentication(authentication);
+			request.setUserPrincipal(authentication);
+			return request;
+		};
 	}
 }

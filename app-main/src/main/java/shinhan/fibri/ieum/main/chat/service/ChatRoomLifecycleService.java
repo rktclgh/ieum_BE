@@ -22,6 +22,7 @@ public class ChatRoomLifecycleService implements ChatRoomLifecycle {
 	private final UserRepository userRepository;
 	private final ChatRoomRepository chatRoomRepository;
 	private final ChatMemberRepository chatMemberRepository;
+	private final ChatRoomListChangeEmitter chatRoomListChangeEmitter;
 
 	@Override
 	@Transactional
@@ -30,6 +31,7 @@ public class ChatRoomLifecycleService implements ChatRoomLifecycle {
 		ChatRoom room = chatRoomRepository.findByMeetingId(meetingId)
 			.orElseGet(() -> chatRoomRepository.saveAndFlush(ChatRoom.group(meetingId)));
 		restoreMember(room, host, chatMemberRepository.findByRoom_Id(room.getId()));
+		chatRoomListChangeEmitter.upsert(room.getId(), List.of(hostUserId));
 		return room.getId();
 	}
 
@@ -43,6 +45,7 @@ public class ChatRoomLifecycleService implements ChatRoomLifecycle {
 		List<ChatMember> members = chatMemberRepository.findByRoom_Id(room.getId());
 		restoreMember(room, firstUser, members);
 		restoreMember(room, secondUser, members);
+		chatRoomListChangeEmitter.upsert(room.getId(), List.of(firstUserId, secondUserId));
 		return room.getId();
 	}
 
@@ -53,6 +56,7 @@ public class ChatRoomLifecycleService implements ChatRoomLifecycle {
 			.orElseThrow(ChatRoomNotFoundException::new);
 		User user = findActiveUser(userId);
 		restoreMember(room, user, chatMemberRepository.findByRoom_Id(roomId));
+		chatRoomListChangeEmitter.upsert(roomId, List.of(userId));
 	}
 
 	@Override
@@ -61,6 +65,7 @@ public class ChatRoomLifecycleService implements ChatRoomLifecycle {
 		ChatMember member = chatMemberRepository.findActiveByRoomIdAndUserId(roomId, userId)
 			.orElseThrow(NotRoomMemberException::new);
 		member.leave(OffsetDateTime.now());
+		chatRoomListChangeEmitter.remove(roomId, List.of(userId));
 	}
 
 	private void restoreMember(ChatRoom room, User user, List<ChatMember> members) {

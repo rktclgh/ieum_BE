@@ -223,6 +223,37 @@ class ChatInboundChannelInterceptorTest {
 	}
 
 	@Test
+	void subscribeAllowsExactRoomListQueueWithoutMembershipCheck() {
+		ChatWebSocketPrincipal principal = principal(42L, "sid-1");
+		StompHeaderAccessor accessor = authenticatedAccessor(StompCommand.SUBSCRIBE, principal);
+		accessor.setDestination("/user/queue/rooms");
+		stubValidSession(principal);
+
+		Message<?> result = interceptor.preSend(message(accessor), null);
+
+		assertThat(result).isNotNull();
+		verify(chatMemberRepository, never()).existsByRoom_IdAndUser_IdAndLeftAtIsNull(any(), any());
+	}
+
+	@Test
+	void subscribeRejectsRoomListQueueWildcardWithoutMembershipCheck() {
+		ChatWebSocketPrincipal principal = principal(42L, "sid-1");
+		StompHeaderAccessor accessor = authenticatedAccessor(StompCommand.SUBSCRIBE, principal);
+		accessor.setDestination("/user/queue/rooms/*");
+		stubValidSession(principal);
+
+		Message<?> result = interceptor.preSend(message(accessor), null);
+
+		assertThat(result).isNull();
+		verify(errorSender).send(principal, new ChatWebSocketErrorResponse(
+			"NOT_ROOM_MEMBER",
+			"Room subscription is not allowed",
+			null
+		));
+		verify(chatMemberRepository, never()).existsByRoom_IdAndUser_IdAndLeftAtIsNull(any(), any());
+	}
+
+	@Test
 	void subscribeRejectsNonErrorUserQueueDestinations() {
 		ChatWebSocketPrincipal principal = principal(42L, "sid-1");
 		StompHeaderAccessor accessor = authenticatedAccessor(StompCommand.SUBSCRIBE, principal);

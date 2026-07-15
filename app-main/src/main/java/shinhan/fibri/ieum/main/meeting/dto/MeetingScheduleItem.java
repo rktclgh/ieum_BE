@@ -6,6 +6,8 @@ public record MeetingScheduleItem(
 	Long scheduleId,
 	OffsetDateTime startsAt,
 	OffsetDateTime endsAt,
-	String status
+	String status,
+	Long createdByUserId,
+	boolean canDelete
 ) {
 }

@@ -75,7 +75,7 @@ class ChatControllerTest {
 	@Test
 	void createDirectRoomReturnsRoom() throws Exception {
 		when(chatService.createDirectRoom(any(AuthenticatedUser.class), eq(77L)))
-			.thenReturn(new ChatRoomResponse(100L, RoomType.direct, null, null));
+			.thenReturn(new ChatRoomResponse(100L, RoomType.direct, null, null, null));
 
 		mockMvc.perform(post("/api/v1/chat/rooms/direct")
 				.contentType(MediaType.APPLICATION_JSON)
@@ -93,7 +93,7 @@ class ChatControllerTest {
 	@Test
 	void createQuestionRoomReturnsQuestionRoom() throws Exception {
 		when(chatService.createQuestionRoom(any(AuthenticatedUser.class), eq(9L), eq(77L)))
-			.thenReturn(new ChatRoomResponse(100L, RoomType.question, null, 9L));
+			.thenReturn(new ChatRoomResponse(100L, RoomType.question, null, 9L, "질문 제목"));
 
 		mockMvc.perform(post("/api/v1/chat/rooms/question")
 				.contentType(MediaType.APPLICATION_JSON)
@@ -103,7 +103,8 @@ class ChatControllerTest {
 			.andExpect(jsonPath("$.roomId", is(100)))
 			.andExpect(jsonPath("$.roomType", is("question")))
 			.andExpect(jsonPath("$.meetingId").doesNotExist())
-			.andExpect(jsonPath("$.questionId", is(9)));
+			.andExpect(jsonPath("$.questionId", is(9)))
+			.andExpect(jsonPath("$.questionTitle", is("질문 제목")));
 
 		verify(chatService).createQuestionRoom(any(AuthenticatedUser.class), eq(9L), eq(77L));
 	}
@@ -160,6 +161,7 @@ class ChatControllerTest {
 				RoomType.direct,
 				null,
 				null,
+				null,
 				true,
 				true,
 				3L,
@@ -191,6 +193,7 @@ class ChatControllerTest {
 			.thenReturn(new ChatRoomDetailResponse(
 				100L,
 				RoomType.direct,
+				null,
 				null,
 				null,
 				false,

@@ -3,6 +3,7 @@ package shinhan.fibri.ieum.main.chat.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -28,10 +29,12 @@ class ChatRoomLifecycleServiceTest {
 	private final UserRepository userRepository = org.mockito.Mockito.mock(UserRepository.class);
 	private final ChatRoomRepository chatRoomRepository = org.mockito.Mockito.mock(ChatRoomRepository.class);
 	private final ChatMemberRepository chatMemberRepository = org.mockito.Mockito.mock(ChatMemberRepository.class);
+	private final ChatRoomListChangeEmitter chatRoomListChangeEmitter = org.mockito.Mockito.mock(ChatRoomListChangeEmitter.class);
 	private final ChatRoomLifecycleService service = new ChatRoomLifecycleService(
 		userRepository,
 		chatRoomRepository,
-		chatMemberRepository
+		chatMemberRepository,
+		chatRoomListChangeEmitter
 	);
 
 	@Test
@@ -48,6 +51,7 @@ class ChatRoomLifecycleServiceTest {
 
 		assertThat(roomId).isEqualTo(100L);
 		verify(chatMemberRepository).save(any(ChatMember.class));
+		verify(chatRoomListChangeEmitter).upsert(100L, List.of(42L));
 	}
 
 	@Test
@@ -93,6 +97,7 @@ class ChatRoomLifecycleServiceTest {
 		assertThat(roomId).isEqualTo(100L);
 		assertThat(firstMember.getLeftAt()).isNull();
 		verify(chatMemberRepository).save(any(ChatMember.class));
+		verify(chatRoomListChangeEmitter).upsert(100L, List.of(42L, 77L));
 	}
 
 	@Test
@@ -138,6 +143,7 @@ class ChatRoomLifecycleServiceTest {
 		service.addMember(100L, 42L);
 
 		assertThat(member.getLeftAt()).isNull();
+		verify(chatRoomListChangeEmitter).upsert(100L, List.of(42L));
 	}
 
 	@Test
@@ -150,6 +156,17 @@ class ChatRoomLifecycleServiceTest {
 		service.removeMember(100L, 42L);
 
 		assertThat(member.getLeftAt()).isNotNull();
+		verify(chatRoomListChangeEmitter).remove(100L, List.of(42L));
+	}
+
+	@Test
+	void removeMemberDoesNotEmitWhenActiveMemberIsMissing() {
+		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.removeMember(100L, 42L))
+			.isInstanceOf(shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException.class);
+
+		verify(chatRoomListChangeEmitter, never()).remove(any(), any());
 	}
 
 	private User user(Long id, String email, String nickname) {
