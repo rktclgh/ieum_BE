@@ -11,8 +11,8 @@ import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Component;
-import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.chat.repository.ChatMemberRepository;
+import shinhan.fibri.ieum.main.auth.session.CanonicalAuthStateVerifier;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
 import shinhan.fibri.ieum.main.chat.service.ChatMessageRateLimiter;
 
@@ -25,17 +25,20 @@ public class ChatInboundChannelInterceptor implements ChannelInterceptor {
 
 	private final ChatMemberRepository chatMemberRepository;
 	private final RedisAuthSessionStore sessionStore;
+	private final CanonicalAuthStateVerifier canonicalAuthStateVerifier;
 	private final ChatMessageRateLimiter rateLimiter;
 	private final ChatWebSocketErrorSender errorSender;
 
 	public ChatInboundChannelInterceptor(
 		ChatMemberRepository chatMemberRepository,
 		RedisAuthSessionStore sessionStore,
+		CanonicalAuthStateVerifier canonicalAuthStateVerifier,
 		ChatMessageRateLimiter rateLimiter,
 		@Lazy ChatWebSocketErrorSender errorSender
 	) {
 		this.chatMemberRepository = chatMemberRepository;
 		this.sessionStore = sessionStore;
+		this.canonicalAuthStateVerifier = canonicalAuthStateVerifier;
 		this.rateLimiter = rateLimiter;
 		this.errorSender = errorSender;
 	}
@@ -71,6 +74,11 @@ public class ChatInboundChannelInterceptor implements ChannelInterceptor {
 		if (principal == null || destination == null) {
 			return null;
 		}
+		Long roomId = parseRoomId(destination, ROOM_TOPIC_PATTERN).orElse(null);
+		if (!hasActiveSession(principal)) {
+			sendError(principal, "INVALID_SESSION", "Chat session is invalid", roomId);
+			return null;
+		}
 		// 에러 채널만 정확히 허용(Spring이 세션 소유자로 스코프). 개인 큐가 늘어도
 		// 검증 없이 구독 표면이 넓어지지 않도록 prefix가 아닌 정확 일치로 제한한다.
 		if (USER_ERROR_QUEUE_DESTINATION.equals(destination)) {
@@ -78,7 +86,6 @@ public class ChatInboundChannelInterceptor implements ChannelInterceptor {
 		}
 		// 그 외 목적지(=/topic/**)는 default-deny — 정확히 /topic/rooms/{id} 이고 멤버일 때만 허용.
 		// 와일드카드(/topic/rooms/*, /topic/**) 구독으로 전체 방을 도청하는 우회를 차단한다.
-		Long roomId = parseRoomId(destination, ROOM_TOPIC_PATTERN).orElse(null);
 		if (roomId == null) {
 			sendError(principal, "NOT_ROOM_MEMBER", "Room subscription is not allowed", null);
 			return null;
@@ -95,15 +102,15 @@ public class ChatInboundChannelInterceptor implements ChannelInterceptor {
 		if (principal == null) {
 			return null;
 		}
-		// SEND는 정확히 /app/rooms/{id}/send 만 허용(default-deny).
-		// 브로커 목적지(/topic/rooms/{id})로 직접 SEND해 컨트롤러·검증을 우회한 위조 브로드캐스트를 차단한다.
 		Long roomId = parseRoomId(accessor.getDestination(), SEND_DESTINATION_PATTERN).orElse(null);
-		if (roomId == null) {
-			sendError(principal, "VALIDATION_FAILED", "Unsupported send destination", null);
-			return null;
-		}
 		if (!hasActiveSession(principal)) {
 			sendError(principal, "INVALID_SESSION", "Chat session is invalid", roomId);
+			return null;
+		}
+		// SEND는 정확히 /app/rooms/{id}/send 만 허용(default-deny).
+		// 브로커 목적지(/topic/rooms/{id})로 직접 SEND해 컨트롤러·검증을 우회한 위조 브로드캐스트를 차단한다.
+		if (roomId == null) {
+			sendError(principal, "VALIDATION_FAILED", "Unsupported send destination", null);
 			return null;
 		}
 		if (!rateLimiter.tryConsumeSend(principal.authenticatedUser().userId())) {
@@ -153,8 +160,8 @@ public class ChatInboundChannelInterceptor implements ChannelInterceptor {
 
 	private boolean hasActiveSession(ChatWebSocketPrincipal principal) {
 		return sessionStore.findBySessionId(principal.sessionId())
-			.filter(session -> session.status() == UserStatus.active)
 			.filter(session -> session.userId().equals(principal.authenticatedUser().userId()))
+			.flatMap(canonicalAuthStateVerifier::findActiveMatching)
 			.isPresent();
 	}
 
