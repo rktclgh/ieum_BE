@@ -362,5 +362,16 @@ jobs:
           printf '%s\n' "$DOCKERHUB_TOKEN" | ssh "${ssh_opts[@]}" "$remote" \
             "sudo env APP_MAIN_PRIVATE_BIND_ADDRESS='$APP_MAIN_PRIVATE_BIND_ADDRESS' bash '$DEPLOY_PATH/deploy-compose.sh' app-main '$IMAGE' '$DEPLOY_PATH' 'http://127.0.0.1:8080/actuator/health' '$DOCKERHUB_USERNAME'"
 
-          status="$(curl --location --silent --show-error --output /dev/null --write-out '%{http_code}' --retry 5 --retry-delay 3 https://ieum.rktclgh.site/)"
-          [[ "$status" == "200" ]]
+          status="000"
+          for attempt in {1..10}; do
+            status="$(curl --location --silent --show-error --output /dev/null --write-out '%{http_code}' https://ieum.rktclgh.site/ || true)"
+            if [[ "$status" == "200" ]]; then
+              break
+            fi
+            echo "External health check attempt $attempt returned HTTP $status; retrying."
+            sleep 3
+          done
+          [[ "$status" == "200" ]] || {
+            echo "::error::External health check did not return HTTP 200 (last status: $status)."
+            exit 1
+          }
