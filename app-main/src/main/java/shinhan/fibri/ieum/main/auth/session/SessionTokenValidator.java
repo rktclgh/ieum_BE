@@ -6,7 +6,6 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.stereotype.Component;
-import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 
 @Component
@@ -15,6 +14,7 @@ public class SessionTokenValidator {
 
 	private final JwtDecoder jwtDecoder;
 	private final RedisAuthSessionStore sessionStore;
+	private final CanonicalAuthStateVerifier canonicalAuthStateVerifier;
 
 	public Optional<AuthenticatedUser> validate(String accessToken) {
 		return validateSession(accessToken).map(ValidatedAuthSession::principal);
@@ -29,18 +29,18 @@ public class SessionTokenValidator {
 		}
 		String sessionId = jwt.getClaimAsString("sid");
 		return sessionStore.findBySessionId(sessionId)
-			.filter(session -> session.status() == UserStatus.active)
 			.filter(session -> String.valueOf(session.userId()).equals(jwt.getSubject()))
 			.filter(session -> session.email().equals(jwt.getClaimAsString("email")))
 			.filter(session -> session.role().name().equals(jwt.getClaimAsString("role")))
-			.map(session -> new ValidatedAuthSession(
-				new AuthenticatedUser(
-					session.userId(),
-					session.email(),
-					session.role(),
-					session.status()
-				),
-				session.sessionId()
-			));
+			.flatMap(session -> canonicalAuthStateVerifier.findActiveMatching(session)
+				.map(canonical -> new ValidatedAuthSession(
+					new AuthenticatedUser(
+						session.userId(),
+						canonical.email(),
+						canonical.role(),
+						canonical.status()
+					),
+					session.sessionId()
+				)));
 	}
 }

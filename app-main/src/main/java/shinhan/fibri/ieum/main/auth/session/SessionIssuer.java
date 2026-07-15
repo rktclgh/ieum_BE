@@ -31,7 +31,8 @@ public class SessionIssuer {
 			null,
 			user.getRole(),
 			user.getStatus(),
-			OffsetDateTime.now(ZoneOffset.UTC)
+			OffsetDateTime.now(ZoneOffset.UTC),
+			user.getAuthVersion()
 		);
 		writeSessionAfterCommit(session);
 		return new IssuedAuthSession(accessToken, refreshToken, csrfToken);

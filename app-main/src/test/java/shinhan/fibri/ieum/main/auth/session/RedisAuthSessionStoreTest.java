@@ -6,10 +6,13 @@ import static org.mockito.Mockito.when;
 
 import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.SetOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -40,7 +43,8 @@ class RedisAuthSessionStoreTest {
 			null,
 			UserRole.user,
 			UserStatus.active,
-			OffsetDateTime.parse("2026-07-03T00:00:00Z")
+			OffsetDateTime.parse("2026-07-03T00:00:00Z"),
+			7L
 		);
 
 		store.create(session);
@@ -51,7 +55,8 @@ class RedisAuthSessionStoreTest {
 			"refreshTokenHash", "refresh-hash",
 			"role", "user",
 			"status", "active",
-			"createdAt", "2026-07-03T00:00Z"
+			"createdAt", "2026-07-03T00:00Z",
+			"authVersion", "7"
 		));
 		verify(redisTemplate).expire("auth:session:sid-1", SESSION_TTL);
 		verify(valueOps).set("auth:refresh:refresh-hash", "sid-1", SESSION_TTL);
@@ -75,7 +80,8 @@ class RedisAuthSessionStoreTest {
 			"stale-prev-hash",
 			UserRole.user,
 			UserStatus.active,
-			OffsetDateTime.parse("2026-07-03T00:00:00Z")
+			OffsetDateTime.parse("2026-07-03T00:00:00Z"),
+			7L
 		);
 
 		store.rotateRefreshToken(session, "new-hash");
@@ -104,7 +110,8 @@ class RedisAuthSessionStoreTest {
 			"prevRefreshTokenHash", "previous-hash",
 			"role", "user",
 			"status", "active",
-			"createdAt", "2026-07-03T00:00Z"
+			"createdAt", "2026-07-03T00:00Z",
+			"authVersion", "7"
 		));
 		RedisAuthSessionStore store = store(redisTemplate);
 
@@ -118,7 +125,8 @@ class RedisAuthSessionStoreTest {
 			"previous-hash",
 			UserRole.user,
 			UserStatus.active,
-			OffsetDateTime.parse("2026-07-03T00:00Z")
+			OffsetDateTime.parse("2026-07-03T00:00Z"),
+			7L
 		));
 	}
 
@@ -162,7 +170,8 @@ class RedisAuthSessionStoreTest {
 			"refreshTokenHash", "refresh-hash",
 			"role", "user",
 			"status", "active",
-			"createdAt", "2026-07-03T00:00Z"
+			"createdAt", "2026-07-03T00:00Z",
+			"authVersion", "7"
 		));
 		RedisAuthSessionStore store = store(redisTemplate);
 
@@ -176,8 +185,36 @@ class RedisAuthSessionStoreTest {
 			null,
 			UserRole.user,
 			UserStatus.active,
-			OffsetDateTime.parse("2026-07-03T00:00Z")
+			OffsetDateTime.parse("2026-07-03T00:00Z"),
+			7L
 		));
+	}
+
+	@Test
+	void findBySessionIdReturnsEmptyWhenAuthVersionIsMissing() {
+		StringRedisTemplate redisTemplate = org.mockito.Mockito.mock(StringRedisTemplate.class);
+		HashOperations<String, Object, Object> hashOps = org.mockito.Mockito.mock(HashOperations.class);
+		when(redisTemplate.opsForHash()).thenReturn(hashOps);
+		Map<Object, Object> legacySession = validSessionHash();
+		legacySession.remove("authVersion");
+		when(hashOps.entries("auth:session:sid-1")).thenReturn(legacySession);
+		RedisAuthSessionStore store = store(redisTemplate);
+
+		assertThat(store.findBySessionId("sid-1")).isEmpty();
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"", "not-a-number", "-1"})
+	void findBySessionIdReturnsEmptyWhenAuthVersionIsInvalid(String authVersion) {
+		StringRedisTemplate redisTemplate = org.mockito.Mockito.mock(StringRedisTemplate.class);
+		HashOperations<String, Object, Object> hashOps = org.mockito.Mockito.mock(HashOperations.class);
+		when(redisTemplate.opsForHash()).thenReturn(hashOps);
+		Map<Object, Object> invalidSession = validSessionHash();
+		invalidSession.put("authVersion", authVersion);
+		when(hashOps.entries("auth:session:sid-1")).thenReturn(invalidSession);
+		RedisAuthSessionStore store = store(redisTemplate);
+
+		assertThat(store.findBySessionId("sid-1")).isEmpty();
 	}
 
 	@Test
@@ -267,5 +304,17 @@ class RedisAuthSessionStoreTest {
 			1_800,
 			SESSION_TTL.toSeconds()
 		));
+	}
+
+	private Map<Object, Object> validSessionHash() {
+		Map<Object, Object> session = new LinkedHashMap<>();
+		session.put("userId", "42");
+		session.put("email", "user@example.com");
+		session.put("refreshTokenHash", "refresh-hash");
+		session.put("role", "user");
+		session.put("status", "active");
+		session.put("createdAt", "2026-07-03T00:00Z");
+		session.put("authVersion", "7");
+		return session;
 	}
 }

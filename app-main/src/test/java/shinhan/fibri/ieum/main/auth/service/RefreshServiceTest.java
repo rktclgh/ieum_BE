@@ -47,7 +47,8 @@ class RefreshServiceTest {
 			null,
 			UserRole.user,
 			UserStatus.active,
-			OffsetDateTime.parse("2026-07-03T00:00Z")
+			OffsetDateTime.parse("2026-07-03T00:00Z"),
+			0L
 		);
 		when(tokenHasher.hash("refresh-token")).thenReturn("old-refresh-hash");
 		when(sessionStore.findByRefreshTokenHash("old-refresh-hash")).thenReturn(Optional.of(session));
@@ -87,7 +88,8 @@ class RefreshServiceTest {
 			null,
 			UserRole.user,
 			UserStatus.suspended,
-			OffsetDateTime.parse("2026-07-03T00:00Z")
+			OffsetDateTime.parse("2026-07-03T00:00Z"),
+			0L
 		);
 		when(tokenHasher.hash("refresh-token")).thenReturn("refresh-hash");
 		when(sessionStore.findByRefreshTokenHash("refresh-hash")).thenReturn(Optional.of(session));
@@ -119,7 +121,8 @@ class RefreshServiceTest {
 			"previous-refresh-hash",
 			UserRole.user,
 			UserStatus.active,
-			OffsetDateTime.parse("2026-07-03T00:00Z")
+			OffsetDateTime.parse("2026-07-03T00:00Z"),
+			0L
 		);
 		when(tokenHasher.hash("previous-refresh-token")).thenReturn("previous-refresh-hash");
 		when(sessionStore.findByRefreshTokenHash("previous-refresh-hash")).thenReturn(Optional.of(session));

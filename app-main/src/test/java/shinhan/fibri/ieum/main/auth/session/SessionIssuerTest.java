@@ -27,6 +27,7 @@ class SessionIssuerTest {
 		RedisAuthSessionStore sessionStore = mock(RedisAuthSessionStore.class);
 		SessionIssuer issuer = new SessionIssuer(tokenGenerator, tokenHasher, accessTokenIssuer, sessionStore);
 		User user = user();
+		ReflectionTestUtils.setField(user, "authVersion", 7L);
 		when(tokenGenerator.generate()).thenReturn("sid-1", "refresh-token", "csrf-token");
 		when(tokenHasher.hash("refresh-token")).thenReturn("refresh-hash");
 		when(accessTokenIssuer.issue(42L, "sid-1", "user@example.com", UserRole.user)).thenReturn("access-token");
@@ -52,6 +53,7 @@ class SessionIssuerTest {
 			assertThat(session.email()).isEqualTo("user@example.com");
 			assertThat(session.refreshTokenHash()).isEqualTo("refresh-hash");
 			assertThat(session.role()).isEqualTo(UserRole.user);
+			assertThat(session.authVersion()).isEqualTo(7L);
 			assertThat(session.createdAt().getOffset()).isEqualTo(ZoneOffset.UTC);
 		} finally {
 			TransactionSynchronizationManager.clearSynchronization();

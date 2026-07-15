@@ -98,7 +98,8 @@ class ChatWebSocketIntegrationTest {
 			null,
 			UserRole.user,
 			UserStatus.active,
-			OffsetDateTime.parse("2026-07-08T00:00:00+09:00")
+			OffsetDateTime.parse("2026-07-08T00:00:00+09:00"),
+			0L
 		)));
 		when(rateLimiter.tryConsumeSend(42L)).thenReturn(true);
 		when(chatMemberRepository.existsByRoom_IdAndUser_IdAndLeftAtIsNull(100L, 42L)).thenReturn(true);

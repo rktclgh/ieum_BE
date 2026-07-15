@@ -56,6 +56,10 @@ public class RedisAuthSessionStore {
 		if (session.isEmpty()) {
 			return Optional.empty();
 		}
+		Optional<Long> authVersion = parseAuthVersion(session.get("authVersion"));
+		if (authVersion.isEmpty()) {
+			return Optional.empty();
+		}
 
 		return Optional.of(new AuthSession(
 			sessionId,
@@ -65,7 +69,8 @@ public class RedisAuthSessionStore {
 			nullableString(session.get("prevRefreshTokenHash")),
 			UserRole.valueOf(session.get("role").toString()),
 			UserStatus.valueOf(session.get("status").toString()),
-			OffsetDateTime.parse(session.get("createdAt").toString())
+			OffsetDateTime.parse(session.get("createdAt").toString()),
+			authVersion.get()
 		));
 	}
 
@@ -113,7 +118,20 @@ public class RedisAuthSessionStore {
 		values.put("role", session.role().name());
 		values.put("status", session.status().name());
 		values.put("createdAt", session.createdAt().toString());
+		values.put("authVersion", String.valueOf(session.authVersion()));
 		return values;
+	}
+
+	private Optional<Long> parseAuthVersion(Object value) {
+		if (value == null || value.toString().isBlank()) {
+			return Optional.empty();
+		}
+		try {
+			long authVersion = Long.parseLong(value.toString());
+			return authVersion >= 0 ? Optional.of(authVersion) : Optional.empty();
+		} catch (NumberFormatException exception) {
+			return Optional.empty();
+		}
 	}
 
 	private Duration sessionTtl() {

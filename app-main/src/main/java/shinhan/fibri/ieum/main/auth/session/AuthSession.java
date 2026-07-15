@@ -12,6 +12,12 @@ public record AuthSession(
 	String prevRefreshTokenHash,
 	UserRole role,
 	UserStatus status,
-	OffsetDateTime createdAt
+	OffsetDateTime createdAt,
+	long authVersion
 ) {
+	public AuthSession {
+		if (authVersion < 0) {
+			throw new IllegalArgumentException("authVersion must be nonnegative");
+		}
+	}
 }
