@@ -1,6 +1,10 @@
 name: Diagnose app-ai report
 
 on:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/diagnose-app-ai-report.yml"
   workflow_dispatch:
     inputs:
       report_id:
@@ -20,7 +24,7 @@ jobs:
     steps:
       - name: Inspect filtered app-ai logs over SSH
         env:
-          REPORT_ID: ${{ inputs.report_id }}
+          REPORT_ID: ${{ inputs.report_id || '6' }}
           SSH_HOST: ${{ vars.SSH_HOST }}
           SSH_USER: ${{ vars.SSH_USER }}
           SSH_PORT: ${{ vars.SSH_PORT }}
