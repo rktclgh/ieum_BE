@@ -2,7 +2,6 @@ package shinhan.fibri.ieum.main.admin.user.service;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -29,7 +28,7 @@ import shinhan.fibri.ieum.main.admin.user.exception.HardDeleteConfirmationMismat
 import shinhan.fibri.ieum.main.admin.user.repository.AdminUserHardDeleteRepository;
 import shinhan.fibri.ieum.main.admin.user.repository.HardDeleteTarget;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
-import shinhan.fibri.ieum.main.file.storage.FileStorage;
+import shinhan.fibri.ieum.main.file.service.S3FileDeletionService;
 import shinhan.fibri.ieum.main.notification.sse.SseConnectionRegistry;
 
 @ExtendWith(OutputCaptureExtension.class)
@@ -38,13 +37,13 @@ class AdminUserHardDeleteServiceTest {
 	private final AdminUserHardDeleteRepository repository = mock(AdminUserHardDeleteRepository.class);
 	private final RedisAuthSessionStore sessionStore = mock(RedisAuthSessionStore.class);
 	private final SseConnectionRegistry sseConnectionRegistry = mock(SseConnectionRegistry.class);
-	private final FileStorage fileStorage = mock(FileStorage.class);
+	private final S3FileDeletionService s3FileDeletionService = mock(S3FileDeletionService.class);
 	private final ManualExecutor cleanupExecutor = new ManualExecutor();
 	private final AdminUserHardDeleteService service = new AdminUserHardDeleteService(
 		repository,
 		sessionStore,
 		sseConnectionRegistry,
-		fileStorage,
+		s3FileDeletionService,
 		cleanupExecutor
 	);
 
@@ -137,7 +136,7 @@ class AdminUserHardDeleteServiceTest {
 
 		verify(sessionStore, never()).revokeAllSessionsOfUser(10L);
 		verify(sseConnectionRegistry, never()).closeUser(10L);
-		verify(fileStorage, never()).delete("final/10/profile/file/original.jpg");
+		verify(s3FileDeletionService, never()).deleteOriginAndVariantsLogOnly("final/10/profile/file/original.jpg");
 
 		for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
 			synchronization.afterCommit();
@@ -145,15 +144,13 @@ class AdminUserHardDeleteServiceTest {
 
 		verify(sessionStore, never()).revokeAllSessionsOfUser(10L);
 		verify(sseConnectionRegistry, never()).closeUser(10L);
-		verify(fileStorage, never()).delete("final/10/profile/file/original.jpg");
+		verify(s3FileDeletionService, never()).deleteOriginAndVariantsLogOnly("final/10/profile/file/original.jpg");
 
 		cleanupExecutor.runAll();
 
 		verify(sessionStore).revokeAllSessionsOfUser(10L);
 		verify(sseConnectionRegistry).closeUser(10L);
-		verify(fileStorage).delete("final/10/profile/file/original.jpg");
-		verify(fileStorage).delete("final/10/profile/file/display.webp");
-		verify(fileStorage).delete("final/10/profile/file/thumb.webp");
+		verify(s3FileDeletionService).deleteOriginAndVariantsLogOnly("final/10/profile/file/original.jpg");
 	}
 
 	@Test
@@ -170,32 +167,12 @@ class AdminUserHardDeleteServiceTest {
 	}
 
 	@Test
-	void hardDeleteContinuesS3CleanupWhenOneDeleteFails() {
-		TransactionSynchronizationManager.initSynchronization();
-		when(repository.findForHardDelete(10L)).thenReturn(Optional.of(target(10L, "user@example.com", UserRole.user)));
-		when(repository.hardDelete(10L)).thenReturn(List.of("final/10/profile/file/original.jpg"));
-		doThrow(new IllegalStateException("s3 unavailable"))
-			.when(fileStorage).delete("final/10/profile/file/original.jpg");
-
-		service.hardDelete(adminPrincipal(), 10L, "user@example.com");
-
-		for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
-			synchronization.afterCommit();
-		}
-		cleanupExecutor.runAll();
-
-		verify(fileStorage).delete("final/10/profile/file/original.jpg");
-		verify(fileStorage).delete("final/10/profile/file/display.webp");
-		verify(fileStorage).delete("final/10/profile/file/thumb.webp");
-	}
-
-	@Test
-	void hardDeleteContinuesS3CleanupWhenVariantKeyCannotBeBuilt() {
+	void hardDeletePassesEachCollectedS3KeyToDeletionService() {
 		TransactionSynchronizationManager.initSynchronization();
 		when(repository.findForHardDelete(10L)).thenReturn(Optional.of(target(10L, "user@example.com", UserRole.user)));
 		when(repository.hardDelete(10L)).thenReturn(List.of(
-			"malformed-key",
-			"final/10/profile/file/original.jpg"
+			"final/10/profile/first/original.jpg",
+			"final/10/profile/second/original.jpg"
 		));
 
 		service.hardDelete(adminPrincipal(), 10L, "user@example.com");
@@ -205,10 +182,8 @@ class AdminUserHardDeleteServiceTest {
 		}
 		cleanupExecutor.runAll();
 
-		verify(fileStorage).delete("malformed-key");
-		verify(fileStorage).delete("final/10/profile/file/original.jpg");
-		verify(fileStorage).delete("final/10/profile/file/display.webp");
-		verify(fileStorage).delete("final/10/profile/file/thumb.webp");
+		verify(s3FileDeletionService).deleteOriginAndVariantsLogOnly("final/10/profile/first/original.jpg");
+		verify(s3FileDeletionService).deleteOriginAndVariantsLogOnly("final/10/profile/second/original.jpg");
 	}
 
 	private static AuthenticatedUser adminPrincipal() {

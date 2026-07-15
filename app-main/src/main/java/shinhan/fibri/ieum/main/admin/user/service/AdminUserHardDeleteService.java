@@ -20,9 +20,7 @@ import shinhan.fibri.ieum.main.admin.user.exception.HardDeleteConfirmationMismat
 import shinhan.fibri.ieum.main.admin.user.repository.AdminUserHardDeleteRepository;
 import shinhan.fibri.ieum.main.admin.user.repository.HardDeleteTarget;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
-import shinhan.fibri.ieum.main.file.service.FileObjectKeys;
-import shinhan.fibri.ieum.main.file.service.FileVariant;
-import shinhan.fibri.ieum.main.file.storage.FileStorage;
+import shinhan.fibri.ieum.main.file.service.S3FileDeletionService;
 import shinhan.fibri.ieum.main.notification.sse.SseConnectionRegistry;
 
 @Service
@@ -33,20 +31,20 @@ public class AdminUserHardDeleteService {
 	private final AdminUserHardDeleteRepository repository;
 	private final RedisAuthSessionStore sessionStore;
 	private final SseConnectionRegistry sseConnectionRegistry;
-	private final FileStorage fileStorage;
+	private final S3FileDeletionService s3FileDeletionService;
 	private final Executor cleanupExecutor;
 
 	public AdminUserHardDeleteService(
 		AdminUserHardDeleteRepository repository,
 		RedisAuthSessionStore sessionStore,
 		SseConnectionRegistry sseConnectionRegistry,
-		FileStorage fileStorage,
+		S3FileDeletionService s3FileDeletionService,
 		@Qualifier("fileCleanupTaskExecutor") Executor cleanupExecutor
 	) {
 		this.repository = repository;
 		this.sessionStore = sessionStore;
 		this.sseConnectionRegistry = sseConnectionRegistry;
-		this.fileStorage = fileStorage;
+		this.s3FileDeletionService = s3FileDeletionService;
 		this.cleanupExecutor = cleanupExecutor;
 	}
 
@@ -106,25 +104,7 @@ public class AdminUserHardDeleteService {
 			log.error("Failed to close SSE for hard-deleted user. userId={}", userId, exception);
 		}
 		for (String s3Key : s3Keys) {
-			deleteLogOnly(s3Key);
-			deleteVariantLogOnly(s3Key, FileVariant.DISPLAY);
-			deleteVariantLogOnly(s3Key, FileVariant.THUMB);
-		}
-	}
-
-	private void deleteVariantLogOnly(String originKey, FileVariant variant) {
-		try {
-			fileStorage.delete(FileObjectKeys.variantKey(originKey, variant));
-		} catch (RuntimeException exception) {
-			log.warn("Failed to delete hard-deleted user file variant object. s3Key={}, variant={}", originKey, variant, exception);
-		}
-	}
-
-	private void deleteLogOnly(String s3Key) {
-		try {
-			fileStorage.delete(s3Key);
-		} catch (RuntimeException exception) {
-			log.warn("Failed to delete hard-deleted user file object. s3Key={}", s3Key, exception);
+			s3FileDeletionService.deleteOriginAndVariantsLogOnly(s3Key);
 		}
 	}
 }

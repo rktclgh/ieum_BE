@@ -3,7 +3,6 @@ package shinhan.fibri.ieum.main.admin.content.service;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -17,7 +16,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import shinhan.fibri.ieum.main.admin.content.repository.ContentPurgeChunk;
 import shinhan.fibri.ieum.main.admin.content.repository.ContentPurgeRepository;
-import shinhan.fibri.ieum.main.file.storage.FileStorage;
+import shinhan.fibri.ieum.main.file.service.S3FileDeletionService;
 
 class ContentPurgeServiceTest {
 
@@ -25,8 +24,8 @@ class ContentPurgeServiceTest {
 	private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-07-15T01:00:00Z"), KST);
 
 	private final ContentPurgeRepository repository = mock(ContentPurgeRepository.class);
-	private final FileStorage fileStorage = mock(FileStorage.class);
-	private final ContentPurgeService service = new ContentPurgeService(repository, fileStorage, CLOCK);
+	private final S3FileDeletionService s3FileDeletionService = mock(S3FileDeletionService.class);
+	private final ContentPurgeService service = new ContentPurgeService(repository, s3FileDeletionService, CLOCK);
 
 	@Test
 	void purgeUsesNinetyDayCutoffFiveHundredChunkSizeAndStopsWhenRepositoryReturnsEmpty() {
@@ -37,9 +36,7 @@ class ContentPurgeServiceTest {
 		service.purgeExpiredQuestionContent();
 
 		verify(repository, times(2)).purgeChunk(OffsetDateTime.now(CLOCK).minusDays(90), 500);
-		verify(fileStorage).delete("final/42/question/file/original.jpg");
-		verify(fileStorage).delete("final/42/question/file/display.webp");
-		verify(fileStorage).delete("final/42/question/file/thumb.webp");
+		verify(s3FileDeletionService).deleteOriginAndVariantsLogOnly("final/42/question/file/original.jpg");
 	}
 
 	@Test
@@ -53,23 +50,22 @@ class ContentPurgeServiceTest {
 	}
 
 	@Test
-	void s3DeleteFailureIsLoggedOnlyAndDoesNotStopLaterKeys() {
+	void purgePassesEachS3KeyToDeletionService() {
 		when(repository.purgeChunk(any(), eq(500)))
 			.thenReturn(new ContentPurgeChunk(2, List.of(
 				"final/42/question/first/original.jpg",
 				"final/42/question/second/original.jpg"
 			)))
 			.thenReturn(ContentPurgeChunk.empty());
-		doThrow(new IllegalStateException("s3 unavailable"))
-			.when(fileStorage).delete("final/42/question/first/original.jpg");
 
 		assertThatCode(service::purgeExpiredQuestionContent).doesNotThrowAnyException();
 
-		verify(fileStorage).delete("final/42/question/second/original.jpg");
+		verify(s3FileDeletionService).deleteOriginAndVariantsLogOnly("final/42/question/first/original.jpg");
+		verify(s3FileDeletionService).deleteOriginAndVariantsLogOnly("final/42/question/second/original.jpg");
 	}
 
 	@Test
-	void invalidS3KeyDoesNotStopLaterPurgeFileCleanup() {
+	void malformedS3KeyIsDelegatedToDeletionService() {
 		when(repository.purgeChunk(any(), eq(500)))
 			.thenReturn(new ContentPurgeChunk(2, List.of(
 				"malformed-key",
@@ -79,10 +75,8 @@ class ContentPurgeServiceTest {
 
 		assertThatCode(service::purgeExpiredQuestionContent).doesNotThrowAnyException();
 
-		verify(fileStorage).delete("malformed-key");
-		verify(fileStorage).delete("final/42/question/second/original.jpg");
-		verify(fileStorage).delete("final/42/question/second/display.webp");
-		verify(fileStorage).delete("final/42/question/second/thumb.webp");
+		verify(s3FileDeletionService).deleteOriginAndVariantsLogOnly("malformed-key");
+		verify(s3FileDeletionService).deleteOriginAndVariantsLogOnly("final/42/question/second/original.jpg");
 	}
 
 	@Test
@@ -95,6 +89,6 @@ class ContentPurgeServiceTest {
 		assertThatCode(service::purgeExpiredQuestionContent).doesNotThrowAnyException();
 
 		verify(repository, times(3)).purgeChunk(any(), eq(500));
-		verify(fileStorage).delete("final/42/question/recovered/original.jpg");
+		verify(s3FileDeletionService).deleteOriginAndVariantsLogOnly("final/42/question/recovered/original.jpg");
 	}
 }
