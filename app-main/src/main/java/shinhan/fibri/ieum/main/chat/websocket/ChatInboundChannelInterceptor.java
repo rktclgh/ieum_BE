@@ -22,6 +22,7 @@ public class ChatInboundChannelInterceptor implements ChannelInterceptor {
 	private static final Pattern ROOM_TOPIC_PATTERN = Pattern.compile("^/topic/rooms/(\\d+)$");
 	private static final Pattern SEND_DESTINATION_PATTERN = Pattern.compile("^/app/rooms/(\\d+)/send$");
 	private static final String USER_ERROR_QUEUE_DESTINATION = "/user/queue/errors";
+	private static final String USER_ROOM_LIST_QUEUE_DESTINATION = "/user/queue/rooms";
 
 	private final ChatMemberRepository chatMemberRepository;
 	private final RedisAuthSessionStore sessionStore;
@@ -71,9 +72,10 @@ public class ChatInboundChannelInterceptor implements ChannelInterceptor {
 		if (principal == null || destination == null) {
 			return null;
 		}
-		// 에러 채널만 정확히 허용(Spring이 세션 소유자로 스코프). 개인 큐가 늘어도
-		// 검증 없이 구독 표면이 넓어지지 않도록 prefix가 아닌 정확 일치로 제한한다.
-		if (USER_ERROR_QUEUE_DESTINATION.equals(destination)) {
+		// 사용자 전용 큐는 Spring이 세션 소유자로 스코프한다. 새 개인 큐가 생겨도 구독
+		// 표면이 자동으로 넓어지지 않도록 허용된 두 목적지만 정확 일치로 제한한다.
+		if (USER_ERROR_QUEUE_DESTINATION.equals(destination)
+			|| USER_ROOM_LIST_QUEUE_DESTINATION.equals(destination)) {
 			return message;
 		}
 		// 그 외 목적지(=/topic/**)는 default-deny — 정확히 /topic/rooms/{id} 이고 멤버일 때만 허용.
