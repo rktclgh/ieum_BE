@@ -1,0 +1,10 @@
+package shinhan.fibri.ieum.main.admin.audit.domain;
+
+public enum AdminAuditAction {
+	USER_SANCTION_CREATED,
+	USER_ACTIVATED,
+	USER_ROLE_CHANGED,
+	REPORT_CONFIRMED,
+	REPORT_DISMISSED,
+	INQUIRY_ANSWERED
+}

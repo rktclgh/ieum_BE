@@ -23,6 +23,8 @@ import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
+import shinhan.fibri.ieum.main.admin.audit.domain.AdminAuditAction;
+import shinhan.fibri.ieum.main.admin.audit.repository.AdminAuditLogWriter;
 import shinhan.fibri.ieum.main.admin.user.exception.AdminRoleRequiredException;
 import shinhan.fibri.ieum.main.admin.user.exception.AdminUserNotFoundException;
 import shinhan.fibri.ieum.main.admin.user.exception.CannotChangeOwnRoleException;
@@ -33,7 +35,8 @@ class AdminUserRoleServiceTest {
 
 	private final UserRepository userRepository = mock(UserRepository.class);
 	private final RedisAuthSessionStore sessionStore = mock(RedisAuthSessionStore.class);
-	private final AdminUserRoleService service = new AdminUserRoleService(userRepository, sessionStore);
+	private final AdminAuditLogWriter auditLogWriter = mock(AdminAuditLogWriter.class);
+	private final AdminUserRoleService service = new AdminUserRoleService(userRepository, sessionStore, auditLogWriter);
 
 	@AfterEach
 	void clearSynchronization() {
@@ -57,6 +60,8 @@ class AdminUserRoleServiceTest {
 		assertThat(TransactionSynchronizationManager.getSynchronizations()).isEmpty();
 		verify(userRepository, never()).findByIdForUpdate(1L);
 		verify(sessionStore, never()).revokeAllSessionsOfUser(1L);
+		verify(auditLogWriter, never()).append(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any(),
+			org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any());
 	}
 
 	@Test
@@ -85,6 +90,13 @@ class AdminUserRoleServiceTest {
 
 		assertThat(target.getRole()).isEqualTo(UserRole.user);
 		assertThat(target.getAuthVersion()).isEqualTo(1L);
+		verify(auditLogWriter).append(
+			1L,
+			AdminAuditAction.USER_ROLE_CHANGED,
+			"user",
+			10L,
+			java.util.Map.of("previousRole", "admin", "newRole", "user")
+		);
 		verify(userRepository, never()).findByIdForUpdate(10L);
 		verify(sessionStore, never()).revokeAllSessionsOfUser(10L);
 
@@ -107,6 +119,13 @@ class AdminUserRoleServiceTest {
 
 		assertThat(target.getRole()).isEqualTo(UserRole.admin);
 		assertThat(target.getAuthVersion()).isEqualTo(1L);
+		verify(auditLogWriter).append(
+			1L,
+			AdminAuditAction.USER_ROLE_CHANGED,
+			"user",
+			10L,
+			java.util.Map.of("previousRole", "user", "newRole", "admin")
+		);
 		InOrder order = inOrder(userRepository);
 		order.verify(userRepository).findAllAdminsForUpdate();
 		order.verify(userRepository).findByIdForUpdate(10L);
@@ -133,6 +152,8 @@ class AdminUserRoleServiceTest {
 		assertThat(target.getAuthVersion()).isZero();
 		assertThat(TransactionSynchronizationManager.getSynchronizations()).isEmpty();
 		verify(sessionStore, never()).revokeAllSessionsOfUser(10L);
+		verify(auditLogWriter, never()).append(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any(),
+			org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any());
 	}
 
 	@Test

@@ -13,6 +13,8 @@ import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
+import shinhan.fibri.ieum.main.admin.audit.domain.AdminAuditAction;
+import shinhan.fibri.ieum.main.admin.audit.repository.AdminAuditLogWriter;
 import shinhan.fibri.ieum.main.admin.user.exception.AdminRoleRequiredException;
 import shinhan.fibri.ieum.main.admin.user.exception.AdminUserNotFoundException;
 import shinhan.fibri.ieum.main.admin.user.exception.CannotChangeOwnRoleException;
@@ -27,6 +29,7 @@ public class AdminUserRoleService {
 
 	private final UserRepository userRepository;
 	private final RedisAuthSessionStore sessionStore;
+	private final AdminAuditLogWriter auditLogWriter;
 
 	@Transactional
 	public void changeRole(AuthenticatedUser principal, Long userId, UserRole role) {
@@ -53,6 +56,13 @@ public class AdminUserRoleService {
 		}
 
 		target.changeRole(role);
+		auditLogWriter.append(
+			principal.userId(),
+			AdminAuditAction.USER_ROLE_CHANGED,
+			"user",
+			userId,
+			java.util.Map.of("previousRole", previousRole.name(), "newRole", role.name())
+		);
 		log.info(
 			"Admin changed user role: adminUserId={} targetUserId={} previousRole={} newRole={}",
 			principal.userId(),

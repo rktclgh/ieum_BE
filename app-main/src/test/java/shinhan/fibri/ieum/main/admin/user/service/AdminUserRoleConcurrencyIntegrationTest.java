@@ -3,6 +3,7 @@ package shinhan.fibri.ieum.main.admin.user.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
@@ -42,6 +43,7 @@ import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
+import shinhan.fibri.ieum.main.admin.audit.repository.AdminAuditLogWriter;
 import shinhan.fibri.ieum.main.admin.user.exception.AdminRoleRequiredException;
 import shinhan.fibri.ieum.main.admin.user.exception.LastAdminRequiredException;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
@@ -88,6 +90,9 @@ class AdminUserRoleConcurrencyIntegrationTest {
 
 	@MockitoBean
 	private RedisAuthSessionStore sessionStore;
+
+	@MockitoBean
+	private AdminAuditLogWriter auditLogWriter;
 
 	private long firstAdminId;
 	private long secondAdminId;
@@ -159,6 +164,7 @@ class AdminUserRoleConcurrencyIntegrationTest {
 		assertThat(activeAdminCount()).isOne();
 		assertThat(jdbc.queryForObject("SELECT sum(auth_version) FROM users", Long.class)).isOne();
 		verify(sessionStore, times(1)).revokeAllSessionsOfUser(anyLong());
+		verify(auditLogWriter, times(1)).append(anyLong(), any(), any(), anyLong(), any());
 	}
 
 	@Test

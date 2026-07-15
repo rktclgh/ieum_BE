@@ -1,7 +1,9 @@
 package shinhan.fibri.ieum.main.admin.user.service;
 
 import java.time.OffsetDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -15,6 +17,8 @@ import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
+import shinhan.fibri.ieum.main.admin.audit.domain.AdminAuditAction;
+import shinhan.fibri.ieum.main.admin.audit.repository.AdminAuditLogWriter;
 import shinhan.fibri.ieum.main.admin.user.domain.SanctionType;
 import shinhan.fibri.ieum.main.admin.user.domain.UserSanction;
 import shinhan.fibri.ieum.main.admin.user.dto.CreateSanctionRequest;
@@ -37,6 +41,7 @@ public class AdminSanctionService {
 	private final UserSanctionRepository userSanctionRepository;
 	private final RedisAuthSessionStore sessionStore;
 	private final SseConnectionRegistry sseConnectionRegistry;
+	private final AdminAuditLogWriter auditLogWriter;
 
 	@Transactional
 	public CreateSanctionResponse sanction(AuthenticatedUser principal, Long userId, CreateSanctionRequest request) {
@@ -49,6 +54,13 @@ public class AdminSanctionService {
 		target.suspend();
 		UserSanction sanction = createSanction(principal, userId, request);
 		UserSanction saved = userSanctionRepository.save(sanction);
+		auditLogWriter.append(
+			principal.userId(),
+			AdminAuditAction.USER_SANCTION_CREATED,
+			"user",
+			userId,
+			sanctionDetails(saved)
+		);
 		revokeSessionsAfterCommit(userId);
 		return new CreateSanctionResponse(saved.getId());
 	}
@@ -58,6 +70,7 @@ public class AdminSanctionService {
 		User target = userRepository.findByIdForUpdate(userId)
 			.orElseThrow(AdminUserNotFoundException::new);
 		List<UserSanction> activeSanctions = userSanctionRepository.findByUserIdAndRevokedAtIsNullForUpdate(userId);
+		UserStatus previousStatus = target.getStatus();
 		if (activeSanctions.isEmpty() && target.getStatus() == UserStatus.active) {
 			throw new UserNotSanctionedException();
 		}
@@ -73,6 +86,17 @@ public class AdminSanctionService {
 			log.warn("Activating suspended user without active sanction: userId={}", userId);
 			target.activate();
 		}
+		auditLogWriter.append(
+			principal.userId(),
+			AdminAuditAction.USER_ACTIVATED,
+			"user",
+			userId,
+			Map.of(
+				"releasedSanctionIds", activeSanctions.stream().map(UserSanction::getId).toList(),
+				"previousStatus", previousStatus.name(),
+				"newStatus", target.getStatus().name()
+			)
+		);
 		revokeSessionsAfterCommit(userId);
 	}
 
@@ -120,6 +144,15 @@ public class AdminSanctionService {
 			return UserSanction.temporary(userId, request.reason(), principal.userId(), request.endsAt());
 		}
 		return UserSanction.permanent(userId, request.reason(), principal.userId());
+	}
+
+	private Map<String, Object> sanctionDetails(UserSanction sanction) {
+		Map<String, Object> details = new LinkedHashMap<>();
+		details.put("sanctionId", sanction.getId());
+		details.put("type", sanction.getType().name());
+		details.put("reason", sanction.getReason());
+		details.put("endsAt", sanction.getEndsAt() == null ? null : sanction.getEndsAt().toString());
+		return details;
 	}
 
 	private void revokeSessionsAfterCommit(Long userId) {

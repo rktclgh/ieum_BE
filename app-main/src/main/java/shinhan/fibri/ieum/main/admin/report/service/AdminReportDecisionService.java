@@ -6,6 +6,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import shinhan.fibri.ieum.main.admin.report.exception.AdminReportAlreadyResolvedException;
+import shinhan.fibri.ieum.main.admin.audit.domain.AdminAuditAction;
+import shinhan.fibri.ieum.main.admin.audit.repository.AdminAuditLogWriter;
 import shinhan.fibri.ieum.main.admin.report.exception.AdminReportConcurrentChangeException;
 import shinhan.fibri.ieum.main.admin.report.exception.AdminReportNotFoundException;
 import shinhan.fibri.ieum.main.admin.report.repository.AdminReportRepository;
@@ -18,6 +20,7 @@ import shinhan.fibri.ieum.main.report.domain.ReportStatus;
 public class AdminReportDecisionService {
 
 	private final AdminReportRepository repository;
+	private final AdminAuditLogWriter auditLogWriter;
 
 	@Transactional
 	public void confirm(Long reportId, Long adminId) {
@@ -45,12 +48,15 @@ public class AdminReportDecisionService {
 
 		ReportStatus current = ReportStatus.valueOf(locked.status());
 		OffsetDateTime now = OffsetDateTime.now();
+		boolean changed = false;
 		if (current == decision) {
 			repository.cancelActiveAiWork(reportId);
 		} else if (current == ReportStatus.confirmed || current == ReportStatus.dismissed) {
 			throw new AdminReportAlreadyResolvedException();
 		} else if (repository.resolveReport(reportId, decision.name(), adminId, now) != 1) {
 			throw new AdminReportConcurrentChangeException();
+		} else {
+			changed = true;
 		}
 
 		if (decision == ReportStatus.dismissed && reportedUserId != null) {
@@ -58,6 +64,17 @@ public class AdminReportDecisionService {
 			if (!repository.hasActiveSanctions(reportedUserId)) {
 				repository.activateUser(reportedUserId);
 			}
+		}
+		if (changed) {
+			auditLogWriter.append(
+				adminId,
+				decision == ReportStatus.confirmed
+					? AdminAuditAction.REPORT_CONFIRMED
+					: AdminAuditAction.REPORT_DISMISSED,
+				"report",
+				reportId,
+				java.util.Map.of("previousDecision", current.name(), "newDecision", decision.name())
+			);
 		}
 	}
 }

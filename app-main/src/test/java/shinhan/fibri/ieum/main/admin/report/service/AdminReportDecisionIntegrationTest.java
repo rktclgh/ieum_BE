@@ -3,6 +3,7 @@ package shinhan.fibri.ieum.main.admin.report.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -23,6 +24,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import shinhan.fibri.ieum.main.admin.report.exception.AdminReportAlreadyResolvedException;
 import shinhan.fibri.ieum.main.admin.report.exception.AdminReportNotFoundException;
 import shinhan.fibri.ieum.main.admin.report.repository.AdminReportRepository;
+import shinhan.fibri.ieum.main.admin.audit.repository.AdminAuditLogWriter;
 import shinhan.fibri.ieum.main.report.repository.JdbcReportAiWorkRepository;
 import shinhan.fibri.ieum.testsupport.CanonicalPostgresContainer;
 import shinhan.fibri.ieum.testsupport.SqlScriptRunner;
@@ -42,7 +44,10 @@ class AdminReportDecisionIntegrationTest {
 		var dataSource = CanonicalPostgresContainer.dataSource(DATABASE);
 		jdbc = new JdbcTemplate(dataSource);
 		var repository = new AdminReportRepository(new NamedParameterJdbcTemplate(dataSource));
-		service = new AdminReportDecisionService(repository);
+		service = new AdminReportDecisionService(
+			repository,
+			new AdminAuditLogWriter(JdbcClient.create(dataSource), new ObjectMapper().findAndRegisterModules())
+		);
 		aiWorkRepository = new JdbcReportAiWorkRepository(JdbcClient.create(dataSource));
 		transaction = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
 		jdbc.execute("ALTER TABLE reports DISABLE TRIGGER trg_reports_target_integrity");
@@ -82,6 +87,7 @@ class AdminReportDecisionIntegrationTest {
 		assertThat(row.get("ai_lease_until")).isNull();
 		assertThat(row.get("ai_locked_by")).isNull();
 		assertThat(count("SELECT COUNT(*) FROM user_sanctions")).isZero();
+		assertAudit(9L, "REPORT_CONFIRMED", "report", 10L, "pending", "confirmed");
 		if (attemptId != null) {
 			assertThat(aiWorkRepository.markRetry(
 				10L,
@@ -114,6 +120,7 @@ class AdminReportDecisionIntegrationTest {
 		assertThat(value("SELECT status::text FROM reports WHERE report_id = 10")).isEqualTo("confirmed");
 		assertThat(value("SELECT ai_review_state::text FROM reports WHERE report_id = 10")).isEqualTo("completed");
 		assertThat(value("SELECT ai_decision::text FROM reports WHERE report_id = 10")).isEqualTo("normal");
+		assertAudit(9L, "REPORT_CONFIRMED", "report", 10L, "ai_reviewed", "confirmed");
 	}
 
 	@Test
@@ -128,6 +135,7 @@ class AdminReportDecisionIntegrationTest {
 		assertThat(jdbc.queryForObject("SELECT resolved_at FROM reports WHERE report_id = 10", OffsetDateTime.class))
 			.isEqualTo(original);
 		assertThat(value("SELECT ai_review_state::text FROM reports WHERE report_id = 10")).isEqualTo("cancelled");
+		assertThat(count("SELECT COUNT(*) FROM admin_audit_logs")).isZero();
 	}
 
 	@Test
@@ -141,6 +149,7 @@ class AdminReportDecisionIntegrationTest {
 		assertThat(value("SELECT status::text FROM reports WHERE report_id = 10")).isEqualTo("confirmed");
 		assertThat(jdbc.queryForObject("SELECT resolved_by FROM reports WHERE report_id = 10", Long.class))
 			.isEqualTo(8L);
+		assertThat(count("SELECT COUNT(*) FROM admin_audit_logs")).isZero();
 	}
 
 	@Test
@@ -165,6 +174,7 @@ class AdminReportDecisionIntegrationTest {
 		assertThat(value("SELECT status::text FROM reports WHERE report_id = 10"))
 			.isIn("confirmed", "dismissed");
 		assertThat(value("SELECT ai_review_state::text FROM reports WHERE report_id = 10")).isEqualTo("cancelled");
+		assertThat(count("SELECT COUNT(*) FROM admin_audit_logs")).isEqualTo(1);
 	}
 
 	@Test
@@ -184,6 +194,7 @@ class AdminReportDecisionIntegrationTest {
 			.isIn(8L, 9L);
 		assertThat(jdbc.queryForObject("SELECT resolved_at FROM reports WHERE report_id = 10", OffsetDateTime.class))
 			.isNotNull();
+		assertThat(count("SELECT COUNT(*) FROM admin_audit_logs")).isEqualTo(1);
 	}
 
 	@Test
@@ -209,6 +220,7 @@ class AdminReportDecisionIntegrationTest {
 			WHERE sanction_id IN (102, 103) AND released_at IS NULL
 			""")).isEqualTo(2);
 		assertThat(value("SELECT status::text FROM users WHERE user_id = 2")).isEqualTo("suspended");
+		assertAudit(9L, "REPORT_DISMISSED", "report", 10L, "pending", "dismissed");
 	}
 
 	@Test
@@ -392,5 +404,25 @@ class AdminReportDecisionIntegrationTest {
 
 	private String value(String sql) {
 		return jdbc.queryForObject(sql, String.class);
+	}
+
+	private void assertAudit(
+		long actorId,
+		String action,
+		String targetType,
+		long targetId,
+		String previousDecision,
+		String newDecision
+	) {
+		var row = jdbc.queryForMap("""
+			SELECT actor_user_id, action, target_type, target_id, details::text AS details
+			FROM admin_audit_logs
+			""");
+		assertThat(row)
+			.containsEntry("actor_user_id", actorId)
+			.containsEntry("action", action)
+			.containsEntry("target_type", targetType)
+			.containsEntry("target_id", targetId);
+		assertThat(row.get("details")).asString().contains(previousDecision, newDecision);
 	}
 }

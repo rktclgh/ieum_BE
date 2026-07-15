@@ -3,6 +3,8 @@ package shinhan.fibri.ieum.main.admin.inquiry.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.OffsetDateTime;
@@ -11,6 +13,8 @@ import org.junit.jupiter.api.Test;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
+import shinhan.fibri.ieum.main.admin.audit.domain.AdminAuditAction;
+import shinhan.fibri.ieum.main.admin.audit.repository.AdminAuditLogWriter;
 import shinhan.fibri.ieum.main.admin.inquiry.dto.AnswerInquiryRequest;
 import shinhan.fibri.ieum.main.admin.inquiry.exception.InquiryAlreadyAnsweredException;
 import shinhan.fibri.ieum.main.admin.inquiry.exception.InquiryNotFoundException;
@@ -21,7 +25,8 @@ import shinhan.fibri.ieum.main.inquiry.repository.InquiryRepository;
 class AdminInquiryAnswerServiceTest {
 
 	private final InquiryRepository inquiryRepository = mock(InquiryRepository.class);
-	private final AdminInquiryAnswerService service = new AdminInquiryAnswerService(inquiryRepository);
+	private final AdminAuditLogWriter auditLogWriter = mock(AdminAuditLogWriter.class);
+	private final AdminInquiryAnswerService service = new AdminInquiryAnswerService(inquiryRepository, auditLogWriter);
 
 	@Test
 	void answersPendingInquiryWithAdminIdAndTimestamp() {
@@ -35,6 +40,13 @@ class AdminInquiryAnswerServiceTest {
 		assertThat(inquiry.getAnsweredBy()).isEqualTo(1L);
 		assertThat(inquiry.getAnsweredAt()).isNotNull();
 		assertThat(inquiry.getAnsweredAt()).isBeforeOrEqualTo(OffsetDateTime.now());
+		verify(auditLogWriter).append(
+			1L,
+			AdminAuditAction.INQUIRY_ANSWERED,
+			"inquiry",
+			90L,
+			java.util.Map.of("answerLength", 5)
+		);
 	}
 
 	@Test
@@ -45,6 +57,10 @@ class AdminInquiryAnswerServiceTest {
 
 		assertThatThrownBy(() -> service.answer(admin(), 90L, new AnswerInquiryRequest("새 답변")))
 			.isInstanceOf(InquiryAlreadyAnsweredException.class);
+		verify(auditLogWriter, never()).append(
+			org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any(),
+			org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any()
+		);
 	}
 
 	@Test
@@ -53,6 +69,10 @@ class AdminInquiryAnswerServiceTest {
 
 		assertThatThrownBy(() -> service.answer(admin(), 90L, new AnswerInquiryRequest("답변")))
 			.isInstanceOf(InquiryNotFoundException.class);
+		verify(auditLogWriter, never()).append(
+			org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any(),
+			org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any()
+		);
 	}
 
 	private AuthenticatedUser admin() {
