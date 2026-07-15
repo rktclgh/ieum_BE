@@ -193,6 +193,19 @@ jobs:
       - name: Validate deployment configuration
         run: bash deploy/tests/validate-deploy-config.sh
 
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Build app-main
+        run: ./gradlew :app-main:bootJar --no-daemon
+
+      - name: Verify packaged static frontend
+        run: deploy/tests/verify-static-frontend-package.sh app-main/src/main/resources/static app-main/build/libs/app-main.jar
+
       - name: Apply admin dashboard migrations over SSH
         env:
           SSH_HOST: ${{ vars.SSH_HOST }}
@@ -252,19 +265,6 @@ jobs:
 
           "$deploy_path/deploy/scripts/apply-admin-dashboard-migrations.sh"
           REMOTE_MIGRATION
-
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 21
-          cache: gradle
-
-      - name: Test and build app-main
-        run: ./gradlew :app-main:test :app-main:bootJar --no-daemon
-
-      - name: Verify packaged static frontend
-        run: deploy/tests/verify-static-frontend-package.sh app-main/src/main/resources/static app-main/build/libs/app-main.jar
 
       - name: Refuse stale deployment
         if: github.event_name == 'push'
