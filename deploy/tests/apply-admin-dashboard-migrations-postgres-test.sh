@@ -31,7 +31,7 @@ docker run --detach --rm \
 
 ready=false
 for _ in $(seq 1 60); do
-  if docker exec "$container_name" pg_isready -U postgres -d ieum >/dev/null 2>&1; then
+  if docker exec "$container_name" pg_isready -h 127.0.0.1 -U postgres -d ieum >/dev/null 2>&1; then
     ready=true
     break
   fi

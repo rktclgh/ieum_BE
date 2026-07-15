@@ -37,8 +37,11 @@ jobs:
     permissions:
       contents: read
     env:
-      NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${{ vars.NEXT_PUBLIC_GOOGLE_CLIENT_ID }}
-      NEXT_PUBLIC_KAKAO_REST_API_KEY: ${{ vars.NEXT_PUBLIC_KAKAO_REST_API_KEY }}
+      # NEXT_PUBLIC_* are client-public values (baked into the FE bundle at build time).
+      # This job intentionally has no production Environment (security), and these vars are
+      # Environment-scoped, so they resolve empty here — hardcode the public values instead.
+      NEXT_PUBLIC_GOOGLE_CLIENT_ID: 441362995465-k8mn1n445afshk62qplltc14qugiqdhi.apps.googleusercontent.com
+      NEXT_PUBLIC_KAKAO_REST_API_KEY: 7f1952340d0bed2e27cbc84308af392b
     outputs:
       frontend_sha: ${{ steps.frontend-sha.outputs.sha }}
       artifact_id: ${{ steps.frontend-artifact.outputs.artifact-id }}
