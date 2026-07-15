@@ -8,6 +8,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.JdbcType;
 import org.hibernate.annotations.SQLRestriction;
 import org.hibernate.dialect.type.PostgreSQLEnumJdbcType;
@@ -21,6 +22,7 @@ import java.util.UUID;
 @Entity
 @Table(name = "users")
 @SQLRestriction("deleted_at IS NULL")
+@DynamicUpdate
 public class User {
 
 	@Id

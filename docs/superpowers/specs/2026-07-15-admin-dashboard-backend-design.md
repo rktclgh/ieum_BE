@@ -37,7 +37,7 @@ Sanction and role-change transactions currently commit to PostgreSQL and then tr
 
 ### Decision
 
-Add `users.auth_version BIGINT NOT NULL DEFAULT 0`. `User.suspend()`, `activate()`, `changeRole()`, and `markDeleted()` increment it only when canonical authorization state changes. The native report-dismiss activation SQL increments the same column atomically. New `AuthSession` values copy that version at login.
+Add `users.auth_version BIGINT NOT NULL DEFAULT 0`. `User.suspend()`, `activate()`, `changeRole()`, and `markDeleted()` increment it only when canonical authorization state changes. The native report-dismiss activation SQL increments the same column atomically. `User` uses Hibernate `@DynamicUpdate` so a non-authorization write from a stale entity cannot overwrite newer role, status, or generation fields; a canonical PostgreSQL two-transaction test locks this behavior. New `AuthSession` values copy that version at login.
 
 Every access-token validation and refresh performs both checks:
 
