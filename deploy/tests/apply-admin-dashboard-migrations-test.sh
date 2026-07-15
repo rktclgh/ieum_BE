@@ -23,6 +23,11 @@ set -euo pipefail
 printf '%s\n' "$@" > "$CAPTURE_DIR/args"
 printf '%s\n' "${PGHOST:-}" "${PGPORT:-}" "${PGDATABASE:-}" "${PGUSER:-}" \
   > "$CAPTURE_DIR/connection"
+if [[ -n "${PGPASSWORD:-}" ]]; then
+  printf 'environment\n' > "$CAPTURE_DIR/password-transport"
+else
+  printf 'absent\n' > "$CAPTURE_DIR/password-transport"
+fi
 cat > "$CAPTURE_DIR/stdin"
 exit "${FAKE_PSQL_EXIT:-0}"
 FAKE_PSQL
@@ -50,6 +55,8 @@ test "$(cat "$capture_dir/connection")" = "$expected_connection" \
 if grep -Fq 'secret' "$capture_dir/args"; then
   fail "database password leaked into the psql process arguments"
 fi
+test "$(cat "$capture_dir/password-transport")" = 'environment' \
+  || fail "database password was not inherited through the process environment"
 grep -Fxq -- '--no-psqlrc' "$capture_dir/args" \
   || fail "psql must ignore user startup files"
 grep -Fxq -- '--set=ON_ERROR_STOP=1' "$capture_dir/args" \
@@ -68,6 +75,39 @@ grep -Fq "partial or incompatible admin_audit_logs schema" "$stdin_file" \
   || fail "partial audit schema must fail explicitly"
 grep -Fq "apply_admin_audit_migration" "$stdin_file" \
   || fail "an exact existing audit schema must skip the non-idempotent v26 file"
+
+required_exact_catalog_tokens=(
+  "relpersistence = 'p'"
+  "attribute.attnum"
+  "attribute.attgenerated"
+  "attribute.attidentity"
+  "pg_get_serial_sequence"
+  "dependency.deptype = 'a'"
+  "constraint_row.conkey"
+  "constraint_row.confkey"
+  "constraint_row.convalidated"
+  "constraint_row.confmatchtype"
+  "constraint_row.confupdtype"
+  "constraint_row.confdeltype"
+  "constraint_row.condeferrable"
+  "constraint_row.condeferred"
+  "index_row.indisvalid"
+  "index_row.indisready"
+  "index_row.indisunique"
+  "index_row.indpred IS NULL"
+  "index_row.indkey::text"
+  "index_row.indoption::text"
+)
+for token in "${required_exact_catalog_tokens[@]}"; do
+  grep -Fq "$token" "$stdin_file" \
+    || fail "exact catalog verification is missing: $token"
+done
+if grep -Fq "indexdef LIKE" "$stdin_file"; then
+  fail "index verification must not rely on permissive text matching"
+fi
+if grep -Fq "pg_get_expr(conbin, conrelid) LIKE" "$stdin_file"; then
+  fail "check verification must compare normalized expressions exactly"
+fi
 
 v25_line="$(grep -n -m1 -F '\i db/migrations/v25_user_auth_version.sql' "$stdin_file" | cut -d: -f1)"
 v26_line="$(grep -n -m1 -F '\i db/migrations/v26_admin_audit_logs.sql' "$stdin_file" | cut -d: -f1)"
