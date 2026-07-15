@@ -64,6 +64,47 @@ bash deploy/tests/verify-static-frontend-package-test.sh
 main_workflow=.github/workflows/deploy-app-main.yml
 ai_workflow=.github/workflows/deploy-app-ai.yml
 
+frontend_build_line="$(grep -n -m1 -F '  frontend-build:' "$main_workflow" | cut -d: -f1 || true)"
+deploy_job_line="$(grep -n -m1 -F '  deploy:' "$main_workflow" | cut -d: -f1 || true)"
+test -n "$frontend_build_line" && test -n "$deploy_job_line" \
+  && (( frontend_build_line < deploy_job_line )) || {
+  echo "app-main must build the frontend in a separate job before deploy." >&2
+  exit 1
+}
+
+frontend_build_job="$(sed -n "${frontend_build_line},$((deploy_job_line - 1))p" "$main_workflow")"
+deploy_job="$(sed -n "${deploy_job_line},\$p" "$main_workflow")"
+
+grep -Fq 'uses: actions/upload-artifact@v4' <<<"$frontend_build_job"
+grep -Fq 'include-hidden-files: true' <<<"$frontend_build_job"
+grep -Fq 'if-no-files-found: error' <<<"$frontend_build_job"
+grep -Fq 'frontend-sha' <<<"$frontend_build_job"
+if grep -Eq '^[[:space:]]+environment:|secrets\.' <<<"$frontend_build_job"; then
+  echo "frontend-build must not receive a production environment or secrets." >&2
+  exit 1
+fi
+
+grep -Fq 'needs: frontend-build' <<<"$deploy_job"
+grep -Fq 'environment: app-main-production' <<<"$deploy_job"
+grep -Fq 'uses: actions/download-artifact@v4' <<<"$deploy_job"
+grep -Fq 'artifact-ids: ${{ needs.frontend-build.outputs.artifact_id }}' <<<"$deploy_job"
+grep -Fq 'merge-multiple: true' <<<"$deploy_job"
+grep -Fq 'unsafe_entry="$(find "$artifact_root" -mindepth 1' <<<"$deploy_job"
+grep -Fq -- "-name '.*'" <<<"$deploy_job"
+grep -Fq '! -type f -a ! -type d' <<<"$deploy_job"
+grep -Fq '[[ "$artifact_frontend_sha" == "$EXPECTED_FRONTEND_SHA" ]]' <<<"$deploy_job"
+grep -Fq 'deploy/tests/verify-static-frontend-package.sh "$artifact_root/export"' <<<"$deploy_job"
+grep -Fq 'cp -a "$artifact_root/export/." "$static_dir/"' <<<"$deploy_job"
+
+if grep -Eq 'repository:[[:space:]]+rktclgh/ieum_FE|pnpm|working-directory:[[:space:]]+frontend|git -C frontend|frontend/out' <<<"$deploy_job"; then
+  echo "deploy must consume only the downloaded frontend artifact, not frontend source or tooling." >&2
+  exit 1
+fi
+test "$(grep -Fc 'environment: app-main-production' "$main_workflow")" -eq 1 || {
+  echo "Only the deploy job may receive the app-main production environment." >&2
+  exit 1
+}
+
 grep -Fq 'types: ["frontend-updated"]' "$main_workflow"
 grep -Fq 'rktclgh/ieum_FE' "$main_workflow"
 grep -Fq 'DISPATCH_SHA: ${{ github.event.client_payload.frontend_sha }}' "$main_workflow"
@@ -81,7 +122,7 @@ grep -Fq '"deploy/scripts/apply-admin-dashboard-migrations.sh"' "$main_workflow"
 grep -Fq 'test -s out/index.html' "$main_workflow"
 grep -Fq 'test -s out/index.txt' "$main_workflow"
 grep -Fq 'pnpm verify' "$main_workflow"
-grep -Fq 'deploy/tests/verify-static-frontend-package.sh frontend/out' "$main_workflow"
+grep -Fq 'deploy/tests/verify-static-frontend-package.sh "$artifact_root/export"' "$main_workflow"
 grep -Fq 'deploy/tests/verify-static-frontend-package.sh app-main/src/main/resources/static app-main/build/libs/app-main.jar' "$main_workflow"
 grep -Fq 'test ! -e "$static_dir/out"' "$main_workflow"
 grep -Fq 'test ! -e "$static_dir/.next"' "$main_workflow"
@@ -95,6 +136,10 @@ forbid_literal 'vars.APP_MAIN_PORT' "$main_workflow"
 grep -Fq '54.116.123.11' deploy/GITHUB-CONFIG.md
 grep -Fq '`client_payload.frontend_sha`' deploy/GITHUB-CONFIG.md
 grep -Fq '`cancel-in-progress: false`' deploy/GITHUB-CONFIG.md
+grep -Fq 'no production Environment' deploy/GITHUB-CONFIG.md
+grep -Fq 'immutable artifact ID' deploy/GITHUB-CONFIG.md
+grep -Fq 'reject hidden entries, symlinks, and non-file/non-directory entries' deploy/GITHUB-CONFIG.md
+grep -Fq 'Frontend source, package scripts, Node, and pnpm never run inside the' deploy/GITHUB-CONFIG.md
 grep -Fq '`PGHOST`' deploy/GITHUB-CONFIG.md
 grep -Fq '`PGPORT`' deploy/GITHUB-CONFIG.md
 grep -Fq '`PGDATABASE`' deploy/GITHUB-CONFIG.md

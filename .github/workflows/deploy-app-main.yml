@@ -32,21 +32,18 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  frontend-build:
     runs-on: ubuntu-latest
-    environment: app-main-production
+    permissions:
+      contents: read
     env:
       NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${{ vars.NEXT_PUBLIC_GOOGLE_CLIENT_ID }}
       NEXT_PUBLIC_KAKAO_REST_API_KEY: ${{ vars.NEXT_PUBLIC_KAKAO_REST_API_KEY }}
+    outputs:
+      frontend_sha: ${{ steps.frontend-sha.outputs.sha }}
+      artifact_id: ${{ steps.frontend-artifact.outputs.artifact-id }}
 
     steps:
-      - name: Check out backend
-        uses: actions/checkout@v4
-
-      - name: Validate deployment source
-        run: |
-          [[ "$GITHUB_REF" == "refs/heads/main" ]]
-
       - name: Resolve frontend source
         id: frontend-source
         env:
@@ -66,7 +63,6 @@ jobs:
           repository: rktclgh/ieum_FE
           ref: ${{ steps.frontend-source.outputs.ref }}
           path: frontend
-          token: ${{ secrets.CI_GITHUB_TOKEN }}
           persist-credentials: false
 
       - name: Verify frontend checkout
@@ -105,16 +101,84 @@ jobs:
           test -s out/index.txt
           test -s out/404.html
 
-      - name: Verify static frontend export
-        run: deploy/tests/verify-static-frontend-package.sh frontend/out
+      - name: Prepare immutable frontend artifact
+        env:
+          FRONTEND_SHA: ${{ steps.frontend-sha.outputs.sha }}
+        run: |
+          artifact_root="$RUNNER_TEMP/frontend-static-artifact"
+          test ! -e "$artifact_root"
+          mkdir -p "$artifact_root/export"
+
+          unsafe_entry="$(find frontend/out -mindepth 1 \( -name '.*' -o \( ! -type f -a ! -type d \) \) -print -quit)"
+          if [[ -n "$unsafe_entry" ]]; then
+            echo "::error::Unsafe frontend export entry: $unsafe_entry"
+            exit 1
+          fi
+
+          cp -a frontend/out/. "$artifact_root/export/"
+          printf '%s\n' "$FRONTEND_SHA" > "$artifact_root/frontend-sha"
+
+      - name: Upload immutable frontend artifact
+        id: frontend-artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-static-${{ steps.frontend-sha.outputs.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/frontend-static-artifact
+          if-no-files-found: error
+          include-hidden-files: true
+          overwrite: false
+          retention-days: 1
+
+  deploy:
+    needs: frontend-build
+    runs-on: ubuntu-latest
+    environment: app-main-production
+
+    steps:
+      - name: Check out backend
+        uses: actions/checkout@v4
+
+      - name: Validate deployment source
+        run: |
+          [[ "$GITHUB_REF" == "refs/heads/main" ]]
+
+      - name: Download immutable frontend artifact
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.frontend-build.outputs.artifact_id }}
+          path: ${{ runner.temp }}/frontend-static-artifact
+          merge-multiple: true
+
+      - name: Verify downloaded frontend artifact
+        env:
+          EXPECTED_FRONTEND_SHA: ${{ needs.frontend-build.outputs.frontend_sha }}
+        run: |
+          artifact_root="$RUNNER_TEMP/frontend-static-artifact"
+          test -d "$artifact_root/export"
+          test -f "$artifact_root/frontend-sha"
+          test ! -L "$artifact_root/frontend-sha"
+
+          unsafe_entry="$(find "$artifact_root" -mindepth 1 \( -name '.*' -o \( ! -type f -a ! -type d \) \) -print -quit)"
+          if [[ -n "$unsafe_entry" ]]; then
+            echo "::error::Unsafe downloaded artifact entry: $unsafe_entry"
+            exit 1
+          fi
+
+          [[ "$EXPECTED_FRONTEND_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(wc -l < "$artifact_root/frontend-sha")" -eq 1 ]]
+          artifact_frontend_sha="$(<"$artifact_root/frontend-sha")"
+          [[ "$artifact_frontend_sha" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$artifact_frontend_sha" == "$EXPECTED_FRONTEND_SHA" ]]
+          deploy/tests/verify-static-frontend-package.sh "$artifact_root/export"
 
       - name: Package frontend into app-main
         run: |
+          artifact_root="$RUNNER_TEMP/frontend-static-artifact"
           static_dir="app-main/src/main/resources/static"
           rm -rf "$static_dir"
           mkdir -p "$static_dir/error"
-          cp -a frontend/out/. "$static_dir/"
-          cp frontend/out/404.html "$static_dir/error/404.html"
+          cp -a "$artifact_root/export/." "$static_dir/"
+          cp "$artifact_root/export/404.html" "$static_dir/error/404.html"
           test ! -e "$static_dir/out"
           test ! -e "$static_dir/.next"
           test -s "$static_dir/index.html"
@@ -212,7 +276,7 @@ jobs:
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-          FRONTEND_SHA: ${{ steps.frontend-sha.outputs.sha }}
+          FRONTEND_SHA: ${{ needs.frontend-build.outputs.frontend_sha }}
         run: |
           test -n "$DOCKERHUB_USERNAME"
           test -n "$DOCKERHUB_TOKEN"
@@ -225,7 +289,7 @@ jobs:
       - name: Refuse stale frontend deployment
         env:
           CI_GITHUB_TOKEN: ${{ secrets.CI_GITHUB_TOKEN }}
-          FRONTEND_SHA: ${{ steps.frontend-sha.outputs.sha }}
+          FRONTEND_SHA: ${{ needs.frontend-build.outputs.frontend_sha }}
         run: |
           test -n "$CI_GITHUB_TOKEN"
           [[ "$FRONTEND_SHA" =~ ^[0-9a-f]{40}$ ]]

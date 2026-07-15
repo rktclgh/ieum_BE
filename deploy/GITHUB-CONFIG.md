@@ -2,7 +2,15 @@
 
 ## Frontend repository
 
-Repository variables:
+The frontend repository must be readable without credentials by the isolated
+`frontend-build` job. That job intentionally has no production Environment and
+no repository or Environment secrets. If `rktclgh/ieum_FE` becomes private,
+replace this boundary with a reviewed artifact-provenance flow; do not expose a
+production token to frontend package scripts.
+
+The following non-secret, browser-visible build values must be configured as
+repository-level variables in the backend repository (not only as production
+Environment variables), so the isolated build job can read them:
 
 - `NEXT_PUBLIC_GOOGLE_CLIENT_ID`
 - `NEXT_PUBLIC_KAKAO_REST_API_KEY`
@@ -14,9 +22,20 @@ Repository secrets:
 
 The `frontend-updated` dispatch must include the commit that produced the
 frontend export in `client_payload.frontend_sha`. The value must be the full
-40-character lowercase Git commit SHA. The backend workflow checks out exactly
-that SHA and verifies it again after checkout. Backend push and manual runs use
-the frontend `main` branch as their fallback source.
+40-character lowercase Git commit SHA. The isolated `frontend-build` job checks
+out exactly that SHA and verifies it again after checkout. Backend push and
+manual runs use the frontend `main` branch as their fallback source.
+
+The build job runs `pnpm verify` without production credentials and uploads the
+static export with its exact `frontend-sha` metadata through
+`actions/upload-artifact@v4`. The immutable artifact ID, rather than a mutable
+name or workspace path, is passed to the `deploy` job. The deploy job starts on
+a clean runner, checks out only backend source, and downloads that exact
+artifact ID. Before copying any bytes into Spring resources, backend-owned
+checks reject hidden entries, symlinks, and non-file/non-directory entries,
+compare the embedded SHA with the build job output, and run the static package
+verifier. Frontend source, package scripts, Node, and pnpm never run inside the
+production Environment.
 
 The app-main deployment performs one final comparison with the current
 frontend `main` SHA immediately before SSH deployment. A newer frontend commit
@@ -28,8 +47,10 @@ in-flight migration or deployment is never interrupted by a newer run.
 
 Repository secrets:
 
-- `CI_GITHUB_TOKEN`: token that can read `rktclgh/ieum_FE` when the
-  frontend repository is private.
+- `CI_GITHUB_TOKEN`: fine-grained token with read access to
+  `rktclgh/ieum_FE`, used only by the production `deploy` job for the final
+  frontend `main` SHA freshness gate. It is never exposed to frontend checkout,
+  install, build, or verification steps.
 - `DOCKERHUB_USERNAME`: Docker Hub account or organization name.
 - `DOCKERHUB_TOKEN`: Docker Hub access token with read/write permission.
 
@@ -48,8 +69,6 @@ Variables:
 - `APP_MAIN_PRIVATE_BIND_ADDRESS=172.31.38.97`
 - `LETSENCRYPT_EMAIL`: optional when the origin certificate already exists;
   required only for initial Let's Encrypt issuance
-- `NEXT_PUBLIC_GOOGLE_CLIENT_ID`
-- `NEXT_PUBLIC_KAKAO_REST_API_KEY`
 
 Secrets:
 
