@@ -109,21 +109,19 @@ The app-ai workflow continues to run migrations before its binary is built. The 
 policy files run only when the canonical `ai_report_policy_rules` table exists.
 
 Before enabling either workflow, install the PostgreSQL client on both EC2
-hosts. On each host, copy
-`deploy/env/admin-dashboard-migration.env.example` to
-`$DEPLOY_PATH/.migration.env`, fill in `PGHOST`, `PGPORT`, `PGDATABASE`, and
-`PGUSER`, then configure either `PGPASSWORD` or an absolute `PGPASSFILE` path.
-The file is sourced as a shell environment file, so quote values containing
-shell-special characters. Make it owned by the SSH deployment user and run
-`chmod 600 "$DEPLOY_PATH/.migration.env"`. If `PGPASSFILE` is used, that file
-must also be a regular, non-symlink file with mode 600.
+hosts. The migration helper reads the existing `$DEPLOY_PATH/.env.runtime`
+file, which is also the runtime configuration consumed by the application. It
+uses `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, and
+`SPRING_DATASOURCE_PASSWORD` to connect to the private RDS instance; no second
+database-credential file is required. Keep `.env.runtime` owned by the SSH
+deployment user and mode 600.
 
-The workflow checks `.migration.env`, its permissions, the selected password
-source, and the remote `psql` command before running the helper. The password
-stays on EC2: it is never interpolated as a GitHub secret and never appears in
-an SSH argument or workflow log. Missing configuration, unsafe permissions,
-an unavailable `psql`, a schema mismatch, or a migration error stops the
-workflow before image build or SSH application deployment.
+The workflow validates the runtime configuration and remote `psql` command
+before running the helper. Credentials stay on EC2: they are never
+interpolated as GitHub secrets and never appear in SSH arguments or workflow
+logs. An unavailable `psql`, invalid datasource URL, schema mismatch, or
+migration error stops the workflow before Gradle, image build, or SSH application
+deployment.
 
 The deployment validator also runs the helper against an ephemeral PostgreSQL
 16 instance. It verifies that a hostile role `search_path` cannot redirect DDL,

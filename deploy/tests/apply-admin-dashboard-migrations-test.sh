@@ -62,6 +62,26 @@ grep -Fxq -- '--no-psqlrc' "$capture_dir/args" \
 grep -Fxq -- '--set=ON_ERROR_STOP=1' "$capture_dir/args" \
   || fail "psql must fail fast"
 
+runtime_env="$work_dir/.env.runtime"
+cat > "$runtime_env" <<'RUNTIME_ENV'
+SPRING_DATASOURCE_URL=jdbc:postgresql://private-rds.invalid:5432/ieum?sslmode=require
+SPRING_DATASOURCE_USERNAME=migration_user
+SPRING_DATASOURCE_PASSWORD='migration-secret'
+RUNTIME_ENV
+chmod 600 "$runtime_env"
+
+env -u PGHOST -u PGPORT -u PGDATABASE -u PGUSER -u PGPASSWORD \
+  PATH="$fake_bin:$PATH" \
+  CAPTURE_DIR="$capture_dir" \
+  MIGRATION_RUNTIME_ENV="$runtime_env" \
+  "$helper" >/dev/null
+
+expected_runtime_connection=$'private-rds.invalid\n5432\nieum\nmigration_user'
+test "$(cat "$capture_dir/connection")" = "$expected_runtime_connection" \
+  || fail "runtime datasource was not converted to libpq connection variables"
+test "$(cat "$capture_dir/password-transport")" = 'environment' \
+  || fail "runtime datasource password was not inherited through the environment"
+
 stdin_file="$capture_dir/stdin"
 grep -Fq "pg_advisory_lock" "$stdin_file" \
   || fail "session advisory lock is missing"
