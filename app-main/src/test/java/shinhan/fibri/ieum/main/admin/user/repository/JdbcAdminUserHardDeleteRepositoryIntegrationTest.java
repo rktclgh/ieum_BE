@@ -8,12 +8,16 @@ import java.util.UUID;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.testsupport.CanonicalPostgresContainer;
 import shinhan.fibri.ieum.testsupport.SqlScriptRunner;
 
+@ExtendWith(OutputCaptureExtension.class)
 class JdbcAdminUserHardDeleteRepositoryIntegrationTest {
 
 	private static final String DATABASE = "ieum_admin_user_hard_delete";
@@ -128,6 +132,22 @@ class JdbcAdminUserHardDeleteRepositoryIntegrationTest {
 
 		assertThat(s3Keys).isEmpty();
 		assertThat(count("users", "user_id", userId)).isZero();
+	}
+
+	@Test
+	void hardDeleteLogsCollectedS3KeyCountWithoutFullKeyPayload(CapturedOutput output) {
+		long userId = insertUser("log-count", "user");
+		UUID fileId = UUID.fromString("99999999-9999-9999-9999-999999999999");
+		String s3Key = "final/" + userId + "/profile/" + fileId + "/original.jpg";
+		insertFile(fileId, userId, s3Key);
+
+		repository.hardDelete(userId);
+
+		assertThat(output)
+			.contains("Admin user hard delete collected S3 keys before DB delete")
+			.contains("s3KeyCount=1")
+			.doesNotContain("s3Keys=")
+			.doesNotContain(s3Key);
 	}
 
 	@Test

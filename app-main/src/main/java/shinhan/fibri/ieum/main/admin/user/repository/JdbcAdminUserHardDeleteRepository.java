@@ -211,9 +211,9 @@ public class JdbcAdminUserHardDeleteRepository implements AdminUserHardDeleteRep
 			return;
 		}
 		log.info(
-			"Admin user hard delete collected S3 keys before DB delete. userId={}, s3Keys={}",
+			"Admin user hard delete collected S3 keys before DB delete. userId={}, s3KeyCount={}",
 			userId,
-			files.stream().map(FileRow::s3Key).toList()
+			files.size()
 		);
 	}
 
