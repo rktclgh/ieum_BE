@@ -41,7 +41,8 @@ class AdminContentServiceTest {
 	void hideQuestionCancelsAiThenSoftDeletesQuestionAndPinAtSameTimeWithoutAuthorCheck() {
 		Question question = Question.create(100L, 42L, "title", "content");
 		setId(question, 200L);
-		when(questionRepository.findDeletionState(200L)).thenReturn(Optional.of(deletionState(99L, null)));
+		QuestionDeletionState deletionState = deletionState(99L, null);
+		when(questionRepository.findDeletionState(200L)).thenReturn(Optional.of(deletionState));
 		when(questionRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(question));
 
 		service.hide("question", 200L);
@@ -57,8 +58,9 @@ class AdminContentServiceTest {
 
 	@Test
 	void hideQuestionIsIdempotentWhenAlreadyDeleted() {
+		QuestionDeletionState deletionState = deletionState(42L, Instant.parse("2026-07-13T10:00:00Z"));
 		when(questionRepository.findDeletionState(200L))
-			.thenReturn(Optional.of(deletionState(42L, Instant.parse("2026-07-13T10:00:00Z"))));
+			.thenReturn(Optional.of(deletionState));
 
 		service.hide("question", 200L);
 
@@ -79,7 +81,8 @@ class AdminContentServiceTest {
 
 	@Test
 	void hideQuestionAcceptsConcurrentDeleteAfterPrecheck() {
-		when(questionRepository.findDeletionState(200L)).thenReturn(Optional.of(deletionState(42L, null)));
+		QuestionDeletionState deletionState = deletionState(42L, null);
+		when(questionRepository.findDeletionState(200L)).thenReturn(Optional.of(deletionState));
 		when(questionRepository.findByIdForUpdate(200L)).thenReturn(Optional.empty());
 
 		service.hide("question", 200L);
