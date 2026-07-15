@@ -61,7 +61,7 @@ public class ChatRoomSummaryQueryService {
 				membersByRoomId.get(room.getId()),
 				unreadByRoomId.getOrDefault(room.getId(), 0L),
 				lastMessageByRoomId.get(room.getId()),
-				titleByQuestionId.get(room.getQuestionId())
+				room.getQuestionId() == null ? null : titleByQuestionId.get(room.getQuestionId())
 			))
 			.sorted(roomSummaryComparator())
 			.toList();

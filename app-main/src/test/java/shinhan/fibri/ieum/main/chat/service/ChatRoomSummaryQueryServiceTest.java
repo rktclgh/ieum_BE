@@ -79,23 +79,39 @@ class ChatRoomSummaryQueryServiceTest {
 	}
 
 	@Test
+	void listForUserReturnsDirectRoomWhenUserHasNoQuestionRooms() {
+		User me = user(42L, "me@example.com", "me");
+		ChatRoom directRoom = room(ChatRoom.direct(42L, 77L), 100L);
+		ChatMember member = ChatMember.join(directRoom, me);
+		when(chatRoomRepository.findActiveRoomsByUserId(42L)).thenReturn(List.of(directRoom));
+		when(chatMemberRepository.findActiveByUserIdAndRoomIds(42L, List.of(100L))).thenReturn(List.of(member));
+		when(messageRepository.countUnreadByRoomIds(42L, List.of(100L))).thenReturn(List.of());
+		when(messageRepository.findLastVisibleMessagesByRoomIds(42L, List.of(100L))).thenReturn(List.of());
+
+		var response = service.listForUser(42L, null);
+
+		assertThat(response).singleElement().satisfies(summary -> {
+			assertThat(summary.questionId()).isNull();
+			assertThat(summary.questionTitle()).isNull();
+		});
+		verify(questionRepository, never()).findTitlesByIds(org.mockito.ArgumentMatchers.anyList());
+	}
+
+	@Test
 	void findActiveForRoomAndUsersBuildsOnlyRequestedActiveMemberSummaries() {
 		User me = user(42L, "me@example.com", "me");
 		User friend = user(77L, "friend@example.com", "friend");
 		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
 		ChatMember meMember = ChatMember.join(room, me);
 		ChatMember friendMember = ChatMember.join(room, friend);
+		friendMember.hideHistoryThrough(501L);
 		Message meLast = message(501L, room, friend, "visible-to-me", "2026-07-08T11:00:00+09:00");
-		Message friendLast = message(500L, room, me, "visible-to-friend", "2026-07-08T10:00:00+09:00");
 		when(chatMemberRepository.findActiveByRoomIdAndUserIds(100L, List.of(42L, 77L, 88L)))
 			.thenReturn(List.of(meMember, friendMember));
 		when(messageRepository.countUnreadByRoomIdAndUserIds(100L, List.of(42L, 77L)))
 			.thenReturn(List.of(userUnread(42L, 1L)));
 		when(messageRepository.findLastVisibleMessagesByRoomIdAndUserIds(100L, List.of(42L, 77L)))
-			.thenReturn(List.of(
-				userLastVisible(42L, meLast),
-				userLastVisible(77L, friendLast)
-			));
+			.thenReturn(List.of(userLastVisible(42L, meLast)));
 
 		var response = service.findActiveForRoomAndUsers(100L, List.of(42L, 77L, 88L));
 
@@ -103,7 +119,7 @@ class ChatRoomSummaryQueryServiceTest {
 		assertThat(response.get(42L).unreadCount()).isEqualTo(1L);
 		assertThat(response.get(77L).unreadCount()).isZero();
 		assertThat(response.get(42L).lastMessage().content()).isEqualTo("visible-to-me");
-		assertThat(response.get(77L).lastMessage().content()).isEqualTo("visible-to-friend");
+		assertThat(response.get(77L).lastMessage()).isNull();
 		verify(messageRepository).findLastVisibleMessagesByRoomIdAndUserIds(100L, List.of(42L, 77L));
 	}
 
