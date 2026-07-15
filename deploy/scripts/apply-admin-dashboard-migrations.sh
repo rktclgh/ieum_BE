@@ -312,7 +312,8 @@ BEGIN
     ) = 1
   INTO constraints_exact
   FROM pg_constraint constraint_row
-  WHERE constraint_row.conrelid = table_oid;
+  WHERE constraint_row.conrelid = table_oid
+    AND constraint_row.contype <> 'n';
 
   SELECT count(*) = 4
     AND count(*) FILTER (
