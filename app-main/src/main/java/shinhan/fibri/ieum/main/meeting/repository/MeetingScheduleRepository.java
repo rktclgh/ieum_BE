@@ -88,24 +88,21 @@ public interface MeetingScheduleRepository extends JpaRepository<MeetingSchedule
 	Optional<OffsetDateTime> findNextActiveStartsAt(@Param("meetingId") Long meetingId, @Param("now") OffsetDateTime now);
 
 	@Query(value = """
-		SELECT m.meeting_id              AS "meetingId",
-		       s.schedule_id             AS "scheduleId",
-		       m.title                   AS "title",
-		       ST_Y(p.location::geometry) AS "latitude",
-		       ST_X(p.location::geometry) AS "longitude",
-		       p.address                 AS "address",
-		       p.detail_address          AS "detailAddress",
-		       p.label                   AS "label",
-		       s.starts_at               AS "startsAt",
-		       s.ends_at                 AS "endsAt",
-		       CAST(s.status AS text)    AS "status",
-		       s.created_by              AS "createdByUserId",
-		       cr.room_id                AS "roomId",
-		       (m.host_id = :userId)     AS "host"
-		  FROM meeting_schedules s
-		  JOIN meetings m
-		    ON m.meeting_id = s.meeting_id
-		   AND m.deleted_at IS NULL
+		SELECT m.meeting_id                            AS "meetingId",
+		       s.schedule_id                           AS "scheduleId",
+		       m.title                                 AS "title",
+		       ST_Y(p.location::geometry)              AS "latitude",
+		       ST_X(p.location::geometry)              AS "longitude",
+		       p.address                               AS "address",
+		       p.detail_address                        AS "detailAddress",
+		       p.label                                 AS "label",
+		       s.starts_at                             AS "startsAt",
+		       s.ends_at                               AS "endsAt",
+		       COALESCE(CAST(s.status AS text), 'unscheduled') AS "status",
+		       s.created_by                            AS "createdByUserId",
+		       cr.room_id                              AS "roomId",
+		       (m.host_id = :userId)                   AS "host"
+		  FROM meetings m
 		  JOIN pins p
 		    ON p.pin_id = m.pin_id
 		   AND p.deleted_at IS NULL
@@ -113,13 +110,29 @@ public interface MeetingScheduleRepository extends JpaRepository<MeetingSchedule
 		    ON mp.meeting_id = m.meeting_id
 		   AND mp.user_id = :userId
 		   AND mp.status = 'joined'
-		  LEFT JOIN chat_rooms cr
-		    ON cr.meeting_id = m.meeting_id
-		 WHERE s.deleted_at IS NULL
+		  LEFT JOIN meeting_schedules s
+		    ON s.meeting_id = m.meeting_id
+		   AND s.deleted_at IS NULL
 		   AND s.status = 'scheduled'
 		   AND s.starts_at >= :from
 		   AND s.starts_at <= :to
-		 ORDER BY s.starts_at ASC, s.schedule_id ASC
+		  LEFT JOIN chat_rooms cr
+		    ON cr.meeting_id = m.meeting_id
+		 WHERE m.deleted_at IS NULL
+		   AND (
+		       s.schedule_id IS NOT NULL
+		       OR (m.type = 'one_time' AND NOT EXISTS (
+		           SELECT 1
+		             FROM meeting_schedules existing
+		            WHERE existing.meeting_id = m.meeting_id
+		              AND existing.deleted_at IS NULL
+		              AND existing.status IN ('scheduled', 'completed')
+		       ))
+		   )
+		 ORDER BY (s.schedule_id IS NOT NULL) ASC,
+		          CASE WHEN s.schedule_id IS NULL THEN m.meeting_id END ASC,
+		          s.starts_at ASC NULLS LAST,
+		          s.schedule_id ASC NULLS LAST
 		 LIMIT :limit
 		""", nativeQuery = true)
 	List<MeetingCalendarProjection> findCalendarItems(

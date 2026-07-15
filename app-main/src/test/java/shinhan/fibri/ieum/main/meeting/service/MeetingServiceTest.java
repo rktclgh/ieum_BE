@@ -762,6 +762,31 @@ class MeetingServiceTest {
 	}
 
 	@Test
+	void getCalendarMapsUnscheduledPlaceholderAsNonDeletable() {
+		when(meetingScheduleRepository.findCalendarItems(
+			42L,
+			OffsetDateTime.parse("2099-07-01T00:00:00+09:00"),
+			OffsetDateTime.parse("2099-08-01T00:00:00+09:00"),
+			1000
+		)).thenReturn(List.of(unscheduledCalendarRow()));
+
+		MeetingCalendarResponse response = service.getCalendar(
+			principal(42L),
+			OffsetDateTime.parse("2099-07-01T00:00:00+09:00"),
+			OffsetDateTime.parse("2099-08-01T00:00:00+09:00")
+		);
+
+		assertThat(response.items()).singleElement().satisfies(item -> {
+			assertThat(item.status()).isEqualTo("unscheduled");
+			assertThat(item.scheduleId()).isNull();
+			assertThat(item.startsAt()).isNull();
+			assertThat(item.endsAt()).isNull();
+			assertThat(item.createdByUserId()).isNull();
+			assertThat(item.canDelete()).isFalse();
+		});
+	}
+
+	@Test
 	void getParticipantsThrowsWhenMeetingDoesNotExist() {
 		when(meetingRepository.findByIdAndDeletedAtIsNull(3L)).thenReturn(Optional.empty());
 
@@ -1735,6 +1760,80 @@ class MeetingServiceTest {
 			@Override
 			public Boolean getHost() {
 				return false;
+			}
+		};
+	}
+
+	private MeetingCalendarProjection unscheduledCalendarRow() {
+		return new MeetingCalendarProjection() {
+			@Override
+			public Long getMeetingId() {
+				return 4L;
+			}
+
+			@Override
+			public Long getScheduleId() {
+				return null;
+			}
+
+			@Override
+			public String getTitle() {
+				return "일정 미정 모임";
+			}
+
+			@Override
+			public double getLatitude() {
+				return 37.5;
+			}
+
+			@Override
+			public double getLongitude() {
+				return 127.0;
+			}
+
+			@Override
+			public String getAddress() {
+				return "서울";
+			}
+
+			@Override
+			public String getDetailAddress() {
+				return "";
+			}
+
+			@Override
+			public String getLabel() {
+				return "";
+			}
+
+			@Override
+			public Instant getStartsAt() {
+				return null;
+			}
+
+			@Override
+			public Instant getEndsAt() {
+				return null;
+			}
+
+			@Override
+			public String getStatus() {
+				return "unscheduled";
+			}
+
+			@Override
+			public Long getCreatedByUserId() {
+				return null;
+			}
+
+			@Override
+			public Long getRoomId() {
+				return 10L;
+			}
+
+			@Override
+			public Boolean getHost() {
+				return true;
 			}
 		};
 	}

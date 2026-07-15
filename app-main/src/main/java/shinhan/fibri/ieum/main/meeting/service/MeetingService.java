@@ -773,9 +773,10 @@ public class MeetingService {
 			toResponseTime(row.getEndsAt()),
 			row.getStatus(),
 			row.getCreatedByUserId(),
-			principal.role() == UserRole.admin
-				|| Boolean.TRUE.equals(row.getHost())
-				|| Objects.equals(row.getCreatedByUserId(), principal.userId()),
+			!"unscheduled".equals(row.getStatus())
+				&& (principal.role() == UserRole.admin
+					|| Boolean.TRUE.equals(row.getHost())
+					|| Objects.equals(row.getCreatedByUserId(), principal.userId())),
 			row.getRoomId(),
 			Boolean.TRUE.equals(row.getHost())
 		);

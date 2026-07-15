@@ -380,6 +380,37 @@ class MeetingControllerTest {
 	}
 
 	@Test
+	void getCalendarReturnsUnscheduledPlaceholder() throws Exception {
+		when(meetingService.getCalendar(any(AuthenticatedUser.class), any(), any()))
+			.thenReturn(new MeetingCalendarResponse(java.util.List.of(
+				new MeetingCalendarItem(
+					4L,
+					null,
+					"일정 미정 모임",
+					new LocationSnapshot(37.5, 127.0, "서울", "", ""),
+					null,
+					null,
+					"unscheduled",
+					null,
+					false,
+					10L,
+					true
+				)
+			)));
+
+		mockMvc.perform(get("/api/v1/meetings/calendar")
+				.with(authenticated()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.items[0].meetingId", is(4)))
+			.andExpect(jsonPath("$.items[0].scheduleId", nullValue()))
+			.andExpect(jsonPath("$.items[0].startsAt", nullValue()))
+			.andExpect(jsonPath("$.items[0].endsAt", nullValue()))
+			.andExpect(jsonPath("$.items[0].status", is("unscheduled")))
+			.andExpect(jsonPath("$.items[0].createdByUserId", nullValue()))
+			.andExpect(jsonPath("$.items[0].canDelete", is(false)));
+	}
+
+	@Test
 	void joinReturnsGroupRoomId() throws Exception {
 		when(meetingService.join(any(AuthenticatedUser.class), org.mockito.ArgumentMatchers.eq(3L)))
 			.thenReturn(new JoinMeetingResponse(9L));
