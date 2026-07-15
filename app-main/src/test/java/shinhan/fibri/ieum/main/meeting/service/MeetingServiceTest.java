@@ -134,6 +134,33 @@ class MeetingServiceTest {
 	}
 
 	@Test
+	void createOneTimeWithoutScheduleKeepsHostAndRoomAndReturnsNullScheduleId() {
+		when(pinWriter.create(eq(42L), eq(PinType.meeting), any(LocationSnapshot.class))).thenReturn(11L);
+		when(meetingRepository.save(any(Meeting.class))).thenAnswer(invocation -> {
+			Meeting meeting = invocation.getArgument(0);
+			setField(meeting, "id", 3L);
+			return meeting;
+		});
+		when(chatRoomLifecycle.createGroupRoom(3L, 42L)).thenReturn(9L);
+
+		CreateMeetingResponse response = service.create(
+			principal(42L),
+			requestWithoutSchedule(MeetingType.one_time, null)
+		);
+
+		assertThat(response.meetingId()).isEqualTo(3L);
+		assertThat(response.roomId()).isEqualTo(9L);
+		assertThat(response.firstScheduleId()).isNull();
+		ArgumentCaptor<Meeting> meetingCaptor = ArgumentCaptor.forClass(Meeting.class);
+		verify(meetingRepository).save(meetingCaptor.capture());
+		assertThat(meetingCaptor.getValue().getMeetingAt()).isNull();
+		verify(meetingScheduleRepository, never()).save(any(MeetingSchedule.class));
+		verify(participantRepository).save(any(MeetingParticipant.class));
+		verify(chatRoomLifecycle).createGroupRoom(3L, 42L);
+		verify(eventPublisher).publishEvent(new MeetingCreatedEvent(3L, 42L, "저녁 모임", 37.5, 127.0));
+	}
+
+	@Test
 	void createRejectsImageNotOwnedByRequester() {
 		UUID imageFileId = UUID.fromString("00000000-0000-0000-0000-000000000001");
 		when(fileRepository.findByFileIdAndUploaderId(imageFileId, 42L)).thenReturn(Optional.empty());
@@ -177,6 +204,18 @@ class MeetingServiceTest {
 			.isInstanceOf(InvalidMeetingRequestException.class)
 			.hasMessage("recurrenceRule is required for recurring meeting");
 		verify(pinWriter, never()).create(any(), any(), any(LocationSnapshot.class));
+	}
+
+	@Test
+	void createRejectsMissingScheduleForRecurringMeetingBeforeWritingRows() {
+		assertThatThrownBy(() -> service.create(
+			principal(42L),
+			requestWithoutSchedule(MeetingType.recurring, weeklyRule(LocalDate.parse("2026-07-07")))
+		))
+			.isInstanceOf(InvalidMeetingRequestException.class)
+			.hasMessage("schedule is required for recurring meeting");
+		verify(pinWriter, never()).create(any(), any(), any(LocationSnapshot.class));
+		verify(meetingRepository, never()).save(any(Meeting.class));
 	}
 
 	@Test
@@ -439,6 +478,26 @@ class MeetingServiceTest {
 		assertThat(response.location().lng()).isEqualTo(127.0);
 		assertThat(response.myStatus()).isEqualTo("joined");
 		assertThat(response.createdAt()).isEqualTo(createdAt);
+	}
+
+	@Test
+	void getDetailReturnsNullTimesForUnscheduledOneTimeMeeting() {
+		OffsetDateTime createdAt = OffsetDateTime.parse("2026-07-09T10:00:00+09:00");
+		when(meetingRepository.findDetailById(3L))
+			.thenReturn(Optional.of(detailRow(null, null, null, createdAt, "one_time")));
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L))
+			.thenReturn(Optional.of(MeetingParticipant.join(3L, 42L, createdAt)));
+		when(participantRepository.countByIdMeetingIdAndStatus(3L, ParticipantStatus.joined)).thenReturn(1L);
+		when(meetingScheduleRepository.findFirstActiveSchedule(eq(3L), any(OffsetDateTime.class)))
+			.thenReturn(Optional.empty());
+		when(recurrenceRuleRepository.findByMeetingId(3L)).thenReturn(Optional.empty());
+
+		MeetingDetailResponse response = service.getDetail(principal(42L), 3L);
+
+		assertThat(response.meetingAt()).isNull();
+		assertThat(response.nextSchedule()).isNull();
+		assertThat(response.active()).isFalse();
+		assertThat(response.type()).isEqualTo("one_time");
 	}
 
 	@Test
@@ -741,6 +800,18 @@ class MeetingServiceTest {
 
 		assertThatThrownBy(() -> service.join(principal(42L), 3L))
 			.isInstanceOf(MeetingNotOpenException.class);
+		verify(chatRoomLifecycle, never()).addMember(any(), any());
+	}
+
+	@Test
+	void joinRejectsUnscheduledMeetingUntilScheduleIsAdded() {
+		Meeting meeting = meeting(3L, 1L, null, 7);
+		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
+		when(meetingScheduleRepository.existsActiveSchedule(eq(3L), any(OffsetDateTime.class))).thenReturn(false);
+
+		assertThatThrownBy(() -> service.join(principal(42L), 3L))
+			.isInstanceOf(MeetingNotOpenException.class);
+		verify(participantRepository, never()).save(any(MeetingParticipant.class));
 		verify(chatRoomLifecycle, never()).addMember(any(), any());
 	}
 
@@ -1143,6 +1214,22 @@ class MeetingServiceTest {
 		);
 	}
 
+	private CreateMeetingRequest requestWithoutSchedule(
+		MeetingType type,
+		CreateMeetingRecurrenceRuleRequest recurrenceRule
+	) {
+		return new CreateMeetingRequest(
+			"저녁 모임",
+			"같이 밥 먹어요",
+			type,
+			new LocationSnapshot(37.5, 127.0, "서울특별시 강남구 테헤란로 123", "2번 출구 앞", "동선역 2번 출구"),
+			null,
+			recurrenceRule,
+			7,
+			null
+		);
+	}
+
 	private CreateMeetingRecurrenceRuleRequest weeklyRule(LocalDate startsOn) {
 		return new CreateMeetingRecurrenceRuleRequest(
 			RecurrenceFrequency.weekly,
@@ -1195,6 +1282,16 @@ class MeetingServiceTest {
 		OffsetDateTime meetingAt,
 		OffsetDateTime createdAt
 	) {
+		return detailRow(hostProfileFileId, imageFileId, meetingAt, createdAt, "recurring");
+	}
+
+	private MeetingDetailProjection detailRow(
+		UUID hostProfileFileId,
+		UUID imageFileId,
+		OffsetDateTime meetingAt,
+		OffsetDateTime createdAt,
+		String type
+	) {
 		return new MeetingDetailProjection() {
 			@Override
 			public Long getMeetingId() {
@@ -1223,12 +1320,12 @@ class MeetingServiceTest {
 
 			@Override
 			public Instant getMeetingAt() {
-				return meetingAt.toInstant();
+				return meetingAt == null ? null : meetingAt.toInstant();
 			}
 
 			@Override
 			public String getType() {
-				return "recurring";
+				return type;
 			}
 
 			@Override

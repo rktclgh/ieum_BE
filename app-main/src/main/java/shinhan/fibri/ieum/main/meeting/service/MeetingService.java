@@ -123,7 +123,12 @@ public class MeetingService {
 		eventPublisher.publishEvent(new MeetingCreatedEvent(
 			meeting.getId(), principal.userId(), meeting.getTitle(), request.location().lat(), request.location().lng()
 		));
-		return new CreateMeetingResponse(meeting.getId(), pinId, roomId, firstSchedule.getId());
+		return new CreateMeetingResponse(
+			meeting.getId(),
+			pinId,
+			roomId,
+			firstSchedule == null ? null : firstSchedule.getId()
+		);
 	}
 
 	@Transactional(readOnly = true)
@@ -150,7 +155,7 @@ public class MeetingService {
 			detail.getRoomId(),
 			detail.getTitle(),
 			detail.getContent(),
-			detail.getMeetingAt().atZone(RESPONSE_ZONE).toOffsetDateTime(),
+			detail.getMeetingAt() == null ? null : detail.getMeetingAt().atZone(RESPONSE_ZONE).toOffsetDateTime(),
 			detail.getType(),
 			"open".equals(detail.getStatus()) && nextSchedule.isPresent(),
 			nextSchedule.map(this::toScheduleItem).orElse(null),
@@ -374,6 +379,13 @@ public class MeetingService {
 				"recurrenceRule is required for recurring meeting"
 			);
 		}
+		if (request.type() == MeetingType.recurring && request.schedule() == null) {
+			throw new InvalidMeetingRequestException(
+				"VALIDATION_FAILED",
+				"schedule",
+				"schedule is required for recurring meeting"
+			);
+		}
 	}
 
 	private void validateRecurrenceRule(CreateMeetingRequest request) {
@@ -397,6 +409,9 @@ public class MeetingService {
 		CreateMeetingRequest request
 	) {
 		if (request.type() == MeetingType.one_time) {
+			if (request.schedule() == null) {
+				return List.of();
+			}
 			return List.of(createSchedule(
 				meetingId,
 				createdBy,
@@ -427,7 +442,7 @@ public class MeetingService {
 
 	private OffsetDateTime initialMeetingAtCache(CreateMeetingRequest request) {
 		if (request.type() == MeetingType.one_time) {
-			return request.schedule().startsAt();
+			return request.schedule() == null ? null : request.schedule().startsAt();
 		}
 		List<OffsetDateTime> startsAtList = recurringStartsAt(request);
 		if (startsAtList.isEmpty()) {

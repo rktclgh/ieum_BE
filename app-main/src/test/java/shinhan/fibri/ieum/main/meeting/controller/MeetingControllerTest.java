@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.main.meeting.controller;
 
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
@@ -110,6 +111,33 @@ class MeetingControllerTest {
 			.andExpect(jsonPath("$.pinId", is(11)))
 			.andExpect(jsonPath("$.roomId", is(9)))
 			.andExpect(jsonPath("$.firstScheduleId", is(31)));
+
+		verify(meetingService).create(any(AuthenticatedUser.class), any());
+	}
+
+	@Test
+	void createAllowsOneTimeMeetingWithoutSchedule() throws Exception {
+		when(meetingService.create(any(AuthenticatedUser.class), any()))
+			.thenReturn(new CreateMeetingResponse(3L, 11L, 9L, null));
+
+		mockMvc.perform(post("/api/v1/meetings")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "title": "일정 미정 모임",
+					  "type": "one_time",
+					  "location": {
+					    "lat": 37.5,
+					    "lng": 127.0,
+					    "address": "서울특별시 강남구 테헤란로 123"
+					  },
+					  "maxMembers": 7
+					}
+					""")
+				.with(authenticated()))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.meetingId", is(3)))
+			.andExpect(jsonPath("$.firstScheduleId", nullValue()));
 
 		verify(meetingService).create(any(AuthenticatedUser.class), any());
 	}
