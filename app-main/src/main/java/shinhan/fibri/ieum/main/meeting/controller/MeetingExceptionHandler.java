@@ -22,6 +22,7 @@ import shinhan.fibri.ieum.main.meeting.exception.ParticipantNotFoundException;
 import shinhan.fibri.ieum.main.meeting.exception.ScheduleAlreadyExistsException;
 import shinhan.fibri.ieum.main.meeting.exception.ScheduleNotCancellableException;
 import shinhan.fibri.ieum.main.meeting.exception.ScheduleNotFoundException;
+import shinhan.fibri.ieum.main.meeting.exception.SchedulePermissionDeniedException;
 
 @RestControllerAdvice(assignableTypes = MeetingController.class)
 @Order(Ordered.HIGHEST_PRECEDENCE)
@@ -113,5 +114,13 @@ public class MeetingExceptionHandler {
 	public ResponseEntity<AuthErrorResponse> handleScheduleNotCancellable(ScheduleNotCancellableException exception) {
 		return ResponseEntity.status(HttpStatus.CONFLICT)
 			.body(new AuthErrorResponse("SCHEDULE_NOT_CANCELLABLE", exception.getMessage()));
+	}
+
+	@ExceptionHandler(SchedulePermissionDeniedException.class)
+	public ResponseEntity<AuthErrorResponse> handleSchedulePermissionDenied(
+		SchedulePermissionDeniedException exception
+	) {
+		return ResponseEntity.status(HttpStatus.FORBIDDEN)
+			.body(new AuthErrorResponse("SCHEDULE_PERMISSION_DENIED", exception.getMessage()));
 	}
 }

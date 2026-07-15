@@ -11,6 +11,8 @@ public record MeetingCalendarItem(
 	OffsetDateTime startsAt,
 	OffsetDateTime endsAt,
 	String status,
+	Long createdByUserId,
+	boolean canDelete,
 	Long roomId,
 	boolean isHost
 ) {

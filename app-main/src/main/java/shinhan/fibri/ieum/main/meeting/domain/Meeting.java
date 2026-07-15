@@ -40,7 +40,7 @@ public class Meeting {
 	@Column(name = "content")
 	private String content;
 
-	@Column(name = "meeting_at", nullable = false)
+	@Column(name = "meeting_at")
 	private OffsetDateTime meetingAt;
 
 	@Column(name = "max_members", nullable = false)
@@ -88,7 +88,7 @@ public class Meeting {
 		this.type = Objects.requireNonNull(type, "type must not be null");
 		this.title = Objects.requireNonNull(title, "title must not be null");
 		this.content = content;
-		this.meetingAt = Objects.requireNonNull(meetingAt, "meetingAt must not be null");
+		this.meetingAt = meetingAt;
 		this.maxMembers = maxMembers;
 		this.imageFileId = imageFileId;
 		this.thumbnailFileId = thumbnailFileId;
@@ -140,6 +140,11 @@ public class Meeting {
 
 	public void updateMeetingAtCache(OffsetDateTime meetingAt) {
 		this.meetingAt = Objects.requireNonNull(meetingAt, "meetingAt must not be null");
+		this.updatedAt = OffsetDateTime.now();
+	}
+
+	public void clearMeetingAtCache() {
+		this.meetingAt = null;
 		this.updatedAt = OffsetDateTime.now();
 	}
 

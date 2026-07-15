@@ -15,7 +15,7 @@ public record CreateMeetingRequest(
 	@Size(max = 2000) String content,
 	@NotNull MeetingType type,
 	@NotNull @Valid LocationSnapshot location,
-	@NotNull @Valid CreateMeetingScheduleRequest schedule,
+	@Valid CreateMeetingScheduleRequest schedule,
 	@Valid CreateMeetingRecurrenceRuleRequest recurrenceRule,
 	@NotNull @Min(2) @Max(99) Integer maxMembers,
 	UUID imageFileId

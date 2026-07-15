@@ -48,6 +48,28 @@ class MeetingTest {
 	}
 
 	@Test
+	void createAllowsUnscheduledMeetingAndClearsLegacyCache() {
+		Meeting meeting = Meeting.create(
+			11L,
+			42L,
+			MeetingType.one_time,
+			"일정 미정 모임",
+			null,
+			null,
+			7,
+			null,
+			null
+		);
+
+		assertThat(meeting.getMeetingAt()).isNull();
+
+		meeting.updateMeetingAtCache(OffsetDateTime.parse("2026-07-20T19:00:00+09:00"));
+		meeting.clearMeetingAtCache();
+
+		assertThat(meeting.getMeetingAt()).isNull();
+	}
+
+	@Test
 	void cancelSoftDeletesMeeting() {
 		Meeting meeting = openMeeting();
 		OffsetDateTime cancelledAt = OffsetDateTime.parse("2026-07-09T12:00:00+09:00");

@@ -664,7 +664,7 @@ CREATE TABLE meetings (
     title VARCHAR(200) NOT NULL,
     content TEXT,
     type meeting_type NOT NULL DEFAULT 'one_time',                        -- [신규 v9] 일회성/정기
-    meeting_at TIMESTAMPTZ NOT NULL,                                      -- [v9] legacy 캐시(다음 회차 시각) — 정본은 meeting_schedules
+    meeting_at TIMESTAMPTZ,                                               -- [v25] nullable legacy 캐시(다음 회차 시각) — 정본은 meeting_schedules
     max_members SMALLINT NOT NULL DEFAULT 2,
     image_file_id UUID REFERENCES files(file_id) ON DELETE SET NULL,      -- [신규 v6] 원본(배경사진)
     thumbnail_file_id UUID REFERENCES files(file_id) ON DELETE SET NULL,  -- 300x300 썸네일 (원본에서 생성)
@@ -696,6 +696,7 @@ CREATE INDEX idx_mparticipants_user ON meeting_participants(user_id);
 CREATE TABLE meeting_schedules (
     schedule_id BIGSERIAL PRIMARY KEY,
     meeting_id BIGINT NOT NULL REFERENCES meetings(meeting_id) ON DELETE CASCADE,
+    created_by BIGINT REFERENCES users(user_id) ON DELETE SET NULL,       -- [v25] 최초 작성자. 하드 삭제 시 일정은 보존
     starts_at TIMESTAMPTZ NOT NULL,
     ends_at TIMESTAMPTZ,
     visible_until TIMESTAMPTZ NOT NULL,

@@ -168,6 +168,7 @@ class MeetingScheduleMaintenanceServiceTest {
 		OffsetDateTime start = OffsetDateTime.parse(startsAt);
 		return MeetingSchedule.create(
 			meetingId,
+			42L,
 			start,
 			start.plusHours(1),
 			start.withHour(23).withMinute(59).withSecond(59),
@@ -177,7 +178,8 @@ class MeetingScheduleMaintenanceServiceTest {
 
 	private MeetingSchedule scheduleMatching(String startsAt, int sequenceNo) {
 		return org.mockito.ArgumentMatchers.argThat(schedule ->
-			schedule.getStartsAt().isEqual(OffsetDateTime.parse(startsAt))
+			schedule.getCreatedBy().equals(42L)
+				&& schedule.getStartsAt().isEqual(OffsetDateTime.parse(startsAt))
 				&& schedule.getEndsAt().isEqual(OffsetDateTime.parse(startsAt).plusHours(1))
 				&& schedule.getVisibleUntil().isEqual(OffsetDateTime.parse(startsAt).withHour(23).withMinute(59).withSecond(59).withNano(999999999))
 				&& schedule.getSequenceNo() == sequenceNo

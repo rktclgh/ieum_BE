@@ -54,6 +54,7 @@ public class MeetingScheduleMaintenanceService {
 			return 0;
 		}
 		MeetingSchedule last = schedules.getLast();
+		Long createdBy = schedules.getFirst().getCreatedBy();
 		ZoneId zone = zone(rule);
 		LocalDate anchorDate = schedules.getFirst().getStartsAt().atZoneSameInstant(zone).toLocalDate();
 		ZonedDateTime lastStart = last.getStartsAt().atZoneSameInstant(zone);
@@ -85,6 +86,7 @@ public class MeetingScheduleMaintenanceService {
 				OffsetDateTime endsAt = duration == null ? null : startsAt.plus(duration);
 				meetingScheduleRepository.save(MeetingSchedule.create(
 					rule.getMeetingId(),
+					createdBy,
 					startsAt,
 					endsAt,
 					MeetingScheduleTimePolicy.visibleUntil(startsAt),
