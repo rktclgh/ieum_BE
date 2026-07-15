@@ -1053,7 +1053,7 @@ CREATE TABLE web_push_subscriptions (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_web_push_subscriptions_user ON web_push_subscriptions(user_id);
-CREATE INDEX idx_web_push_subscriptions_session ON web_push_subscriptions(session_id);
+CREATE UNIQUE INDEX uidx_web_push_subscriptions_session ON web_push_subscriptions(session_id);
 
 CREATE TABLE login_logs (
     log_id BIGSERIAL PRIMARY KEY,

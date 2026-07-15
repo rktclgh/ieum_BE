@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Objects;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 @Repository
 public class JdbcWebPushSubscriptionRepository implements WebPushSubscriptionRepository {
@@ -23,8 +24,20 @@ public class JdbcWebPushSubscriptionRepository implements WebPushSubscriptionRep
 	}
 
 	@Override
+	@Transactional
 	public WebPushSubscription upsert(WebPushSubscriptionInput input) {
 		Objects.requireNonNull(input, "input must not be null");
+		String endpointHash = sha256(input.endpoint());
+		jdbc.sql("LOCK TABLE web_push_subscriptions IN SHARE ROW EXCLUSIVE MODE")
+			.update();
+		jdbc.sql("""
+			DELETE FROM web_push_subscriptions
+			WHERE session_id = :sessionId
+			  AND endpoint_hash <> :endpointHash
+			""")
+			.param("sessionId", input.sessionId())
+			.param("endpointHash", endpointHash)
+			.update();
 		return jdbc.sql("""
 			INSERT INTO web_push_subscriptions (
 			    user_id,
@@ -71,7 +84,7 @@ public class JdbcWebPushSubscriptionRepository implements WebPushSubscriptionRep
 			.param("userId", input.userId())
 			.param("sessionId", input.sessionId())
 			.param("endpoint", input.endpoint())
-			.param("endpointHash", sha256(input.endpoint()))
+			.param("endpointHash", endpointHash)
 			.param("p256dh", input.p256dh())
 			.param("authSecret", input.authSecret())
 			.param("expiresAt", input.expiresAt(), Types.TIMESTAMP_WITH_TIMEZONE)

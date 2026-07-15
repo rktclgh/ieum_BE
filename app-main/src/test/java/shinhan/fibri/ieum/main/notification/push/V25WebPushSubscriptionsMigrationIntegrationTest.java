@@ -43,8 +43,11 @@ class V25WebPushSubscriptionsMigrationIntegrationTest {
 		);
 		assertThat(indexNames("web_push_subscriptions")).contains(
 			"idx_web_push_subscriptions_user",
-			"idx_web_push_subscriptions_session"
+			"uidx_web_push_subscriptions_session"
 		);
+		assertThat(indexNames("web_push_subscriptions"))
+			.doesNotContain("idx_web_push_subscriptions_session");
+		assertThat(indexIsUnique("uidx_web_push_subscriptions_session")).isTrue();
 		assertThat(triggerNames("web_push_subscriptions")).contains("trg_web_push_subscriptions_updated");
 	}
 
@@ -141,6 +144,18 @@ class V25WebPushSubscriptionsMigrationIntegrationTest {
 			.param("tableName", tableName)
 			.query(String.class)
 			.list();
+	}
+
+	private boolean indexIsUnique(String indexName) {
+		return Boolean.TRUE.equals(jdbc.sql("""
+			SELECT pg_index.indisunique
+			FROM pg_index
+			JOIN pg_class ON pg_class.oid = pg_index.indexrelid
+			WHERE pg_class.relname = :indexName
+			""")
+			.param("indexName", indexName)
+			.query(Boolean.class)
+			.single());
 	}
 
 	private String updatedAtFunctionDefinition() {

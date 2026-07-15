@@ -17,6 +17,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 class WebPushSubscriptionValidatorTest {
 
 	private static final Instant NOW = Instant.parse("2026-07-15T00:00:00Z");
+	private static final long MAX_EXPIRATION_EPOCH_MILLIS = 253_402_300_799_999L;
 	private WebPushSubscriptionValidator validator;
 
 	@BeforeEach
@@ -150,6 +151,30 @@ class WebPushSubscriptionValidatorTest {
 			.isInstanceOf(InvalidWebPushSubscriptionException.class)
 			.satisfies(exception -> assertThat(((InvalidWebPushSubscriptionException) exception).field())
 				.isEqualTo("expirationTime"));
+	}
+
+	@ParameterizedTest
+	@ValueSource(longs = {253_402_300_800_000L, Long.MAX_VALUE})
+	void rejectsExpirationBeyondDatabaseSafeMaximum(long expirationTime) {
+		assertThatThrownBy(() -> validator.validate(
+			42L,
+			"session-42",
+			validRequest("https://fcm.googleapis.com/push/123", expirationTime)
+		))
+			.isInstanceOf(InvalidWebPushSubscriptionException.class)
+			.satisfies(exception -> assertThat(((InvalidWebPushSubscriptionException) exception).field())
+				.isEqualTo("expirationTime"));
+	}
+
+	@Test
+	void acceptsDatabaseSafeMaximumExpiration() {
+		WebPushSubscriptionInput result = validator.validate(
+			42L,
+			"session-42",
+			validRequest("https://fcm.googleapis.com/push/123", MAX_EXPIRATION_EPOCH_MILLIS)
+		);
+
+		assertThat(result.expiresAt()).isEqualTo(OffsetDateTime.parse("9999-12-31T23:59:59.999Z"));
 	}
 
 	@Test

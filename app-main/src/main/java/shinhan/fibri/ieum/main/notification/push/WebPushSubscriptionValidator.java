@@ -18,6 +18,7 @@ public class WebPushSubscriptionValidator {
 	private static final int MAX_AUTH_SECRET_LENGTH = 256;
 	private static final int P256DH_LENGTH = 65;
 	private static final int AUTH_SECRET_LENGTH = 16;
+	private static final long MAX_EXPIRATION_EPOCH_MILLIS = 253_402_300_799_999L;
 
 	private final Set<String> allowedEndpointHosts;
 	private final Clock clock;
@@ -116,6 +117,9 @@ public class WebPushSubscriptionValidator {
 	private OffsetDateTime validateExpiration(Long expirationTime) {
 		if (expirationTime == null) {
 			return null;
+		}
+		if (expirationTime > MAX_EXPIRATION_EPOCH_MILLIS) {
+			throw invalid("expirationTime", "Expiration time is too far in the future");
 		}
 		Instant expiration;
 		try {
