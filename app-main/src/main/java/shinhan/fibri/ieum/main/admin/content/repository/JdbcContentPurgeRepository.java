@@ -6,6 +6,8 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -14,6 +16,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Repository
 @RequiredArgsConstructor
 public class JdbcContentPurgeRepository implements ContentPurgeRepository {
+
+	private static final Logger log = LoggerFactory.getLogger(JdbcContentPurgeRepository.class);
 
 	private final NamedParameterJdbcTemplate jdbc;
 
@@ -30,6 +34,7 @@ public class JdbcContentPurgeRepository implements ContentPurgeRepository {
 		MapSqlParameterSource params = new MapSqlParameterSource("questionIds", questionIds);
 		List<Long> answerIds = selectAnswerIds(params);
 		List<FileRow> files = selectFiles(params);
+		logPurgeKeys(questionIds, files);
 
 		deleteByAnswerIds("DELETE FROM answer_images WHERE answer_id IN (:answerIds)", answerIds);
 		deleteByQuestionIds("DELETE FROM question_images WHERE question_id IN (:questionIds)", params);
@@ -95,6 +100,18 @@ public class JdbcContentPurgeRepository implements ContentPurgeRepository {
 
 	private FileRow toFileRow(ResultSet rs, int rowNum) throws SQLException {
 		return new FileRow((UUID) rs.getObject("file_id"), rs.getString("s3_key"));
+	}
+
+	private void logPurgeKeys(List<Long> questionIds, List<FileRow> files) {
+		if (files.isEmpty()) {
+			log.info("Content purge collected no S3 keys before DB delete. questionIds={}", questionIds);
+			return;
+		}
+		log.info(
+			"Content purge collected S3 keys before DB delete. questionIds={}, s3Keys={}",
+			questionIds,
+			files.stream().map(FileRow::s3Key).toList()
+		);
 	}
 
 	private void deleteKnowledgeRows(List<Long> questionIds, List<Long> answerIds) {
