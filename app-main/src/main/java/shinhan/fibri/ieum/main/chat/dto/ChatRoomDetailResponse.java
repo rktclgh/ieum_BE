@@ -10,17 +10,24 @@ public record ChatRoomDetailResponse(
 	RoomType roomType,
 	Long meetingId,
 	Long questionId,
+	String questionTitle,
 	boolean pinned,
 	boolean notifyEnabled,
 	List<ChatRoomMemberResponse> members
 ) {
 
-	public static ChatRoomDetailResponse from(ChatRoom room, ChatMember currentMember, List<ChatMember> members) {
+	public static ChatRoomDetailResponse from(
+		ChatRoom room,
+		ChatMember currentMember,
+		List<ChatMember> members,
+		String questionTitle
+	) {
 		return new ChatRoomDetailResponse(
 			room.getId(),
 			room.getRoomType(),
 			room.getMeetingId(),
 			room.getQuestionId(),
+			questionTitle,
 			currentMember.getPinnedAt() != null,
 			currentMember.isNotifyEnabled(),
 			members.stream()

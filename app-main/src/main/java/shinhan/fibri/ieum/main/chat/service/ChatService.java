@@ -4,6 +4,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -44,6 +45,7 @@ import shinhan.fibri.ieum.main.question.domain.Question;
 import shinhan.fibri.ieum.main.question.exception.QuestionForbiddenException;
 import shinhan.fibri.ieum.main.question.exception.QuestionNotFoundException;
 import shinhan.fibri.ieum.main.question.repository.QuestionRepository;
+import shinhan.fibri.ieum.main.question.repository.QuestionTitleProjection;
 import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
 
 @Service
@@ -97,7 +99,7 @@ public class ChatService {
 		ChatRoom room = chatRoomRepository.findByRoomKey(ChatRoom.directRoomKey(currentUser.getId(), friend.getId()))
 			.orElseGet(() -> insertDirectRoom(currentUser, friend));
 		restoreDirectMembers(room, currentUser, friend);
-		return ChatRoomResponse.from(room);
+		return ChatRoomResponse.from(room, null);
 	}
 
 	public ChatRoomResponse createQuestionRoom(
@@ -150,7 +152,7 @@ public class ChatService {
 		Long roomId = chatRoomLifecycle.getOrCreateQuestionRoom(questionId, currentUser.getId(), targetUser.getId());
 		ChatRoom room = chatRoomRepository.findById(roomId)
 			.orElseThrow(ChatRoomNotFoundException::new);
-		return ChatRoomResponse.from(room);
+		return ChatRoomResponse.from(room, question.getTitle());
 	}
 
 	@Transactional(readOnly = true)
@@ -175,6 +177,7 @@ public class ChatService {
 		Map<Long, Message> lastMessageByRoomId = messageRepository.findLastMessagesByRoomIds(roomIds)
 			.stream()
 			.collect(Collectors.toMap(message -> message.getRoom().getId(), Function.identity()));
+		Map<Long, String> titleByQuestionId = findQuestionTitles(rooms);
 
 		return rooms.stream()
 			.filter(room -> membersByRoomId.containsKey(room.getId()))
@@ -182,7 +185,8 @@ public class ChatService {
 				room,
 				membersByRoomId.get(room.getId()),
 				unreadByRoomId.getOrDefault(room.getId(), 0L),
-				lastMessageByRoomId.get(room.getId())
+				lastMessageByRoomId.get(room.getId()),
+				titleByQuestionId.get(room.getQuestionId())
 			))
 			.sorted(roomSummaryComparator())
 			.toList();
@@ -197,7 +201,7 @@ public class ChatService {
 			.filter(member -> member.isActive() && member.getUser().getId().equals(principal.userId()))
 			.findFirst()
 			.orElseThrow(NotRoomMemberException::new);
-		return ChatRoomDetailResponse.from(room, currentMember, members);
+		return ChatRoomDetailResponse.from(room, currentMember, members, findQuestionTitle(room.getQuestionId()));
 	}
 
 	@Transactional(readOnly = true)
@@ -277,6 +281,32 @@ public class ChatService {
 			.filter(member -> member.getUser().getId().equals(user.getId()))
 			.findFirst()
 			.ifPresentOrElse(ChatMember::rejoin, () -> chatMemberRepository.save(ChatMember.join(room, user)));
+	}
+
+	private Map<Long, String> findQuestionTitles(List<ChatRoom> rooms) {
+		List<Long> questionIds = rooms.stream()
+			.map(ChatRoom::getQuestionId)
+			.filter(Objects::nonNull)
+			.distinct()
+			.toList();
+		if (questionIds.isEmpty()) {
+			return Map.of();
+		}
+		return questionRepository.findTitlesByIds(questionIds).stream()
+			.collect(Collectors.toMap(
+				QuestionTitleProjection::getQuestionId,
+				QuestionTitleProjection::getTitle
+			));
+	}
+
+	private String findQuestionTitle(Long questionId) {
+		if (questionId == null) {
+			return null;
+		}
+		return questionRepository.findTitlesByIds(List.of(questionId)).stream()
+			.findFirst()
+			.map(QuestionTitleProjection::getTitle)
+			.orElse(null);
 	}
 
 	private User findActiveUser(Long userId) {
