@@ -29,6 +29,7 @@ import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.main.admin.stats.service.AdminStatsQueryService;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
+import shinhan.fibri.ieum.main.auth.session.ValidatedAuthSession;
 import shinhan.fibri.ieum.testsupport.CanonicalPostgresDataSource;
 
 @SpringBootTest
@@ -56,7 +57,8 @@ class AdminStatsSecurityIntegrationTest {
 
 	@Test
 	void normalUserAdminStatsGetReturnsForbidden() throws Exception {
-		when(sessionTokenValidator.validate("user-token")).thenReturn(Optional.of(user()));
+		when(sessionTokenValidator.validateSession("user-token"))
+			.thenReturn(Optional.of(new ValidatedAuthSession(user(), "user-session")));
 
 		mockMvc.perform(get("/api/v1/admin/stats/users").cookie(new MockCookie("access_token", "user-token")))
 			.andExpect(status().isForbidden())

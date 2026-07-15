@@ -4,9 +4,11 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -138,13 +140,13 @@ class ProtectedEndpointSecurityTest {
 
 	@Test
 	void questionRoomEndpointReturnsJsonForbiddenWhenAuthenticatedWithoutCsrfToken() throws Exception {
-		when(sessionTokenValidator.validate("user-token"))
-			.thenReturn(Optional.of(new AuthenticatedUser(
+		when(sessionTokenValidator.validateSession("user-token"))
+			.thenReturn(Optional.of(new ValidatedAuthSession(new AuthenticatedUser(
 				42L,
 				"user@example.com",
 				UserRole.user,
 				UserStatus.active
-			)));
+			), "user-session")));
 
 		mockMvc.perform(post("/api/v1/chat/rooms/question")
 				.cookie(new MockCookie("access_token", "user-token"))
@@ -153,6 +155,28 @@ class ProtectedEndpointSecurityTest {
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.code", is("CSRF_FAILED")))
 			.andExpect(jsonPath("$.message", is("CSRF validation failed")));
+	}
+
+	@Test
+	void webPushSubscriptionPutRequiresCsrf() throws Exception {
+		stubUserSession();
+
+		mockMvc.perform(put("/api/v1/notifications/push/subscription")
+				.cookie(new MockCookie("access_token", "user-token"))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{}"))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code", is("CSRF_FAILED")));
+	}
+
+	@Test
+	void webPushSubscriptionDeleteRequiresCsrf() throws Exception {
+		stubUserSession();
+
+		mockMvc.perform(delete("/api/v1/notifications/push/subscription")
+				.cookie(new MockCookie("access_token", "user-token")))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code", is("CSRF_FAILED")));
 	}
 
 	@Test
@@ -165,13 +189,13 @@ class ProtectedEndpointSecurityTest {
 
 	@Test
 	void adminEndpointReturnsJsonForbiddenForUserRole() throws Exception {
-		when(sessionTokenValidator.validate("user-token"))
-			.thenReturn(Optional.of(new AuthenticatedUser(
+		when(sessionTokenValidator.validateSession("user-token"))
+			.thenReturn(Optional.of(new ValidatedAuthSession(new AuthenticatedUser(
 				42L,
 				"user@example.com",
 				UserRole.user,
 				UserStatus.active
-			)));
+			), "user-session")));
 
 		mockMvc.perform(get("/api/v1/admin/ping")
 				.cookie(new MockCookie("access_token", "user-token")))
@@ -182,13 +206,13 @@ class ProtectedEndpointSecurityTest {
 
 	@Test
 	void adminEndpointAllowsAdminRole() throws Exception {
-		when(sessionTokenValidator.validate("admin-token"))
-			.thenReturn(Optional.of(new AuthenticatedUser(
+		when(sessionTokenValidator.validateSession("admin-token"))
+			.thenReturn(Optional.of(new ValidatedAuthSession(new AuthenticatedUser(
 				1L,
 				"admin@example.com",
 				UserRole.admin,
 				UserStatus.active
-			)));
+			), "admin-session")));
 
 		mockMvc.perform(get("/api/v1/admin/ping")
 				.cookie(new MockCookie("access_token", "admin-token")))
@@ -207,13 +231,13 @@ class ProtectedEndpointSecurityTest {
 
 	@Test
 	void adminLoginEndpointDoesNotExist() throws Exception {
-		when(sessionTokenValidator.validate("admin-token"))
-			.thenReturn(Optional.of(new AuthenticatedUser(
+		when(sessionTokenValidator.validateSession("admin-token"))
+			.thenReturn(Optional.of(new ValidatedAuthSession(new AuthenticatedUser(
 				1L,
 				"admin@example.com",
 				UserRole.admin,
 				UserStatus.active
-			)));
+			), "admin-session")));
 
 		mockMvc.perform(post("/api/v1/admin/login")
 				.cookie(new MockCookie("access_token", "admin-token"))
@@ -222,6 +246,16 @@ class ProtectedEndpointSecurityTest {
 				.contentType("application/json")
 				.content("{}"))
 			.andExpect(status().isNotFound());
+	}
+
+	private void stubUserSession() {
+		when(sessionTokenValidator.validateSession("user-token"))
+			.thenReturn(Optional.of(new ValidatedAuthSession(new AuthenticatedUser(
+				42L,
+				"user@example.com",
+				UserRole.user,
+				UserStatus.active
+			), "user-session")));
 	}
 
 	@RestController

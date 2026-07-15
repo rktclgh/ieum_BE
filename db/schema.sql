@@ -1039,6 +1039,22 @@ CREATE UNIQUE INDEX uidx_notifications_user_event_key
     ON notifications(user_id, event_key)
     WHERE event_key IS NOT NULL;
 
+CREATE TABLE web_push_subscriptions (
+    subscription_id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    session_id VARCHAR(64) NOT NULL,
+    endpoint TEXT NOT NULL,
+    endpoint_hash CHAR(64) NOT NULL UNIQUE,
+    p256dh VARCHAR(512) NOT NULL,
+    auth_secret VARCHAR(256) NOT NULL,
+    binding_version BIGINT NOT NULL DEFAULT 1 CHECK (binding_version > 0),
+    expires_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_web_push_subscriptions_user ON web_push_subscriptions(user_id);
+CREATE UNIQUE INDEX uidx_web_push_subscriptions_session ON web_push_subscriptions(session_id);
+
 CREATE TABLE login_logs (
     log_id BIGSERIAL PRIMARY KEY,
     user_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
@@ -1116,6 +1132,8 @@ CREATE TRIGGER trg_ai_report_policy_rules_updated BEFORE UPDATE ON ai_report_pol
 CREATE TRIGGER trg_ai_report_policy_rules_notify
     AFTER INSERT OR UPDATE OR DELETE ON ai_report_policy_rules
     FOR EACH STATEMENT EXECUTE FUNCTION notify_ai_report_policy_rules_changed();
+CREATE TRIGGER trg_web_push_subscriptions_updated BEFORE UPDATE ON web_push_subscriptions
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE TRIGGER trg_meetings_updated  BEFORE UPDATE ON meetings      FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE TRIGGER trg_meeting_schedules_updated BEFORE UPDATE ON meeting_schedules FOR EACH ROW EXECUTE FUNCTION set_updated_at();          -- [신규 v9]
 CREATE TRIGGER trg_meeting_recurrence_rules_updated BEFORE UPDATE ON meeting_recurrence_rules FOR EACH ROW EXECUTE FUNCTION set_updated_at(); -- [신규 v9]

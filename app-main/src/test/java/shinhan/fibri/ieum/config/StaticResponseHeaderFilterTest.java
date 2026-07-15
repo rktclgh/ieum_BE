@@ -59,6 +59,34 @@ class StaticResponseHeaderFilterTest {
 	}
 
 	@Test
+	void addsNoCacheToRootServiceWorkerScript() throws Exception {
+		MockHttpServletRequest request = new MockHttpServletRequest("GET", "/sw.js");
+		MockHttpServletResponse response = new MockHttpServletResponse();
+
+		filter.doFilter(request, response, (servletRequest, servletResponse) -> {
+			HttpServletResponse httpResponse = (HttpServletResponse) servletResponse;
+			httpResponse.setContentType("text/javascript");
+		});
+
+		assertThat(response.getHeader(HttpHeaders.CACHE_CONTROL)).isEqualTo("no-cache");
+		assertThat(response.getHeader("Service-Worker-Allowed")).isNull();
+	}
+
+	@Test
+	void leavesNonRootJavaScriptCacheHeadersUntouched() throws Exception {
+		MockHttpServletRequest request = new MockHttpServletRequest("GET", "/assets/sw.js");
+		MockHttpServletResponse response = new MockHttpServletResponse();
+
+		filter.doFilter(request, response, (servletRequest, servletResponse) -> {
+			HttpServletResponse httpResponse = (HttpServletResponse) servletResponse;
+			httpResponse.setContentType("text/javascript");
+		});
+
+		assertThat(response.getHeader(HttpHeaders.CACHE_CONTROL)).isNull();
+		assertThat(response.getHeader("Service-Worker-Allowed")).isNull();
+	}
+
+	@Test
 	void addsLongImmutableCacheToNextStaticAsset() throws Exception {
 		MockHttpServletRequest request = new MockHttpServletRequest(
 			"GET",

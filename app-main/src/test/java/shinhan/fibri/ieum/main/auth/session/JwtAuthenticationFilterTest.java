@@ -37,7 +37,8 @@ class JwtAuthenticationFilterTest {
 			UserRole.user,
 			UserStatus.active
 		);
-		when(validator.validate("access-token")).thenReturn(Optional.of(principal));
+		when(validator.validateSession("access-token"))
+			.thenReturn(Optional.of(new ValidatedAuthSession(principal, "session-42")));
 		MockHttpServletRequest request = new MockHttpServletRequest();
 		request.setCookies(new MockCookie("access_token", "access-token"));
 		MockHttpServletResponse response = new MockHttpServletResponse();
@@ -47,6 +48,25 @@ class JwtAuthenticationFilterTest {
 
 		assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
 		assertThat(SecurityContextHolder.getContext().getAuthentication().getPrincipal()).isEqualTo(principal);
+		assertThat(SecurityContextHolder.getContext().getAuthentication().getDetails())
+			.isEqualTo(new AuthenticatedSessionDetails("session-42"));
+		verify(chain).doFilter(request, response);
+	}
+
+	@Test
+	void doFilterLeavesNoAuthenticationDetailsWhenSessionIsInvalid() throws Exception {
+		SessionTokenValidator validator = mock(SessionTokenValidator.class);
+		JwtAuthenticationFilter filter = new JwtAuthenticationFilter(validator);
+		when(validator.validateSession("invalid-token")).thenReturn(Optional.empty());
+		MockHttpServletRequest request = new MockHttpServletRequest();
+		request.setCookies(new MockCookie("access_token", "invalid-token"));
+		MockHttpServletResponse response = new MockHttpServletResponse();
+		FilterChain chain = mock(FilterChain.class);
+
+		filter.doFilter(request, response, chain);
+
+		assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+		verify(validator).validateSession("invalid-token");
 		verify(chain).doFilter(request, response);
 	}
 
@@ -61,7 +81,7 @@ class JwtAuthenticationFilterTest {
 		filter.doFilter(request, response, chain);
 
 		assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
-		verify(validator, never()).validate("access-token");
+		verify(validator, never()).validateSession("access-token");
 		verify(chain).doFilter(request, response);
 	}
 
@@ -79,7 +99,7 @@ class JwtAuthenticationFilterTest {
 
 		filter.doFilter(request, response, chain);
 
-		verify(validator, never()).validate("access-token");
+		verify(validator, never()).validateSession("access-token");
 		verify(chain).doFilter(request, response);
 	}
 
@@ -99,7 +119,7 @@ class JwtAuthenticationFilterTest {
 
 		filter.doFilter(request, response, chain);
 
-		verify(validator, never()).validate("access-token");
+		verify(validator, never()).validateSession("access-token");
 		verify(chain).doFilter(request, response);
 	}
 
@@ -115,7 +135,7 @@ class JwtAuthenticationFilterTest {
 
 		filter.doFilter(request, response, chain);
 
-		verify(validator, never()).validate("access-token");
+		verify(validator, never()).validateSession("access-token");
 		verify(chain).doFilter(request, response);
 	}
 
@@ -131,7 +151,7 @@ class JwtAuthenticationFilterTest {
 
 		filter.doFilter(request, response, chain);
 
-		verify(validator, never()).validate("access-token");
+		verify(validator, never()).validateSession("access-token");
 		verify(chain).doFilter(request, response);
 	}
 
@@ -146,7 +166,7 @@ class JwtAuthenticationFilterTest {
 
 		filter.doFilter(request, response, chain);
 
-		verify(validator).validate("access-token");
+		verify(validator).validateSession("access-token");
 		verify(chain).doFilter(request, response);
 	}
 
@@ -170,7 +190,7 @@ class JwtAuthenticationFilterTest {
 
 		filter.doFilter(request, response, chain);
 
-		verify(validator).validate("access-token");
+		verify(validator).validateSession("access-token");
 		verify(chain).doFilter(request, response);
 	}
 
@@ -186,7 +206,7 @@ class JwtAuthenticationFilterTest {
 
 		filter.doFilter(request, response, chain);
 
-		verify(validator).validate("access-token");
+		verify(validator).validateSession("access-token");
 		verify(chain).doFilter(request, response);
 	}
 }

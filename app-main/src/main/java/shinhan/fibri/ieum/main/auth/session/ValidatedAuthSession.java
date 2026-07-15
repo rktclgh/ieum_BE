@@ -6,4 +6,9 @@ public record ValidatedAuthSession(
 	AuthenticatedUser principal,
 	String sessionId
 ) {
+
+	@Override
+	public String toString() {
+		return "ValidatedAuthSession[principal=%s, sessionId=<redacted>]".formatted(principal);
+	}
 }

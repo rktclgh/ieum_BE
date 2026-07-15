@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.main.admin.user.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -20,12 +21,18 @@ import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
+import shinhan.fibri.ieum.main.notification.push.WebPushSubscriptionCleanup;
 
 class AdminUserRoleServiceTest {
 
 	private final UserRepository userRepository = mock(UserRepository.class);
 	private final RedisAuthSessionStore sessionStore = mock(RedisAuthSessionStore.class);
-	private final AdminUserRoleService service = new AdminUserRoleService(userRepository, sessionStore);
+	private final WebPushSubscriptionCleanup webPushSubscriptionCleanup = mock(WebPushSubscriptionCleanup.class);
+	private final AdminUserRoleService service = new AdminUserRoleService(
+		userRepository,
+		sessionStore,
+		webPushSubscriptionCleanup
+	);
 
 	@AfterEach
 	void clearSynchronization() {
@@ -44,12 +51,14 @@ class AdminUserRoleServiceTest {
 
 		assertThat(target.getRole()).isEqualTo(UserRole.user);
 		verify(sessionStore, never()).revokeAllSessionsOfUser(10L);
+		verify(webPushSubscriptionCleanup, never()).deleteForUser(10L);
 
 		for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
 			synchronization.afterCommit();
 		}
 
 		verify(sessionStore).revokeAllSessionsOfUser(10L);
+		verify(webPushSubscriptionCleanup).deleteForUser(10L);
 	}
 
 	@Test
@@ -62,12 +71,14 @@ class AdminUserRoleServiceTest {
 
 		assertThat(target.getRole()).isEqualTo(UserRole.admin);
 		verify(sessionStore, never()).revokeAllSessionsOfUser(10L);
+		verify(webPushSubscriptionCleanup, never()).deleteForUser(10L);
 
 		for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
 			synchronization.afterCommit();
 		}
 
 		verify(sessionStore).revokeAllSessionsOfUser(10L);
+		verify(webPushSubscriptionCleanup).deleteForUser(10L);
 	}
 
 	@Test
@@ -79,6 +90,34 @@ class AdminUserRoleServiceTest {
 
 		assertThat(target.getRole()).isEqualTo(UserRole.user);
 		verify(sessionStore, never()).revokeAllSessionsOfUser(10L);
+		verify(webPushSubscriptionCleanup, never()).deleteForUser(10L);
+	}
+
+	@Test
+	void roleChangeRunsPushCleanupWhenSessionRevocationFails() {
+		User target = user(UserRole.user);
+		when(userRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(target));
+		doThrow(new IllegalStateException("redis unavailable"))
+			.when(sessionStore).revokeAllSessionsOfUser(10L);
+
+		service.changeRole(adminPrincipal(), 10L, UserRole.admin);
+
+		verify(sessionStore).revokeAllSessionsOfUser(10L);
+		verify(webPushSubscriptionCleanup).deleteForUser(10L);
+	}
+
+	@Test
+	void roleChangeDoesNotRunInvalidationActionsWhenTransactionRollsBack() {
+		TransactionSynchronizationManager.initSynchronization();
+		User target = user(UserRole.user);
+		when(userRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(target));
+
+		service.changeRole(adminPrincipal(), 10L, UserRole.admin);
+		TransactionSynchronizationManager.getSynchronizations()
+			.forEach(synchronization -> synchronization.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK));
+
+		verify(sessionStore, never()).revokeAllSessionsOfUser(10L);
+		verify(webPushSubscriptionCleanup, never()).deleteForUser(10L);
 	}
 
 	private static AuthenticatedUser adminPrincipal() {

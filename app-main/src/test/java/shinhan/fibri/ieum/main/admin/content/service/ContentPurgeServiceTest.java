@@ -36,7 +36,7 @@ class ContentPurgeServiceTest {
 
 		service.purgeExpiredQuestionContent();
 
-		verify(repository).purgeChunk(OffsetDateTime.now(CLOCK).minusDays(90), 500);
+		verify(repository, times(2)).purgeChunk(OffsetDateTime.now(CLOCK).minusDays(90), 500);
 		verify(fileStorage).delete("final/42/question/file/original.jpg");
 		verify(fileStorage).delete("final/42/question/file/display.webp");
 		verify(fileStorage).delete("final/42/question/file/thumb.webp");

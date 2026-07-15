@@ -120,6 +120,11 @@ public class StaticResponseHeaderFilter extends OncePerRequestFilter {
 				return;
 			}
 
+			if ("/sw.js".equals(requestPath)) {
+				super.setHeader(HttpHeaders.CACHE_CONTROL, NO_CACHE);
+				return;
+			}
+
 			if (!isCacheableStatus()) {
 				super.setHeader(HttpHeaders.CACHE_CONTROL, NO_CACHE);
 				return;

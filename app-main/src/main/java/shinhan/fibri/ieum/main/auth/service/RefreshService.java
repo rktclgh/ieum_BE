@@ -13,6 +13,7 @@ import shinhan.fibri.ieum.main.auth.session.AuthSession;
 import shinhan.fibri.ieum.main.auth.session.OpaqueTokenGenerator;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
 import shinhan.fibri.ieum.main.auth.session.Sha256TokenHasher;
+import shinhan.fibri.ieum.main.notification.push.WebPushSubscriptionCleanup;
 import shinhan.fibri.ieum.main.notification.sse.SseConnectionRegistry;
 
 @Service
@@ -25,6 +26,7 @@ public class RefreshService {
 	private final Sha256TokenHasher tokenHasher;
 	private final OpaqueTokenGenerator tokenGenerator;
 	private final AccessTokenIssuer accessTokenIssuer;
+	private final WebPushSubscriptionCleanup webPushSubscriptionCleanup;
 	private final SseConnectionRegistry sseConnectionRegistry;
 
 	public RefreshResult refresh(String refreshToken) {
@@ -36,8 +38,21 @@ public class RefreshService {
 		}
 		if (refreshTokenHash.equals(session.prevRefreshTokenHash())) {
 			log.warn("Refresh token reuse detected — revoking all sessions: userId={}", session.userId());
-			sessionStore.revokeAllSessionsOfUser(session.userId());
-			sseConnectionRegistry.closeUser(session.userId());
+			runReuseInvalidation(
+				"redis",
+				session.userId(),
+				() -> sessionStore.revokeAllSessionsOfUser(session.userId())
+			);
+			runReuseInvalidation(
+				"push",
+				session.userId(),
+				() -> webPushSubscriptionCleanup.deleteForUser(session.userId())
+			);
+			runReuseInvalidation(
+				"sse",
+				session.userId(),
+				() -> sseConnectionRegistry.closeUser(session.userId())
+			);
 			throw new RefreshTokenReusedException();
 		}
 		if (!refreshTokenHash.equals(session.refreshTokenHash())) {
@@ -49,7 +64,7 @@ public class RefreshService {
 		String newRefreshTokenHash = tokenHasher.hash(newRefreshToken);
 		String accessToken = accessTokenIssuer.issue(session.userId(), session.sessionId(), session.email(), session.role());
 		sessionStore.rotateRefreshToken(session, newRefreshTokenHash);
-		log.info("Token refreshed: userId={} sessionId={}", session.userId(), session.sessionId());
+		log.info("Token refreshed: userId={}", session.userId());
 
 		return new RefreshResult(
 			new RefreshResponse(session.userId(), session.role()),
@@ -57,5 +72,19 @@ public class RefreshService {
 			newRefreshToken,
 			csrfToken
 		);
+	}
+
+	private void runReuseInvalidation(String action, Long userId, Runnable operation) {
+		try {
+			operation.run();
+		}
+		catch (RuntimeException exception) {
+			log.warn(
+				"Refresh reuse invalidation failed: action={} userId={} failureClass={}",
+				action,
+				userId,
+				exception.getClass().getSimpleName()
+			);
+		}
 	}
 }

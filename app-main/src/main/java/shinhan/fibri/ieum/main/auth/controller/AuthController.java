@@ -1,14 +1,17 @@
 package shinhan.fibri.ieum.main.auth.controller;
 
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.main.auth.dto.CheckEmailDuplicateRequest;
 import shinhan.fibri.ieum.main.auth.dto.CheckNicknameDuplicateRequest;
 import shinhan.fibri.ieum.main.auth.dto.DuplicateCheckResponse;
@@ -36,7 +39,7 @@ import shinhan.fibri.ieum.main.auth.service.SocialAuthResult;
 import shinhan.fibri.ieum.main.auth.service.SocialAuthService;
 import shinhan.fibri.ieum.main.auth.service.SocialSignupResult;
 import shinhan.fibri.ieum.main.auth.session.AuthCookieWriter;
-import jakarta.servlet.http.HttpServletResponse;
+import shinhan.fibri.ieum.main.auth.session.AuthenticatedSessionDetails;
 
 @RestController
 @RequestMapping("/api/v1/auth")
@@ -152,12 +155,21 @@ public class AuthController {
 	@PostMapping("/logout")
 	public ResponseEntity<Void> logout(
 		@CookieValue(value = "refresh_token", required = false) String refreshToken,
+		Authentication authentication,
 		HttpServletResponse response
 	) {
-		if (refreshToken != null) {
-			logoutService.logout(refreshToken);
-		}
+		logoutService.logout(refreshToken, authenticatedSessionId(authentication));
 		authCookieWriter.writeExpiredAuthCookies(response);
 		return ResponseEntity.noContent().build();
+	}
+
+	private String authenticatedSessionId(Authentication authentication) {
+		if (authentication == null
+				|| !authentication.isAuthenticated()
+				|| !(authentication.getPrincipal() instanceof AuthenticatedUser)
+				|| !(authentication.getDetails() instanceof AuthenticatedSessionDetails details)) {
+			return null;
+		}
+		return details.sessionId();
 	}
 }
