@@ -236,10 +236,7 @@ public class ChatService {
 		if (!meetingRepository.existsByIdAndHostIdAndDeletedAtIsNull(room.getMeetingId(), principal.userId())) {
 			throw new NotHostException();
 		}
-		List<Long> activeUserIds = chatMemberRepository.findByRoom_Id(roomId).stream()
-			.filter(ChatMember::isActive)
-			.map(member -> member.getUser().getId())
-			.toList();
+		List<Long> activeUserIds = chatMemberRepository.findActiveUserIdsByRoomId(roomId);
 		chatRoomRepository.delete(room);
 		chatRoomListChangeEmitter.remove(roomId, activeUserIds);
 	}

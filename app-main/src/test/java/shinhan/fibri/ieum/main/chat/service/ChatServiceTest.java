@@ -595,13 +595,14 @@ class ChatServiceTest {
 		leftMember.leave(OffsetDateTime.parse("2026-07-08T09:00:00+09:00"));
 		when(chatRoomRepository.findById(100L)).thenReturn(Optional.of(room));
 		when(chatMemberRepository.existsByRoom_IdAndUser_IdAndLeftAtIsNull(100L, 42L)).thenReturn(true);
-		when(chatMemberRepository.findByRoom_Id(100L)).thenReturn(List.of(hostMember, member, leftMember));
+		when(chatMemberRepository.findActiveUserIdsByRoomId(100L)).thenReturn(List.of(42L, 77L));
 		when(meetingRepository.existsByIdAndHostIdAndDeletedAtIsNull(7L, 42L)).thenReturn(true);
 
 		service.disbandRoom(principal(42L), 100L);
 
 		verify(chatRoomRepository).delete(room);
 		verify(chatMemberRepository, never()).findActiveByRoomIdAndUserId(100L, 42L);
+		verify(chatMemberRepository, never()).findByRoom_Id(100L);
 		verify(chatRoomListChangeEmitter).remove(100L, List.of(42L, 77L));
 	}
 
