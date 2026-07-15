@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.main.admin.inquiry.repository;
 
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.Query;
@@ -11,6 +12,15 @@ import shinhan.fibri.ieum.main.inquiry.domain.Inquiry;
 import shinhan.fibri.ieum.main.inquiry.domain.InquiryStatus;
 
 public interface AdminInquiryQueryRepository extends Repository<Inquiry, Long> {
+
+	@Query("""
+		select new shinhan.fibri.ieum.main.admin.inquiry.dto.AdminInquiryItem(
+			i.id, i.userId, u.email, i.title, i.content, i.status,
+			i.answer, i.answeredBy, i.answeredAt, i.createdAt)
+		from Inquiry i left join User u on u.id = i.userId
+		where i.id = :inquiryId
+		""")
+	Optional<AdminInquiryItem> findAdminItemById(@Param("inquiryId") Long inquiryId);
 
 	default List<AdminInquiryItem> findAdminItems(InquiryStatus status, Long cursorId, int limit) {
 		Pageable pageable = PageRequest.of(0, limit);

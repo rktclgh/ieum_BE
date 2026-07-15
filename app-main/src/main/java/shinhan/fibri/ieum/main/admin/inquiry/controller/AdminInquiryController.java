@@ -40,6 +40,11 @@ public class AdminInquiryController {
 		return ResponseEntity.ok(queryService.list(request));
 	}
 
+	@GetMapping("/{inquiryId}")
+	public ResponseEntity<AdminInquiryItem> get(@PathVariable Long inquiryId) {
+		return ResponseEntity.ok(queryService.get(inquiryId));
+	}
+
 	@PostMapping("/{inquiryId}/answer")
 	public ResponseEntity<Void> answer(
 		@AuthenticationPrincipal AuthenticatedUser principal,
@@ -47,6 +52,6 @@ public class AdminInquiryController {
 		@Valid @RequestBody AnswerInquiryRequest request
 	) {
 		answerService.answer(principal, inquiryId, request);
-		return ResponseEntity.ok().build();
+		return ResponseEntity.noContent().build();
 	}
 }

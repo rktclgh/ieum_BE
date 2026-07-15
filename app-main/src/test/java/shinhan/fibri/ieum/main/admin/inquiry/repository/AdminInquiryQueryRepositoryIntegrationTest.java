@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -118,6 +119,36 @@ class AdminInquiryQueryRepositoryIntegrationTest {
 			.orElseThrow();
 		assertThat(orphan.userId()).isEqualTo(404L);
 		assertThat(orphan.userEmail()).isNull();
+	}
+
+	@Test
+	void findAdminItemByIdReturnsCanonicalProjection() {
+		assertThat(repository.findAdminItemById(91L))
+			.isPresent()
+			.get()
+			.satisfies(item -> {
+				assertThat(item.inquiryId()).isEqualTo(91L);
+				assertThat(item.userId()).isEqualTo(43L);
+				assertThat(item.userEmail()).isEqualTo("answered@example.com");
+				assertThat(item.status()).isEqualTo(InquiryStatus.answered);
+				assertThat(item.answer()).isEqualTo("답변");
+				assertThat(item.answeredBy()).isEqualTo(99L);
+				assertThat(item.answeredAt()).isEqualTo(OffsetDateTime.parse("2026-07-13T12:00:00+09:00"));
+			});
+	}
+
+	@Test
+	void findAdminItemByIdKeepsOrphanInquiryAndReturnsEmptyForMissingId() {
+		insertInquiry(92L, 404L, "pending", null, null, null, "2026-07-13T12:00:00+09:00");
+
+		assertThat(repository.findAdminItemById(92L))
+			.isPresent()
+			.get()
+			.satisfies(item -> {
+				assertThat(item.userId()).isEqualTo(404L);
+				assertThat(item.userEmail()).isNull();
+			});
+		assertThat(repository.findAdminItemById(404L)).isEqualTo(Optional.empty());
 	}
 
 	private void createSchema() {

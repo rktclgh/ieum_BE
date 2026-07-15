@@ -82,6 +82,28 @@ class AdminInquiryControllerTest {
 	}
 
 	@Test
+	void getsCanonicalAdminInquiryById() throws Exception {
+		when(queryService.get(90L)).thenReturn(item());
+
+		mockMvc.perform(get("/api/v1/admin/inquiries/90").with(admin()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.inquiryId", is(90)))
+			.andExpect(jsonPath("$.userEmail", is("user@example.com")))
+			.andExpect(jsonPath("$.status", is("pending")));
+
+		verify(queryService).get(90L);
+	}
+
+	@Test
+	void missingCanonicalInquiryMapsToNotFound() throws Exception {
+		when(queryService.get(404L)).thenThrow(new InquiryNotFoundException());
+
+		mockMvc.perform(get("/api/v1/admin/inquiries/404").with(admin()))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code", is("INQUIRY_NOT_FOUND")));
+	}
+
+	@Test
 	void rejectsInquiryListSizeGreaterThanFifty() throws Exception {
 		mockMvc.perform(get("/api/v1/admin/inquiries")
 				.with(admin())
@@ -106,14 +128,14 @@ class AdminInquiryControllerTest {
 	}
 
 	@Test
-	void answersInquiryAndReturnsEmptyOk() throws Exception {
+	void answersInquiryAndReturnsNoContent() throws Exception {
 		mockMvc.perform(post("/api/v1/admin/inquiries/90/answer")
 				.with(admin())
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{"answer":"답변 내용"}
 					"""))
-			.andExpect(status().isOk())
+			.andExpect(status().isNoContent())
 			.andExpect(content().string(""));
 
 		verify(answerService).answer(any(AuthenticatedUser.class), org.mockito.ArgumentMatchers.eq(90L), any(AnswerInquiryRequest.class));

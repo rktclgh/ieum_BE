@@ -31,6 +31,7 @@
 | `POST` | `/admin/reports/{reportId}/confirm` | `204` |
 | `POST` | `/admin/reports/{reportId}/dismiss` | `204` |
 | `GET` | `/admin/inquiries?status=&cursor=&size=` | `200 CursorPage<AdminInquiryItem>` |
+| `GET` | `/admin/inquiries/{inquiryId}` | `200 AdminInquiryItem` |
 | `POST` | `/admin/inquiries/{inquiryId}/answer` | `204` |
 
 ## 역할 변경
@@ -55,6 +56,7 @@ Content-Type: application/json
 
 - 신고 확정/기각의 반대 결정 충돌은 `409 REPORT_ALREADY_RESOLVED`다.
 - 신고가 lock 사이 변경되면 `409 REPORT_CONCURRENTLY_CHANGED`다.
+- 문의 단건 조회에서 대상이 없으면 `404 INQUIRY_NOT_FOUND`다.
 - 이미 답변된 문의는 `409 INQUIRY_ALREADY_ANSWERED`다.
 - 프론트는 mutation 결과를 로컬에서 확정하지 않고 canonical 조회를 한 번 수행한다. 네트워크 결과가 불확실해도 재조회 전까지 mutation lock을 유지한다.
 
