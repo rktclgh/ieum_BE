@@ -25,6 +25,7 @@ public class ChatMessageService {
 
 	private final ChatMemberRepository chatMemberRepository;
 	private final MessageRepository messageRepository;
+	private final OneToOneChatMemberService oneToOneChatMemberService;
 	private final RoomEventPublisher roomEventPublisher;
 	private final ChatNotificationPublisher chatNotificationPublisher;
 
@@ -33,18 +34,13 @@ public class ChatMessageService {
 		validatePayload(request);
 		ChatMember member = chatMemberRepository.findActiveByRoomIdAndUserId(roomId, principal.userId())
 			.orElseThrow(NotRoomMemberException::new);
-		restoreLeftMembersForReopenableRoom(member, principal.userId());
+		if (member.getRoom().getRoomType() != RoomType.group) {
+			member = oneToOneChatMemberService.prepareSend(roomId, principal.userId());
+		}
 		Message message = messageRepository.save(toMessage(member, request));
 		WsMessageEvent event = toEvent(message);
 		publishAfterCommit(event);
 		return ChatMessageResponse.from(message);
-	}
-
-	private void restoreLeftMembersForReopenableRoom(ChatMember senderMember, Long senderId) {
-		if (senderMember.getRoom().getRoomType() == RoomType.group) {
-			return;
-		}
-		chatMemberRepository.restoreLeftMembersByRoomIdExceptSender(senderMember.getRoom().getId(), senderId);
 	}
 
 	private void validatePayload(SendChatMessageRequest request) {

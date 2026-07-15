@@ -3,11 +3,14 @@ package shinhan.fibri.ieum.main.chat.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -23,6 +26,7 @@ import shinhan.fibri.ieum.common.chat.domain.ChatRoom;
 import shinhan.fibri.ieum.common.chat.domain.Message;
 import shinhan.fibri.ieum.common.chat.domain.RoomType;
 import shinhan.fibri.ieum.common.chat.repository.ChatMemberRepository;
+import shinhan.fibri.ieum.common.chat.repository.ChatRoomRepository;
 import shinhan.fibri.ieum.common.chat.repository.MessageRepository;
 import shinhan.fibri.ieum.main.chat.dto.SendChatMessageRequest;
 import shinhan.fibri.ieum.main.chat.exception.InvalidChatMessageException;
@@ -31,12 +35,16 @@ import shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException;
 class ChatMessageServiceTest {
 
 	private final ChatMemberRepository chatMemberRepository = org.mockito.Mockito.mock(ChatMemberRepository.class);
+	private final ChatRoomRepository chatRoomRepository = org.mockito.Mockito.mock(ChatRoomRepository.class);
 	private final MessageRepository messageRepository = org.mockito.Mockito.mock(MessageRepository.class);
+	private final OneToOneChatMemberService oneToOneChatMemberService =
+		org.mockito.Mockito.mock(OneToOneChatMemberService.class);
 	private final RoomEventPublisher roomEventPublisher = org.mockito.Mockito.mock(RoomEventPublisher.class);
 	private final ChatNotificationPublisher chatNotificationPublisher = org.mockito.Mockito.mock(ChatNotificationPublisher.class);
 	private final ChatMessageService service = new ChatMessageService(
 		chatMemberRepository,
 		messageRepository,
+		oneToOneChatMemberService,
 		roomEventPublisher,
 		chatNotificationPublisher
 	);
@@ -47,6 +55,7 @@ class ChatMessageServiceTest {
 		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
 		ChatMember member = ChatMember.join(room, me);
 		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(member));
+		when(oneToOneChatMemberService.prepareSend(100L, 42L)).thenReturn(member);
 		when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> {
 			Message message = invocation.getArgument(0);
 			setField(message, "id", 501L);
@@ -56,7 +65,9 @@ class ChatMessageServiceTest {
 		var response = service.send(principal(42L), 100L, new SendChatMessageRequest("hello", null));
 
 		assertThat(response.messageId()).isEqualTo(501L);
-		verify(chatMemberRepository).restoreLeftMembersByRoomIdExceptSender(100L, 42L);
+		var order = org.mockito.Mockito.inOrder(oneToOneChatMemberService, messageRepository);
+		order.verify(oneToOneChatMemberService).prepareSend(100L, 42L);
+		order.verify(messageRepository).save(any(Message.class));
 		ArgumentCaptor<WsMessageEvent> eventCaptor = ArgumentCaptor.forClass(WsMessageEvent.class);
 		verify(roomEventPublisher).publish(eventCaptor.capture());
 		assertThat(eventCaptor.getValue().content()).isEqualTo("hello");
@@ -64,11 +75,12 @@ class ChatMessageServiceTest {
 	}
 
 	@Test
-	void sendRestoresLeftMembersForQuestionRoom() {
+	void sendPreparesQuestionMembersBeforeSavingMessage() {
 		User me = user(42L, "me@example.com", "me");
 		ChatRoom room = room(ChatRoom.question(9L, 42L, 77L), 100L);
 		ChatMember member = ChatMember.join(room, me);
 		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(member));
+		when(oneToOneChatMemberService.prepareSend(100L, 42L)).thenReturn(member);
 		when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> {
 			Message message = invocation.getArgument(0);
 			setField(message, "id", 501L);
@@ -77,11 +89,13 @@ class ChatMessageServiceTest {
 
 		service.send(principal(42L), 100L, new SendChatMessageRequest("hello", null));
 
-		verify(chatMemberRepository).restoreLeftMembersByRoomIdExceptSender(100L, 42L);
+		var order = org.mockito.Mockito.inOrder(oneToOneChatMemberService, messageRepository);
+		order.verify(oneToOneChatMemberService).prepareSend(100L, 42L);
+		order.verify(messageRepository).save(any(Message.class));
 	}
 
 	@Test
-	void sendDoesNotRestoreLeftMembersForGroupRoom() {
+	void sendSkipsOneToOnePreparationForGroupRoom() {
 		User me = user(42L, "me@example.com", "me");
 		ChatRoom room = room(ChatRoom.group(7L), 100L);
 		ChatMember member = ChatMember.join(room, me);
@@ -94,8 +108,45 @@ class ChatMessageServiceTest {
 
 		service.send(principal(42L), 100L, new SendChatMessageRequest("hello", null));
 
-		verify(chatMemberRepository, never()).restoreLeftMembersByRoomIdExceptSender(100L, 42L);
+		verify(oneToOneChatMemberService, never()).prepareSend(anyLong(), anyLong());
 		assertThat(member.getRoom().getRoomType()).isEqualTo(RoomType.group);
+	}
+
+	@Test
+	void sendDoesNotAdvanceAnAlreadyActiveRecipientCutoff() {
+		User senderUser = user(42L, "sender@example.com", "sender");
+		User recipientUser = user(77L, "recipient@example.com", "recipient");
+		ChatRoom room = room(ChatRoom.question(9L, 42L, 77L), 100L);
+		ChatMember sender = ChatMember.join(room, senderUser);
+		ChatMember recipient = ChatMember.join(room, recipientUser);
+		recipient.leave(OffsetDateTime.parse("2026-07-08T09:00:00+09:00"));
+		recipient.reactivateAfter(63L);
+		OneToOneChatMemberService actualOneToOneService = new OneToOneChatMemberService(
+			chatRoomRepository,
+			chatMemberRepository,
+			messageRepository
+		);
+		ChatMessageService actualService = new ChatMessageService(
+			chatMemberRepository,
+			messageRepository,
+			actualOneToOneService,
+			roomEventPublisher,
+			chatNotificationPublisher
+		);
+		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(sender));
+		when(chatRoomRepository.findByIdForUpdate(100L)).thenReturn(Optional.of(room));
+		when(chatMemberRepository.findByRoomIdForUpdateOrderByUserId(100L))
+			.thenReturn(List.of(sender, recipient));
+		when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> {
+			Message message = invocation.getArgument(0);
+			setField(message, "id", 501L);
+			return message;
+		});
+
+		actualService.send(principal(42L), 100L, new SendChatMessageRequest("hello", null));
+
+		verify(messageRepository, never()).findMaxMessageIdByRoomId(anyLong());
+		assertThat(recipient.getVisibleAfterMessageId()).isEqualTo(63L);
 	}
 
 	@Test
@@ -104,6 +155,7 @@ class ChatMessageServiceTest {
 		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
 		ChatMember member = ChatMember.join(room, me);
 		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(member));
+		when(oneToOneChatMemberService.prepareSend(100L, 42L)).thenReturn(member);
 		when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> {
 			Message message = invocation.getArgument(0);
 			setField(message, "id", 501L);

@@ -14,7 +14,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -233,78 +232,62 @@ class ChatServiceTest {
 	}
 
 	@Test
-	void createDirectRoomCreatesRoomAndTwoMembersWhenFriendshipIsAccepted() {
+	void createDirectRoomDelegatesToLifecycleWhenFriendshipIsAccepted() {
 		User me = user(42L, "me@example.com", "me");
 		User friend = user(77L, "friend@example.com", "friend");
+		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(me));
 		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(friend));
 		when(friendService.areFriends(42L, 77L)).thenReturn(true);
 		when(friendService.hasBlockBetween(42L, 77L)).thenReturn(false);
-		when(chatRoomRepository.findByRoomKey("d:42:77")).thenReturn(Optional.empty());
-		when(chatRoomRepository.saveAndFlush(any(ChatRoom.class))).thenAnswer(invocation -> {
-			ChatRoom room = invocation.getArgument(0);
-			setField(room, "id", 100L);
-			return room;
-		});
+		when(chatRoomLifecycle.getOrCreateDirectRoom(42L, 77L)).thenReturn(100L);
+		when(chatRoomRepository.findById(100L)).thenReturn(Optional.of(room));
 
 		var response = service.createDirectRoom(principal(42L), 77L);
 
 		assertThat(response.roomId()).isEqualTo(100L);
 		assertThat(response.roomType()).isEqualTo(RoomType.direct);
-		ArgumentCaptor<ChatMember> memberCaptor = ArgumentCaptor.forClass(ChatMember.class);
-		verify(chatMemberRepository, org.mockito.Mockito.times(2)).save(memberCaptor.capture());
-		assertThat(memberCaptor.getAllValues())
-			.extracting(member -> member.getUser().getId())
-			.containsExactlyInAnyOrder(42L, 77L);
+		verify(chatRoomLifecycle).getOrCreateDirectRoom(42L, 77L);
+		verify(chatMemberRepository, never()).save(any(ChatMember.class));
 	}
 
 	@Test
-	void createDirectRoomRejoinsExistingRoomMembers() {
-		User me = user(42L, "me@example.com", "me");
-		User friend = user(77L, "friend@example.com", "friend");
-		ChatRoom room = ChatRoom.direct(42L, 77L);
-		setField(room, "id", 100L);
-		ChatMember meMember = ChatMember.join(room, me);
-		ChatMember friendMember = ChatMember.join(room, friend);
-		meMember.leave(OffsetDateTime.parse("2026-07-08T09:00:00+09:00"));
-		friendMember.leave(OffsetDateTime.parse("2026-07-08T09:00:00+09:00"));
-		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(me));
-		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(friend));
-		when(friendService.areFriends(42L, 77L)).thenReturn(true);
-		when(friendService.hasBlockBetween(42L, 77L)).thenReturn(false);
-		when(chatRoomRepository.findByRoomKey("d:42:77")).thenReturn(Optional.of(room));
-		when(chatMemberRepository.findByRoom_Id(100L)).thenReturn(List.of(meMember, friendMember));
-
-		var response = service.createDirectRoom(principal(42L), 77L);
-
-		assertThat(response.roomId()).isEqualTo(100L);
-		assertThat(meMember.getLeftAt()).isNull();
-		assertThat(friendMember.getLeftAt()).isNull();
-		verify(chatRoomRepository, never()).saveAndFlush(any(ChatRoom.class));
-	}
-
-	@Test
-	void createDirectRoomRetriesAndRestoresMembersWhenRoomKeyRaceOccurs() {
+	void createDirectRoomDelegatesRepeatedRequestsToLifecycle() {
 		User me = user(42L, "me@example.com", "me");
 		User friend = user(77L, "friend@example.com", "friend");
 		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
-		ChatMember meMember = ChatMember.join(room, me);
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(me));
 		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(friend));
 		when(friendService.areFriends(42L, 77L)).thenReturn(true);
 		when(friendService.hasBlockBetween(42L, 77L)).thenReturn(false);
-		when(chatRoomRepository.findByRoomKey("d:42:77"))
-			.thenReturn(Optional.empty())
-			.thenReturn(Optional.of(room));
-		when(chatRoomRepository.saveAndFlush(any(ChatRoom.class)))
-			.thenThrow(new DataIntegrityViolationException("uidx_chat_rooms_room_key"));
-		when(chatMemberRepository.findByRoom_Id(100L)).thenReturn(List.of(meMember));
+		when(chatRoomLifecycle.getOrCreateDirectRoom(42L, 77L)).thenReturn(100L);
+		when(chatRoomRepository.findById(100L)).thenReturn(Optional.of(room));
+
+		var first = service.createDirectRoom(principal(42L), 77L);
+		var second = service.createDirectRoom(principal(42L), 77L);
+
+		assertThat(first.roomId()).isEqualTo(second.roomId());
+		verify(chatRoomLifecycle, times(2)).getOrCreateDirectRoom(42L, 77L);
+	}
+
+	@Test
+	void createDirectRoomRetriesLifecycleWhenRoomKeyRaceOccurs() {
+		User me = user(42L, "me@example.com", "me");
+		User friend = user(77L, "friend@example.com", "friend");
+		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(me));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(friend));
+		when(friendService.areFriends(42L, 77L)).thenReturn(true);
+		when(friendService.hasBlockBetween(42L, 77L)).thenReturn(false);
+		when(chatRoomLifecycle.getOrCreateDirectRoom(42L, 77L))
+			.thenThrow(new DataIntegrityViolationException("uidx_chat_rooms_room_key"))
+			.thenReturn(100L);
+		when(chatRoomRepository.findById(100L)).thenReturn(Optional.of(room));
 
 		var response = service.createDirectRoom(principal(42L), 77L);
 
 		assertThat(response.roomId()).isEqualTo(100L);
-		verify(chatRoomRepository).saveAndFlush(any(ChatRoom.class));
-		verify(chatMemberRepository).save(any(ChatMember.class));
+		verify(chatRoomLifecycle, times(2)).getOrCreateDirectRoom(42L, 77L);
 	}
 
 	@Test
@@ -498,7 +481,7 @@ class ChatServiceTest {
 		User me = user(42L, "me@example.com", "me");
 		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
 		ChatMember member = ChatMember.join(room, me);
-		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(member));
+		when(chatMemberRepository.findByRoomIdAndUserIdForUpdate(100L, 42L)).thenReturn(Optional.of(member));
 
 		service.markRead(principal(42L), 100L);
 
@@ -510,7 +493,7 @@ class ChatServiceTest {
 		User me = user(42L, "me@example.com", "me");
 		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
 		ChatMember member = ChatMember.join(room, me);
-		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(member));
+		when(chatMemberRepository.findByRoomIdAndUserIdForUpdate(100L, 42L)).thenReturn(Optional.of(member));
 
 		service.setPinned(principal(42L), 100L, true);
 		assertThat(member.getPinnedAt()).isNotNull();
@@ -524,7 +507,7 @@ class ChatServiceTest {
 		User me = user(42L, "me@example.com", "me");
 		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
 		ChatMember member = ChatMember.join(room, me);
-		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(member));
+		when(chatMemberRepository.findByRoomIdAndUserIdForUpdate(100L, 42L)).thenReturn(Optional.of(member));
 
 		service.setNotifyEnabled(principal(42L), 100L, false);
 
@@ -536,11 +519,15 @@ class ChatServiceTest {
 		User me = user(42L, "me@example.com", "me");
 		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
 		ChatMember member = ChatMember.join(room, me);
-		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(member));
+		when(chatRoomRepository.findByIdForUpdate(100L)).thenReturn(Optional.of(room));
+		when(chatMemberRepository.findByRoomIdAndUserIdForUpdate(100L, 42L)).thenReturn(Optional.of(member));
 
 		service.leaveRoom(principal(42L), 100L);
 
 		assertThat(member.getLeftAt()).isNotNull();
+		var order = org.mockito.Mockito.inOrder(chatRoomRepository, chatMemberRepository);
+		order.verify(chatRoomRepository).findByIdForUpdate(100L);
+		order.verify(chatMemberRepository).findByRoomIdAndUserIdForUpdate(100L, 42L);
 	}
 
 	@Test
@@ -548,7 +535,8 @@ class ChatServiceTest {
 		User me = user(42L, "me@example.com", "me");
 		ChatRoom room = room(ChatRoom.group(7L), 100L);
 		ChatMember member = ChatMember.join(room, me);
-		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(member));
+		when(chatRoomRepository.findByIdForUpdate(100L)).thenReturn(Optional.of(room));
+		when(chatMemberRepository.findByRoomIdAndUserIdForUpdate(100L, 42L)).thenReturn(Optional.of(member));
 
 		assertThatThrownBy(() -> service.leaveRoom(principal(42L), 100L))
 			.hasMessage("Leave group chat via meeting leave API");

@@ -22,6 +22,7 @@ public class ChatRoomLifecycleService implements ChatRoomLifecycle {
 	private final UserRepository userRepository;
 	private final ChatRoomRepository chatRoomRepository;
 	private final ChatMemberRepository chatMemberRepository;
+	private final OneToOneChatMemberService oneToOneChatMemberService;
 
 	@Override
 	@Transactional
@@ -35,14 +36,35 @@ public class ChatRoomLifecycleService implements ChatRoomLifecycle {
 
 	@Override
 	@Transactional
-	public Long getOrCreateQuestionRoom(Long questionId, Long firstUserId, Long secondUserId) {
-		User firstUser = findActiveUser(firstUserId);
-		User secondUser = findActiveUser(secondUserId);
-		ChatRoom room = chatRoomRepository.findByRoomKey(ChatRoom.questionRoomKey(questionId, firstUserId, secondUserId))
-			.orElseGet(() -> chatRoomRepository.saveAndFlush(ChatRoom.question(questionId, firstUserId, secondUserId)));
-		List<ChatMember> members = chatMemberRepository.findByRoom_Id(room.getId());
-		restoreMember(room, firstUser, members);
-		restoreMember(room, secondUser, members);
+	public Long getOrCreateDirectRoom(Long requesterUserId, Long targetUserId) {
+		User requester = findActiveUser(requesterUserId);
+		User target = findActiveUser(targetUserId);
+		String roomKey = ChatRoom.directRoomKey(requesterUserId, targetUserId);
+		ChatRoom room = chatRoomRepository.findByRoomKeyForUpdate(roomKey).orElse(null);
+		if (room != null) {
+			oneToOneChatMemberService.activateRequester(room, requesterUserId);
+			return room.getId();
+		}
+
+		room = chatRoomRepository.saveAndFlush(ChatRoom.direct(requesterUserId, targetUserId));
+		oneToOneChatMemberService.addInitialMembers(room, requester, target);
+		return room.getId();
+	}
+
+	@Override
+	@Transactional
+	public Long getOrCreateQuestionRoom(Long questionId, Long requesterUserId, Long targetUserId) {
+		User requester = findActiveUser(requesterUserId);
+		User target = findActiveUser(targetUserId);
+		String roomKey = ChatRoom.questionRoomKey(questionId, requesterUserId, targetUserId);
+		ChatRoom room = chatRoomRepository.findByRoomKeyForUpdate(roomKey).orElse(null);
+		if (room != null) {
+			oneToOneChatMemberService.activateRequester(room, requesterUserId);
+			return room.getId();
+		}
+
+		room = chatRoomRepository.saveAndFlush(ChatRoom.question(questionId, requesterUserId, targetUserId));
+		oneToOneChatMemberService.addInitialMembers(room, requester, target);
 		return room.getId();
 	}
 
@@ -58,7 +80,8 @@ public class ChatRoomLifecycleService implements ChatRoomLifecycle {
 	@Override
 	@Transactional
 	public void removeMember(Long roomId, Long userId) {
-		ChatMember member = chatMemberRepository.findActiveByRoomIdAndUserId(roomId, userId)
+		ChatMember member = chatMemberRepository.findByRoomIdAndUserIdForUpdate(roomId, userId)
+			.filter(ChatMember::isActive)
 			.orElseThrow(NotRoomMemberException::new);
 		member.leave(OffsetDateTime.now());
 	}

@@ -93,9 +93,9 @@ public class ChatService {
 			throw new BlockedChatException();
 		}
 
-		ChatRoom room = chatRoomRepository.findByRoomKey(ChatRoom.directRoomKey(currentUser.getId(), friend.getId()))
-			.orElseGet(() -> insertDirectRoom(currentUser, friend));
-		restoreDirectMembers(room, currentUser, friend);
+		Long roomId = chatRoomLifecycle.getOrCreateDirectRoom(currentUser.getId(), friend.getId());
+		ChatRoom room = chatRoomRepository.findById(roomId)
+			.orElseThrow(ChatRoomNotFoundException::new);
 		return ChatRoomResponse.from(room, null);
 	}
 
@@ -219,23 +219,25 @@ public class ChatService {
 
 	@Transactional
 	public void markRead(AuthenticatedUser principal, Long roomId) {
-		findActiveMember(roomId, principal.userId()).markRead(java.time.OffsetDateTime.now());
+		findActiveMemberForUpdate(roomId, principal.userId()).markRead(java.time.OffsetDateTime.now());
 	}
 
 	@Transactional
 	public void setPinned(AuthenticatedUser principal, Long roomId, boolean pinned) {
-		findActiveMember(roomId, principal.userId()).setPinned(pinned, java.time.OffsetDateTime.now());
+		findActiveMemberForUpdate(roomId, principal.userId()).setPinned(pinned, java.time.OffsetDateTime.now());
 	}
 
 	@Transactional
 	public void setNotifyEnabled(AuthenticatedUser principal, Long roomId, boolean enabled) {
-		findActiveMember(roomId, principal.userId()).setNotifyEnabled(enabled);
+		findActiveMemberForUpdate(roomId, principal.userId()).setNotifyEnabled(enabled);
 	}
 
 	@Transactional
 	public void leaveRoom(AuthenticatedUser principal, Long roomId) {
-		ChatMember member = findActiveMember(roomId, principal.userId());
-		if (member.getRoom().getRoomType() == RoomType.group) {
+		ChatRoom room = chatRoomRepository.findByIdForUpdate(roomId)
+			.orElseThrow(ChatRoomNotFoundException::new);
+		ChatMember member = findActiveMemberForUpdate(roomId, principal.userId());
+		if (room.getRoomType() == RoomType.group) {
 			throw new GroupLeaveViaMeetingException();
 		}
 		member.leave(java.time.OffsetDateTime.now());
@@ -255,23 +257,6 @@ public class ChatService {
 			throw new NotHostException();
 		}
 		chatRoomRepository.delete(room);
-	}
-
-	private ChatRoom insertDirectRoom(User currentUser, User friend) {
-		return chatRoomRepository.saveAndFlush(ChatRoom.direct(currentUser.getId(), friend.getId()));
-	}
-
-	private void restoreDirectMembers(ChatRoom room, User currentUser, User friend) {
-		List<ChatMember> members = chatMemberRepository.findByRoom_Id(room.getId());
-		restoreMember(room, currentUser, members);
-		restoreMember(room, friend, members);
-	}
-
-	private void restoreMember(ChatRoom room, User user, List<ChatMember> members) {
-		members.stream()
-			.filter(member -> member.getUser().getId().equals(user.getId()))
-			.findFirst()
-			.ifPresentOrElse(ChatMember::rejoin, () -> chatMemberRepository.save(ChatMember.join(room, user)));
 	}
 
 	private Map<Long, String> findQuestionTitles(List<ChatRoom> rooms) {
@@ -307,6 +292,12 @@ public class ChatService {
 
 	private ChatMember findActiveMember(Long roomId, Long userId) {
 		return chatMemberRepository.findActiveByRoomIdAndUserId(roomId, userId)
+			.orElseThrow(NotRoomMemberException::new);
+	}
+
+	private ChatMember findActiveMemberForUpdate(Long roomId, Long userId) {
+		return chatMemberRepository.findByRoomIdAndUserIdForUpdate(roomId, userId)
+			.filter(ChatMember::isActive)
 			.orElseThrow(NotRoomMemberException::new);
 	}
 
