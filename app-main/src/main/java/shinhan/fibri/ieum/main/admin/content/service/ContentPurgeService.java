@@ -58,6 +58,14 @@ public class ContentPurgeService {
 			}
 			purged += result.purgedCount();
 			deleteS3Objects(result.s3Keys());
+			if (chunk == MAX_CHUNKS_PER_RUN - 1 && result.purgedCount() >= CHUNK_SIZE) {
+				log.warn(
+					"Content purge reached max chunks with a full final chunk. cutoff={}, chunkSize={}, maxChunks={}",
+					cutoff,
+					CHUNK_SIZE,
+					MAX_CHUNKS_PER_RUN
+				);
+			}
 		}
 		return purged;
 	}
