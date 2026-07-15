@@ -10,16 +10,23 @@ import shinhan.fibri.ieum.common.chat.domain.Message;
 
 public interface MessageRepository extends JpaRepository<Message, Long> {
 
+	@Query("SELECT COALESCE(MAX(message.id), 0) FROM Message message WHERE message.room.id = :roomId")
+	long findMaxMessageIdByRoomId(@Param("roomId") Long roomId);
+
 	@Query("""
 		SELECT message
 		FROM Message message
 		JOIN FETCH message.sender
+		JOIN ChatMember member ON member.room = message.room AND member.user.id = :userId
 		WHERE message.room.id = :roomId
+		  AND member.leftAt IS NULL
+		  AND message.id > member.visibleAfterMessageId
 		  AND message.deletedAt IS NULL
 		ORDER BY message.createdAt DESC, message.id DESC
 		""")
-	List<Message> findLatestMessagesByRoomId(
+	List<Message> findLatestVisibleMessages(
 		@Param("roomId") Long roomId,
+		@Param("userId") Long userId,
 		Pageable pageable
 	);
 
@@ -27,7 +34,10 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 		SELECT message
 		FROM Message message
 		JOIN FETCH message.sender
+		JOIN ChatMember member ON member.room = message.room AND member.user.id = :userId
 		WHERE message.room.id = :roomId
+		  AND member.leftAt IS NULL
+		  AND message.id > member.visibleAfterMessageId
 		  AND message.deletedAt IS NULL
 		  AND (
 			message.createdAt < :cursorCreatedAt
@@ -35,8 +45,9 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 		  )
 		ORDER BY message.createdAt DESC, message.id DESC
 		""")
-	List<Message> findMessagesBeforeCursor(
+	List<Message> findVisibleMessagesBeforeCursor(
 		@Param("roomId") Long roomId,
+		@Param("userId") Long userId,
 		@Param("cursorCreatedAt") OffsetDateTime cursorCreatedAt,
 		@Param("cursorMessageId") Long cursorMessageId,
 		Pageable pageable
@@ -47,6 +58,8 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 		FROM Message message
 		JOIN ChatMember member ON member.room = message.room AND member.user.id = :userId
 		WHERE message.room.id IN :roomIds
+		  AND member.leftAt IS NULL
+		  AND message.id > member.visibleAfterMessageId
 		  AND message.deletedAt IS NULL
 		  AND message.sender.id <> :userId
 		  AND (member.lastReadAt IS NULL OR message.createdAt > member.lastReadAt)
@@ -64,6 +77,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 		WHERE member.room.id = :roomId
 		  AND member.user.id IN :userIds
 		  AND member.leftAt IS NULL
+		  AND message.id > member.visibleAfterMessageId
 		  AND message.deletedAt IS NULL
 		  AND message.sender.id <> member.user.id
 		  AND (member.lastReadAt IS NULL OR message.createdAt > member.lastReadAt)
@@ -79,13 +93,17 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 		FROM Message message
 		JOIN FETCH message.room
 		JOIN FETCH message.sender
+		JOIN ChatMember member ON member.room = message.room AND member.user.id = :userId
 		WHERE message.room.id IN :roomIds
+		  AND member.leftAt IS NULL
+		  AND message.id > member.visibleAfterMessageId
 		  AND message.deletedAt IS NULL
 		  AND NOT EXISTS (
 			SELECT 1
 			FROM Message newer
 			WHERE newer.room = message.room
 			  AND newer.deletedAt IS NULL
+			  AND newer.id > member.visibleAfterMessageId
 			  AND (
 				newer.createdAt > message.createdAt
 				OR (newer.createdAt = message.createdAt AND newer.id > message.id)
@@ -93,7 +111,37 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 		  )
 		ORDER BY message.createdAt DESC, message.id DESC
 		""")
-	List<Message> findLastMessagesByRoomIds(@Param("roomIds") List<Long> roomIds);
+	List<Message> findLastVisibleMessagesByRoomIds(
+		@Param("userId") Long userId,
+		@Param("roomIds") List<Long> roomIds
+	);
+
+	@Query("""
+		SELECT member.user.id AS userId, message AS lastMessage
+		FROM ChatMember member
+		JOIN Message message ON message.room = member.room
+		WHERE member.room.id = :roomId
+		  AND member.user.id IN :userIds
+		  AND member.leftAt IS NULL
+		  AND message.id > member.visibleAfterMessageId
+		  AND message.deletedAt IS NULL
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM Message newer
+			WHERE newer.room = message.room
+			  AND newer.deletedAt IS NULL
+			  AND newer.id > member.visibleAfterMessageId
+			  AND (
+				newer.createdAt > message.createdAt
+				OR (newer.createdAt = message.createdAt AND newer.id > message.id)
+			  )
+		  )
+		ORDER BY member.user.id
+		""")
+	List<UserLastVisibleMessage> findLastVisibleMessagesByRoomIdAndUserIds(
+		@Param("roomId") Long roomId,
+		@Param("userIds") List<Long> userIds
+	);
 
 	@Query("""
 		SELECT message
@@ -143,5 +191,11 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 		Long getUserId();
 
 		Long getUnreadCount();
+	}
+
+	interface UserLastVisibleMessage {
+		Long getUserId();
+
+		Message getLastMessage();
 	}
 }

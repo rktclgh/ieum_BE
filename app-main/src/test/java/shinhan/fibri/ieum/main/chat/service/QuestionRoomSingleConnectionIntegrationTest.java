@@ -91,10 +91,6 @@ class QuestionRoomSingleConnectionIntegrationTest {
 		ownerId = insertUser("question-owner");
 		answererId = insertUser("question-answerer");
 		questionId = insertQuestion(ownerId);
-		jdbc.update("""
-			INSERT INTO answers (question_id, author_id, is_ai, content)
-			VALUES (?, ?, false, 'human answer')
-			""", questionId, answererId);
 	}
 
 	@Test

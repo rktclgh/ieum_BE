@@ -7,7 +7,6 @@ import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -50,7 +49,7 @@ public class ChatRoomSummaryQueryService {
 				MessageRepository.RoomUnreadCount::getRoomId,
 				MessageRepository.RoomUnreadCount::getUnreadCount
 			));
-		Map<Long, Message> lastMessageByRoomId = messageRepository.findLastMessagesByRoomIds(roomIds)
+		Map<Long, Message> lastMessageByRoomId = messageRepository.findLastVisibleMessagesByRoomIds(userId, roomIds)
 			.stream()
 			.collect(Collectors.toMap(message -> message.getRoom().getId(), Function.identity()));
 		Map<Long, String> titleByQuestionId = findQuestionTitles(rooms);
@@ -62,7 +61,7 @@ public class ChatRoomSummaryQueryService {
 				membersByRoomId.get(room.getId()),
 				unreadByRoomId.getOrDefault(room.getId(), 0L),
 				lastMessageByRoomId.get(room.getId()),
-				titleByQuestionId.get(room.getQuestionId())
+				room.getQuestionId() == null ? null : titleByQuestionId.get(room.getQuestionId())
 			))
 			.sorted(roomSummaryComparator())
 			.toList();
@@ -86,10 +85,13 @@ public class ChatRoomSummaryQueryService {
 				MessageRepository.UserUnreadCount::getUserId,
 				MessageRepository.UserUnreadCount::getUnreadCount
 			));
-		Message lastMessage = messageRepository.findLatestMessagesByRoomId(roomId, PageRequest.of(0, 1))
+		Map<Long, Message> lastMessageByUserId = messageRepository
+			.findLastVisibleMessagesByRoomIdAndUserIds(roomId, activeUserIds)
 			.stream()
-			.findFirst()
-			.orElse(null);
+			.collect(Collectors.toMap(
+				MessageRepository.UserLastVisibleMessage::getUserId,
+				MessageRepository.UserLastVisibleMessage::getLastMessage
+			));
 		String questionTitle = findQuestionTitle(members.getFirst().getRoom().getQuestionId());
 
 		return members.stream()
@@ -99,7 +101,7 @@ public class ChatRoomSummaryQueryService {
 					member.getRoom(),
 					member,
 					unreadByUserId.getOrDefault(member.getUser().getId(), 0L),
-					lastMessage,
+					lastMessageByUserId.get(member.getUser().getId()),
 					questionTitle
 				)
 			));

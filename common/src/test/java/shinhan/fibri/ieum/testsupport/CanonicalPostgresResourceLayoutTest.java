@@ -24,6 +24,7 @@ class CanonicalPostgresResourceLayoutTest {
 		assertThat(loader.getResource("canonical-db/migrations/v20_answer_report_target.sql")).isNotNull();
 		assertThat(loader.getResource("canonical-db/migrations/v21_report_target_review_followup.sql")).isNotNull();
 		assertThat(loader.getResource("canonical-db/migrations/v22_accepted_answer_eligibility_lock.sql")).isNotNull();
+		assertThat(loader.getResource("canonical-db/migrations/v25_chat_member_visibility_cutoff.sql")).isNotNull();
 		assertThat(loader.getResource("canonical-db/migrations/v20_accepted_answer_eligibility_lock.sql")).isNull();
 		assertThat(loader.getResource("canonical-db/migrations/v15_question_ai_trigger_notification.sql")).isNull();
 		assertThat(loader.getResource("canonical-db/migrations/v15_question_recommendation_embedding_model.sql")).isNull();

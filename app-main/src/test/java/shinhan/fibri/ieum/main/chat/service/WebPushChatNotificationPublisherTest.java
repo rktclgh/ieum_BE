@@ -42,7 +42,7 @@ class WebPushChatNotificationPublisherTest {
 
 	@Test
 	void dispatchesOneGenericPrivacySafeRequestToEachEligibleRecipient() throws Exception {
-		when(chatMemberRepository.findPushRecipientUserIds(100L, 42L)).thenReturn(List.of(77L, 88L));
+		when(chatMemberRepository.findPushRecipientUserIds(100L, 42L, 501L)).thenReturn(List.of(77L, 88L));
 
 		publisher.messageCreated(new ChatPushTrigger(501L, 100L, 42L));
 
@@ -74,7 +74,7 @@ class WebPushChatNotificationPublisherTest {
 
 	@Test
 	void sameRoomUsesSameTopicAndDifferentRoomUsesDifferentTopic() {
-		when(chatMemberRepository.findPushRecipientUserIds(any(Long.class), eq(42L))).thenReturn(List.of(77L));
+		when(chatMemberRepository.findPushRecipientUserIds(anyLong(), eq(42L), anyLong())).thenReturn(List.of(77L));
 
 		publisher.messageCreated(new ChatPushTrigger(501L, 100L, 42L));
 		publisher.messageCreated(new ChatPushTrigger(502L, 100L, 42L));
@@ -94,7 +94,7 @@ class WebPushChatNotificationPublisherTest {
 			mockedEncoder,
 			dispatcher
 		);
-		when(chatMemberRepository.findPushRecipientUserIds(100L, 42L)).thenReturn(List.of());
+		when(chatMemberRepository.findPushRecipientUserIds(100L, 42L, 501L)).thenReturn(List.of());
 
 		emptyPublisher.messageCreated(new ChatPushTrigger(501L, 100L, 42L));
 
@@ -104,7 +104,7 @@ class WebPushChatNotificationPublisherTest {
 
 	@Test
 	void oneRecipientFailureDoesNotBlockLaterRecipientsOrEscape() {
-		when(chatMemberRepository.findPushRecipientUserIds(100L, 42L)).thenReturn(List.of(77L, 88L));
+		when(chatMemberRepository.findPushRecipientUserIds(100L, 42L, 501L)).thenReturn(List.of(77L, 88L));
 		doThrow(new IllegalStateException("secret provider detail"))
 			.when(dispatcher).dispatch(eq(77L), any(WebPushDispatchRequest.class));
 

@@ -99,10 +99,6 @@ class QuestionRoomConcurrencyIntegrationTest {
 		ownerId = insertUser("concurrent-owner");
 		answererId = insertUser("concurrent-answerer");
 		questionId = insertQuestion(ownerId);
-		jdbc.update("""
-			INSERT INTO answers (question_id, author_id, is_ai, content)
-			VALUES (?, ?, false, 'human answer')
-			""", questionId, answererId);
 		installQuestionRoomInsertGate();
 	}
 

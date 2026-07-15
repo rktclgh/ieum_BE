@@ -44,7 +44,11 @@ public class WebPushChatNotificationPublisher implements ChatNotificationPublish
 	@Override
 	@Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = true)
 	public void messageCreated(ChatPushTrigger trigger) {
-		List<Long> recipientIds = chatMemberRepository.findPushRecipientUserIds(trigger.roomId(), trigger.senderId());
+		List<Long> recipientIds = chatMemberRepository.findPushRecipientUserIds(
+			trigger.roomId(),
+			trigger.senderId(),
+			trigger.messageId()
+		);
 		if (recipientIds.isEmpty()) {
 			return;
 		}

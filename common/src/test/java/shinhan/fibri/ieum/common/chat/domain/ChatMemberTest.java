@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.common.chat.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -43,6 +44,39 @@ class ChatMemberTest {
 
 		member.setPinned(false, now.plusMinutes(3));
 		assertThat(member.getPinnedAt()).isNull();
+	}
+
+	@Test
+	void visibilityCutoffSurvivesLeaveAndRejoin() {
+		ChatRoom room = ChatRoom.direct(1L, 2L);
+		User user = user("history-hidden@example.com", "history-hidden");
+		ChatMember member = ChatMember.join(room, user);
+		OffsetDateTime now = OffsetDateTime.parse("2026-07-08T10:00:00+09:00");
+
+		assertThat(member.getVisibleAfterMessageId()).isZero();
+		member.markRead(now.plusMinutes(1));
+		member.hideHistoryThrough(41L);
+
+		assertThat(member.isActive()).isTrue();
+		assertThat(member.getVisibleAfterMessageId()).isEqualTo(41L);
+		assertThat(member.getLastReadAt()).isNull();
+
+		member.leave(now.plusMinutes(2));
+		member.rejoin();
+		assertThat(member.getVisibleAfterMessageId()).isEqualTo(41L);
+	}
+
+	@Test
+	void hideHistoryThroughRejectsANegativeMessageId() {
+		ChatRoom room = ChatRoom.direct(1L, 2L);
+		User user = user("invalid-watermark@example.com", "invalid-watermark");
+		ChatMember member = ChatMember.join(room, user);
+
+		assertThatThrownBy(() -> member.hideHistoryThrough(-1L))
+			.isInstanceOf(IllegalArgumentException.class)
+			.hasMessage("messageId must not be negative");
+		assertThat(member.isActive()).isTrue();
+		assertThat(member.getVisibleAfterMessageId()).isZero();
 	}
 
 	private User user(String email, String nickname) {

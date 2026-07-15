@@ -786,8 +786,10 @@ CREATE TABLE chat_members (
     joined_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     left_at TIMESTAMPTZ,
     last_read_at TIMESTAMPTZ,
+    visible_after_message_id BIGINT NOT NULL DEFAULT 0,
     pinned_at TIMESTAMPTZ,
     notify_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    CONSTRAINT ck_chat_members_visible_after_message_id CHECK (visible_after_message_id >= 0),
     PRIMARY KEY (room_id, user_id)
 );
 CREATE INDEX idx_chatmembers_user ON chat_members(user_id);

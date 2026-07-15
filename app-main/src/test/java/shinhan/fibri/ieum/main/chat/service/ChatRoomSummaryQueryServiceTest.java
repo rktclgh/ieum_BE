@@ -9,7 +9,6 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
-import org.springframework.data.domain.PageRequest;
 import shinhan.fibri.ieum.common.auth.domain.GenderType;
 import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.chat.domain.ChatMember;
@@ -52,7 +51,7 @@ class ChatRoomSummaryQueryServiceTest {
 			.thenReturn(List.of(normalMember, pinnedMember));
 		when(messageRepository.countUnreadByRoomIds(42L, List.of(100L, 200L)))
 			.thenReturn(List.of(unread(100L, 3L)));
-		when(messageRepository.findLastMessagesByRoomIds(List.of(100L, 200L)))
+		when(messageRepository.findLastVisibleMessagesByRoomIds(42L, List.of(100L, 200L)))
 			.thenReturn(List.of(normalLast, pinnedLast));
 		when(questionRepository.findTitlesByIds(List.of(10L))).thenReturn(List.of(questionTitle(10L, "question")));
 
@@ -80,26 +79,48 @@ class ChatRoomSummaryQueryServiceTest {
 	}
 
 	@Test
+	void listForUserReturnsDirectRoomWhenUserHasNoQuestionRooms() {
+		User me = user(42L, "me@example.com", "me");
+		ChatRoom directRoom = room(ChatRoom.direct(42L, 77L), 100L);
+		ChatMember member = ChatMember.join(directRoom, me);
+		when(chatRoomRepository.findActiveRoomsByUserId(42L)).thenReturn(List.of(directRoom));
+		when(chatMemberRepository.findActiveByUserIdAndRoomIds(42L, List.of(100L))).thenReturn(List.of(member));
+		when(messageRepository.countUnreadByRoomIds(42L, List.of(100L))).thenReturn(List.of());
+		when(messageRepository.findLastVisibleMessagesByRoomIds(42L, List.of(100L))).thenReturn(List.of());
+
+		var response = service.listForUser(42L, null);
+
+		assertThat(response).singleElement().satisfies(summary -> {
+			assertThat(summary.questionId()).isNull();
+			assertThat(summary.questionTitle()).isNull();
+		});
+		verify(questionRepository, never()).findTitlesByIds(org.mockito.ArgumentMatchers.anyList());
+	}
+
+	@Test
 	void findActiveForRoomAndUsersBuildsOnlyRequestedActiveMemberSummaries() {
 		User me = user(42L, "me@example.com", "me");
 		User friend = user(77L, "friend@example.com", "friend");
 		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
 		ChatMember meMember = ChatMember.join(room, me);
 		ChatMember friendMember = ChatMember.join(room, friend);
-		Message last = message(501L, room, friend, "latest", "2026-07-08T11:00:00+09:00");
+		friendMember.hideHistoryThrough(501L);
+		Message meLast = message(501L, room, friend, "visible-to-me", "2026-07-08T11:00:00+09:00");
 		when(chatMemberRepository.findActiveByRoomIdAndUserIds(100L, List.of(42L, 77L, 88L)))
 			.thenReturn(List.of(meMember, friendMember));
 		when(messageRepository.countUnreadByRoomIdAndUserIds(100L, List.of(42L, 77L)))
 			.thenReturn(List.of(userUnread(42L, 1L)));
-		when(messageRepository.findLatestMessagesByRoomId(100L, PageRequest.of(0, 1))).thenReturn(List.of(last));
+		when(messageRepository.findLastVisibleMessagesByRoomIdAndUserIds(100L, List.of(42L, 77L)))
+			.thenReturn(List.of(userLastVisible(42L, meLast)));
 
 		var response = service.findActiveForRoomAndUsers(100L, List.of(42L, 77L, 88L));
 
 		assertThat(response.keySet()).containsExactlyInAnyOrder(42L, 77L);
 		assertThat(response.get(42L).unreadCount()).isEqualTo(1L);
 		assertThat(response.get(77L).unreadCount()).isZero();
-		assertThat(response.get(42L).lastMessage().content()).isEqualTo("latest");
-		verify(messageRepository, never()).findLastMessagesByRoomIds(List.of(100L));
+		assertThat(response.get(42L).lastMessage().content()).isEqualTo("visible-to-me");
+		assertThat(response.get(77L).lastMessage()).isNull();
+		verify(messageRepository).findLastVisibleMessagesByRoomIdAndUserIds(100L, List.of(42L, 77L));
 	}
 
 	private User user(Long id, String email, String nickname) {
@@ -150,6 +171,20 @@ class ChatRoomSummaryQueryServiceTest {
 			@Override
 			public Long getUnreadCount() {
 				return count;
+			}
+		};
+	}
+
+	private MessageRepository.UserLastVisibleMessage userLastVisible(Long userId, Message lastMessage) {
+		return new MessageRepository.UserLastVisibleMessage() {
+			@Override
+			public Long getUserId() {
+				return userId;
+			}
+
+			@Override
+			public Message getLastMessage() {
+				return lastMessage;
 			}
 		};
 	}

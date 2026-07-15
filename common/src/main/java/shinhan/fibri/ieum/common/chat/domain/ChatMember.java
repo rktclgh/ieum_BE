@@ -38,6 +38,9 @@ public class ChatMember {
 	@Column(name = "last_read_at")
 	private OffsetDateTime lastReadAt;
 
+	@Column(name = "visible_after_message_id", nullable = false)
+	private long visibleAfterMessageId;
+
 	@Column(name = "pinned_at")
 	private OffsetDateTime pinnedAt;
 
@@ -65,6 +68,14 @@ public class ChatMember {
 
 	public void rejoin() {
 		this.leftAt = null;
+	}
+
+	public void hideHistoryThrough(long messageId) {
+		if (messageId < 0) {
+			throw new IllegalArgumentException("messageId must not be negative");
+		}
+		visibleAfterMessageId = messageId;
+		lastReadAt = null;
 	}
 
 	public void markRead(OffsetDateTime readAt) {
@@ -109,6 +120,10 @@ public class ChatMember {
 
 	public OffsetDateTime getLastReadAt() {
 		return lastReadAt;
+	}
+
+	public long getVisibleAfterMessageId() {
+		return visibleAfterMessageId;
 	}
 
 	public OffsetDateTime getPinnedAt() {

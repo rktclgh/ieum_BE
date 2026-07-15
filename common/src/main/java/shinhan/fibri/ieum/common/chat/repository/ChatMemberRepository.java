@@ -50,11 +50,13 @@ public interface ChatMemberRepository extends JpaRepository<ChatMember, ChatMemb
 		  AND member.user.id <> :senderId
 		  AND member.leftAt IS NULL
 		  AND member.notifyEnabled = true
+		  AND :messageId > member.visibleAfterMessageId
 		ORDER BY member.user.id
 		""")
 	List<Long> findPushRecipientUserIds(
 		@Param("roomId") Long roomId,
-		@Param("senderId") Long senderId
+		@Param("senderId") Long senderId,
+		@Param("messageId") Long messageId
 	);
 
 	@Modifying
