@@ -80,7 +80,7 @@ class ChatRoomSummaryQueryServiceTest {
 		ChatMember meMember = ChatMember.join(room, me);
 		ChatMember friendMember = ChatMember.join(room, friend);
 		Message last = message(501L, room, friend, "latest", "2026-07-08T11:00:00+09:00");
-		when(chatMemberRepository.findActiveByRoomIdAndUserIds(100L, List.of(42L, 77L, 88L)))
+		when(chatMemberRepository.findActiveByRoomIdAndUserIdsForUpdate(100L, List.of(42L, 77L, 88L)))
 			.thenReturn(List.of(meMember, friendMember));
 		when(messageRepository.countUnreadByRoomIdAndUserIds(100L, List.of(42L, 77L)))
 			.thenReturn(List.of(userUnread(42L, 1L)));

@@ -9,7 +9,11 @@ import static org.mockito.Mockito.when;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentMatchers;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 import shinhan.fibri.ieum.common.chat.domain.RoomType;
 import shinhan.fibri.ieum.main.chat.dto.ChatRoomListEvent;
 import shinhan.fibri.ieum.main.chat.dto.ChatRoomSummaryResponse;
@@ -18,7 +22,18 @@ class ChatRoomListChangeListenerTest {
 
 	private final ChatRoomSummaryQueryService summaryQueryService = org.mockito.Mockito.mock(ChatRoomSummaryQueryService.class);
 	private final ChatRoomListEventPublisher publisher = org.mockito.Mockito.mock(ChatRoomListEventPublisher.class);
-	private final ChatRoomListChangeListener listener = new ChatRoomListChangeListener(summaryQueryService, publisher);
+	private final PlatformTransactionManager transactionManager = org.mockito.Mockito.mock(PlatformTransactionManager.class);
+	private final ChatRoomListChangeListener listener = new ChatRoomListChangeListener(
+		summaryQueryService,
+		publisher,
+		transactionManager
+	);
+
+	@BeforeEach
+	void setUp() {
+		when(transactionManager.getTransaction(ArgumentMatchers.any()))
+			.thenReturn(new SimpleTransactionStatus());
+	}
 
 	@Test
 	void upsertPublishesOnePersonalizedSummaryPerRequestedActiveUser() {

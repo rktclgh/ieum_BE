@@ -69,13 +69,13 @@ public class ChatRoomSummaryQueryService {
 			.toList();
 	}
 
-	@Transactional(readOnly = true, propagation = Propagation.REQUIRES_NEW)
+	@Transactional(propagation = Propagation.MANDATORY)
 	public Map<Long, ChatRoomSummaryResponse> findActiveForRoomAndUsers(Long roomId, Collection<Long> userIds) {
 		List<Long> requestedUserIds = normalizeUserIds(userIds);
 		if (requestedUserIds.isEmpty()) {
 			return Map.of();
 		}
-		List<ChatMember> members = chatMemberRepository.findActiveByRoomIdAndUserIds(roomId, requestedUserIds);
+		List<ChatMember> members = chatMemberRepository.findActiveByRoomIdAndUserIdsForUpdate(roomId, requestedUserIds);
 		if (members.isEmpty()) {
 			return Map.of();
 		}

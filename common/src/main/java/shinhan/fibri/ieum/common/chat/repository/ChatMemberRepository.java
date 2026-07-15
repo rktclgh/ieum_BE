@@ -2,7 +2,9 @@ package shinhan.fibri.ieum.common.chat.repository;
 
 import java.util.List;
 import java.util.Optional;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -79,6 +81,22 @@ public interface ChatMemberRepository extends JpaRepository<ChatMember, ChatMemb
 		  AND member.leftAt IS NULL
 		""")
 	List<ChatMember> findActiveByRoomIdAndUserIds(
+		@Param("roomId") Long roomId,
+		@Param("userIds") List<Long> userIds
+	);
+
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("""
+		SELECT member
+		FROM ChatMember member
+		JOIN FETCH member.room
+		JOIN FETCH member.user
+		WHERE member.room.id = :roomId
+		  AND member.user.id IN :userIds
+		  AND member.leftAt IS NULL
+		ORDER BY member.user.id ASC
+		""")
+	List<ChatMember> findActiveByRoomIdAndUserIdsForUpdate(
 		@Param("roomId") Long roomId,
 		@Param("userIds") List<Long> userIds
 	);

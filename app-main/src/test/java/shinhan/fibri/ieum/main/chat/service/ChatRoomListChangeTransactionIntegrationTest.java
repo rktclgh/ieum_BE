@@ -2,9 +2,15 @@ package shinhan.fibri.ieum.main.chat.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -108,6 +114,94 @@ class ChatRoomListChangeTransactionIntegrationTest {
 		assertThat(publisher.deliveries()).isEmpty();
 	}
 
+	@Test
+	void emitterRemoveInsideRolledBackRetryTransactionDoesNotPublishFirstAttempt() {
+		TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+		Long[] ids = new Long[3];
+		transaction.execute(status -> {
+			ids[0] = insertUser("rollback-remove-me");
+			ids[1] = insertUser("rollback-remove-friend");
+			ids[2] = insertDirectRoom(ids[0], ids[1]);
+			insertActiveMember(ids[2], ids[0]);
+			insertActiveMember(ids[2], ids[1]);
+			return null;
+		});
+
+		transaction.execute(status -> {
+			leaveMember(ids[2], ids[0]);
+			emitter.remove(ids[2], List.of(ids[0]));
+			status.setRollbackOnly();
+			return null;
+		});
+		assertThat(publisher.deliveries()).isEmpty();
+
+		transaction.execute(status -> {
+			leaveMember(ids[2], ids[0]);
+			emitter.remove(ids[2], List.of(ids[0]));
+			return null;
+		});
+
+		assertThat(publisher.deliveries())
+			.singleElement()
+			.satisfies(delivery -> {
+				assertThat(delivery.userId()).isEqualTo(ids[0]);
+				assertThat(delivery.event().type()).isEqualTo("remove");
+				assertThat(delivery.event().roomId()).isEqualTo(ids[2]);
+			});
+	}
+
+	@Test
+	void concurrentRemoveWaitsUntilInFlightUpsertPublishCompletesBeforePublishingRemove() throws Exception {
+		TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+		Long[] ids = new Long[3];
+		transaction.execute(status -> {
+			ids[0] = insertUser("ordered-me");
+			ids[1] = insertUser("ordered-friend");
+			ids[2] = insertDirectRoom(ids[0], ids[1]);
+			insertActiveMember(ids[2], ids[0]);
+			insertActiveMember(ids[2], ids[1]);
+			return null;
+		});
+		CountDownLatch upsertReachedPublisher = new CountDownLatch(1);
+		CountDownLatch releaseUpsertPublisher = new CountDownLatch(1);
+		CountDownLatch removePublished = new CountDownLatch(1);
+		publisher.blockNextUpsertBeforeRecording(upsertReachedPublisher, releaseUpsertPublisher);
+		publisher.countDownRemovePublish(removePublished);
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+
+		Future<?> upsert = executor.submit(() -> transaction.execute(status -> {
+			insertMessage(ids[2], ids[1], "in flight");
+			emitter.upsert(ids[2], List.of(ids[0]));
+			return null;
+		}));
+		assertThat(upsertReachedPublisher.await(5, TimeUnit.SECONDS))
+			.as("upsert summary must be read and held at the publisher boundary")
+			.isTrue();
+
+		Future<?> remove = executor.submit(() -> transaction.execute(status -> {
+			leaveMember(ids[2], ids[0]);
+			emitter.remove(ids[2], List.of(ids[0]));
+			return null;
+		}));
+
+		try {
+			assertThat(removePublished.await(500, TimeUnit.MILLISECONDS))
+				.as("remove must wait for the in-flight upsert lock instead of publishing before it")
+				.isFalse();
+		} finally {
+			releaseUpsertPublisher.countDown();
+			upsert.get(5, TimeUnit.SECONDS);
+			remove.get(5, TimeUnit.SECONDS);
+			executor.shutdownNow();
+		}
+
+		assertThat(publisher.deliveries())
+			.extracting(delivery -> delivery.event().type())
+			.containsExactly("upsert", "remove");
+		assertThat(publisher.deliveries().get(0).event().room().roomId()).isEqualTo(ids[2]);
+		assertThat(publisher.deliveries().get(1).event().roomId()).isEqualTo(ids[2]);
+	}
+
 	private Long insertUser(String nicknamePrefix) {
 		String suffix = UUID.randomUUID().toString();
 		return jdbc.sql("""
@@ -153,6 +247,18 @@ class ChatRoomListChangeTransactionIntegrationTest {
 			.update();
 	}
 
+	private void leaveMember(Long roomId, Long userId) {
+		jdbc.sql("""
+			UPDATE chat_members
+			SET left_at = now()
+			WHERE room_id = :roomId
+			  AND user_id = :userId
+			""")
+			.param("roomId", roomId)
+			.param("userId", userId)
+			.update();
+	}
+
 	@TestConfiguration
 	static class PublisherConfiguration {
 
@@ -164,11 +270,22 @@ class ChatRoomListChangeTransactionIntegrationTest {
 
 	static class RecordingChatRoomListEventPublisher implements ChatRoomListEventPublisher {
 
-		private final List<Delivery> deliveries = new ArrayList<>();
+		private final List<Delivery> deliveries = new CopyOnWriteArrayList<>();
+		private final AtomicBoolean blockNextUpsert = new AtomicBoolean();
+		private CountDownLatch upsertReachedPublisher = new CountDownLatch(0);
+		private CountDownLatch releaseUpsertPublisher = new CountDownLatch(0);
+		private CountDownLatch removePublished = new CountDownLatch(0);
 
 		@Override
 		public void publish(Long userId, ChatRoomListEvent event) {
+			if ("upsert".equals(event.type()) && blockNextUpsert.compareAndSet(true, false)) {
+				upsertReachedPublisher.countDown();
+				await(releaseUpsertPublisher);
+			}
 			deliveries.add(new Delivery(userId, event));
+			if ("remove".equals(event.type())) {
+				removePublished.countDown();
+			}
 		}
 
 		List<Delivery> deliveries() {
@@ -177,6 +294,34 @@ class ChatRoomListChangeTransactionIntegrationTest {
 
 		void clear() {
 			deliveries.clear();
+			blockNextUpsert.set(false);
+			upsertReachedPublisher = new CountDownLatch(0);
+			releaseUpsertPublisher = new CountDownLatch(0);
+			removePublished = new CountDownLatch(0);
+		}
+
+		void blockNextUpsertBeforeRecording(
+			CountDownLatch upsertReachedPublisher,
+			CountDownLatch releaseUpsertPublisher
+		) {
+			this.upsertReachedPublisher = upsertReachedPublisher;
+			this.releaseUpsertPublisher = releaseUpsertPublisher;
+			blockNextUpsert.set(true);
+		}
+
+		void countDownRemovePublish(CountDownLatch removePublished) {
+			this.removePublished = removePublished;
+		}
+
+		private void await(CountDownLatch latch) {
+			try {
+				if (!latch.await(5, TimeUnit.SECONDS)) {
+					throw new IllegalStateException("Timed out waiting for test publisher latch");
+				}
+			} catch (InterruptedException exception) {
+				Thread.currentThread().interrupt();
+				throw new IllegalStateException(exception);
+			}
 		}
 	}
 

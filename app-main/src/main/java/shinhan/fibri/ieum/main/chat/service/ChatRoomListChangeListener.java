@@ -3,8 +3,11 @@ package shinhan.fibri.ieum.main.chat.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
+import org.springframework.transaction.support.TransactionTemplate;
 import shinhan.fibri.ieum.main.chat.dto.ChatRoomListEvent;
 
 @Slf4j
@@ -14,6 +17,7 @@ public class ChatRoomListChangeListener {
 
 	private final ChatRoomSummaryQueryService summaryQueryService;
 	private final ChatRoomListEventPublisher publisher;
+	private final PlatformTransactionManager transactionManager;
 
 	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
 	public void handle(ChatRoomListChangeEvent event) {
@@ -29,13 +33,17 @@ public class ChatRoomListChangeListener {
 	}
 
 	private void publishUpsert(ChatRoomListChangeEvent event) {
-		summaryQueryService.findActiveForRoomAndUsers(event.roomId(), event.userIds())
-			.forEach((userId, summary) -> publishSafely(userId, ChatRoomListEvent.upsert(summary), event));
+		executeInNewTransaction(() ->
+			summaryQueryService.findActiveForRoomAndUsers(event.roomId(), event.userIds())
+				.forEach((userId, summary) -> publishSafely(userId, ChatRoomListEvent.upsert(summary), event))
+		);
 	}
 
 	private void publishRemove(ChatRoomListChangeEvent event) {
-		event.userIds()
-			.forEach(userId -> publishSafely(userId, ChatRoomListEvent.remove(event.roomId()), event));
+		executeInNewTransaction(() ->
+			event.userIds()
+				.forEach(userId -> publishSafely(userId, ChatRoomListEvent.remove(event.roomId()), event))
+		);
 	}
 
 	private void publishSafely(Long userId, ChatRoomListEvent roomListEvent, ChatRoomListChangeEvent sourceEvent) {
@@ -50,5 +58,11 @@ public class ChatRoomListChangeListener {
 				exception
 			);
 		}
+	}
+
+	private void executeInNewTransaction(Runnable action) {
+		TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+		transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+		transaction.executeWithoutResult(status -> action.run());
 	}
 }
