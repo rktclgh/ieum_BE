@@ -7,12 +7,15 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.main.answer.dto.CreateAnswerRequest;
 import shinhan.fibri.ieum.main.answer.dto.CreateAnswerResponse;
+import shinhan.fibri.ieum.main.answer.dto.FinalizeAcceptedAnswersRequest;
+import shinhan.fibri.ieum.main.answer.dto.FinalizeAcceptedAnswersResponse;
 import shinhan.fibri.ieum.main.answer.service.AnswerService;
 
 @RestController
@@ -32,12 +35,13 @@ public class AnswerController {
 		return ResponseEntity.status(HttpStatus.CREATED).body(response);
 	}
 
-	@PostMapping("/answers/{answerId}/accept")
-	public ResponseEntity<Void> accept(
+	@PutMapping("/questions/{questionId}/accepted-answers")
+	public ResponseEntity<FinalizeAcceptedAnswersResponse> finalizeAcceptedAnswers(
 		@AuthenticationPrincipal AuthenticatedUser principal,
-		@PathVariable Long answerId
+		@PathVariable Long questionId,
+		@Valid @RequestBody FinalizeAcceptedAnswersRequest request
 	) {
-		answerService.accept(principal, answerId);
-		return ResponseEntity.noContent().build();
+		FinalizeAcceptedAnswersResponse response = answerService.finalizeSelection(principal, questionId, request);
+		return ResponseEntity.ok(response);
 	}
 }

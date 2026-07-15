@@ -285,25 +285,69 @@ public class AdminReportRepository {
 		OffsetDateTime releasedAt
 	) {
 		String sql = """
-			UPDATE user_sanctions
-			SET released_at = :releasedAt,
-			    released_by = :releasedBy
-			WHERE report_id = :reportId
-			  AND user_id = :userId
-			  AND decision_source = 'ai_recommendation'
-			  AND released_at IS NULL
+			WITH target AS (
+			    SELECT sanction_id, starts_at, ends_at,
+			           CASE
+			               WHEN ends_at <= :releasedAt THEN INTERVAL '0'
+			               WHEN starts_at > :releasedAt THEN ends_at - starts_at
+			               ELSE ends_at - :releasedAt
+			           END AS remaining_duration
+			    FROM user_sanctions
+			    WHERE report_id = :reportId
+			      AND user_id = :userId
+			      AND decision_source = 'ai_recommendation'
+			      AND sanction_type = 'temporary'
+			      AND revoked_at IS NULL
+			    FOR UPDATE
+			),
+			dismissed AS (
+			    UPDATE user_sanctions sanction
+			    SET released_at = :releasedAt,
+			        released_by = :releasedBy,
+			        revoked_at = :releasedAt,
+			        revoked_by = :releasedBy,
+			        review_status = 'dismissed'
+			    FROM target
+			    WHERE sanction.sanction_id = target.sanction_id
+			    RETURNING target.sanction_id, target.ends_at, target.remaining_duration
+			),
+			shifted AS (
+			    UPDATE user_sanctions queued
+			    SET starts_at = queued.starts_at - dismissed.remaining_duration,
+			        ends_at = queued.ends_at - dismissed.remaining_duration
+			    FROM dismissed
+			    WHERE queued.user_id = :userId
+			      AND queued.sanction_id <> dismissed.sanction_id
+			      AND queued.sanction_type = 'temporary'
+			      AND queued.revoked_at IS NULL
+			      AND queued.review_status <> 'dismissed'
+			      AND queued.starts_at >= dismissed.ends_at
+			    RETURNING queued.sanction_id
+			)
+			SELECT COUNT(*) FROM dismissed
 			""";
 		MapSqlParameterSource params = new MapSqlParameterSource()
 			.addValue("reportId", reportId, Types.BIGINT)
 			.addValue("userId", userId, Types.BIGINT)
 			.addValue("releasedBy", releasedBy, Types.BIGINT)
 			.addValue("releasedAt", releasedAt, Types.TIMESTAMP_WITH_TIMEZONE);
-		return jdbcTemplate.update(sql, params);
+		Long dismissed = jdbcTemplate.queryForObject(sql, params, Long.class);
+		return dismissed == null ? 0 : Math.toIntExact(dismissed);
 	}
 
 	public boolean hasActiveSanctions(Long userId) {
 		Long count = jdbcTemplate.queryForObject(
-			"SELECT COUNT(*) FROM user_sanctions WHERE user_id = :userId AND released_at IS NULL",
+			"""
+				SELECT COUNT(*)
+				FROM user_sanctions
+				WHERE user_id = :userId
+				  AND revoked_at IS NULL
+				  AND review_status <> 'dismissed'
+				  AND (
+				      sanction_type = 'permanent'
+				      OR ends_at > CURRENT_TIMESTAMP
+				  )
+				""",
 			Map.of("userId", userId),
 			Long.class
 		);

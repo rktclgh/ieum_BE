@@ -14,5 +14,9 @@ public final class CanonicalPostgresDataSource {
 		registry.add("spring.datasource.password", CanonicalPostgresContainer::password);
 		registry.add("spring.datasource.driver-class-name", CanonicalPostgresContainer::driverClassName);
 		registry.add("spring.sql.init.mode", () -> "never");
+		registry.add(
+			"spring.jpa.properties.hibernate.dialect",
+			() -> "shinhan.fibri.ieum.common.config.SnakeCasePostgreSQLDialect"
+		);
 	}
 }

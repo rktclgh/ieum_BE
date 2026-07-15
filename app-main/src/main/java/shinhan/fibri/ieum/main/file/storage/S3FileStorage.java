@@ -17,6 +17,7 @@ import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 
 public class S3FileStorage implements FileStorage {
@@ -48,6 +49,22 @@ public class S3FileStorage implements FileStorage {
 			.build();
 
 		return URI.create(s3Presigner.presignPutObject(presignRequest).url().toString());
+	}
+
+	@Override
+	public URI createPresignedGetUrl(String key, Duration ttl) {
+		validateObjectKey(key);
+		validateTtl(ttl);
+		GetObjectRequest getObjectRequest = GetObjectRequest.builder()
+			.bucket(bucket)
+			.key(key)
+			.build();
+		GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()
+			.signatureDuration(ttl)
+			.getObjectRequest(getObjectRequest)
+			.build();
+
+		return URI.create(s3Presigner.presignGetObject(presignRequest).url().toString());
 	}
 
 	@Override
@@ -111,5 +128,18 @@ public class S3FileStorage implements FileStorage {
 			return new FileNotFoundException();
 		}
 		return exception;
+	}
+
+	private void validateObjectKey(String key) {
+		if (key == null || key.isBlank()) {
+			throw new IllegalArgumentException("S3 object key is required");
+		}
+	}
+
+	private void validateTtl(Duration ttl) {
+		Objects.requireNonNull(ttl, "ttl must not be null");
+		if (ttl.isZero() || ttl.isNegative()) {
+			throw new IllegalArgumentException("ttl must be positive");
+		}
 	}
 }

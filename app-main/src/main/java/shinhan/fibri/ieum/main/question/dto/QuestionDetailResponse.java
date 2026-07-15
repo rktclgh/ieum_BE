@@ -9,6 +9,7 @@ public record QuestionDetailResponse(
 	String title,
 	String content,
 	boolean isResolved,
+	boolean answerSelectionFinalized,
 	AuthorSummary author,
 	LocationSnapshot location,
 	List<String> imageUrls,

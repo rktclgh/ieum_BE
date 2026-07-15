@@ -27,6 +27,31 @@ esac
 [[ -f "$deploy_dir/compose.yml" ]] || { echo "compose.yml is missing" >&2; exit 1; }
 [[ -f "$deploy_dir/.env.runtime" ]] || { echo ".env.runtime is missing" >&2; exit 1; }
 
+datasource_url="$(sed -n 's/^SPRING_DATASOURCE_URL=//p' "$deploy_dir/.env.runtime" | tail -n 1)"
+case "$datasource_url" in
+  jdbc:postgresql://localhost:* | jdbc:postgresql://127.0.0.1:* | *YOUR_DATABASE_HOST*)
+    echo "SPRING_DATASOURCE_URL must target the production database, not localhost or a placeholder." >&2
+    exit 1
+    ;;
+  jdbc:postgresql://*) ;;
+  *)
+    echo "SPRING_DATASOURCE_URL is missing or invalid in .env.runtime." >&2
+    exit 1
+    ;;
+esac
+
+inquiry_admin_email="$(sed -n 's/^INQUIRY_ADMIN_EMAIL=//p' "$deploy_dir/.env.runtime" | tail -n 1)"
+[[ -n "$inquiry_admin_email" ]] || {
+  echo "INQUIRY_ADMIN_EMAIL is required in .env.runtime." >&2
+  exit 1
+}
+
+redis_host="$(sed -n 's/^REDIS_HOST=//p' "$deploy_dir/.env.runtime" | tail -n 1)"
+[[ "$redis_host" == "redis" ]] || {
+  echo "REDIS_HOST must be redis in .env.runtime." >&2
+  exit 1
+}
+
 if ! IFS= read -r dockerhub_token || [[ -z "$dockerhub_token" ]]; then
   echo "Docker Hub token is empty" >&2
   exit 1

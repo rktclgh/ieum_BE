@@ -102,6 +102,30 @@ class GeminiWebGroundingResponseParserTest {
 	}
 
 	@Test
+	void acceptsAbsentStartIndexAsZeroForTheFirstGroundedSegment() {
+		String answer = "서울 버스는 앞문으로 탑니다.";
+		GroundingSupport support = GroundingSupport.builder()
+			.segment(Segment.builder()
+				.endIndex(bytes(answer))
+				.text(answer)
+				.build())
+			.groundingChunkIndices(0)
+			.build();
+
+		Optional<WebGroundedAnswer> parsed = parser.parse(
+			response(answer, List.of(webChunk()), List.of(support)),
+			properties(),
+			GENERATED_AT
+		);
+
+		assertThat(parsed).isPresent();
+		assertThat(parsed.orElseThrow().citations()).singleElement().satisfies(citation -> {
+			assertThat(citation.startIndex()).isZero();
+			assertThat(citation.endIndex()).isEqualTo(answer.length());
+		});
+	}
+
+	@Test
 	void rejectsANonzeroPartIndex() {
 		String answer = "서울 버스입니다.";
 
@@ -236,13 +260,6 @@ class GeminiWebGroundingResponseParserTest {
 			response(candidate(answer, metadata(
 				List.of(webChunk()),
 				List.of(GroundingSupport.builder().build())
-			))),
-			response(candidate(answer, metadata(
-				List.of(webChunk()),
-				List.of(GroundingSupport.builder()
-					.segment(Segment.builder().endIndex(bytes(answer)).text(answer).build())
-					.groundingChunkIndices(0)
-					.build())
 			))),
 			response(candidate(answer, metadata(
 				List.of(webChunk()),

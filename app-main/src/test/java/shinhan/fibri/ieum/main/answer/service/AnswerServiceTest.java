@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -22,7 +23,6 @@ import org.mockito.InOrder;
 import org.springframework.context.ApplicationEventPublisher;
 import shinhan.fibri.ieum.common.auth.domain.GenderType;
 import shinhan.fibri.ieum.common.auth.domain.User;
-import shinhan.fibri.ieum.common.auth.domain.UserGrade;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
@@ -32,9 +32,11 @@ import shinhan.fibri.ieum.common.file.repository.FileRepository;
 import shinhan.fibri.ieum.main.answer.domain.Answer;
 import shinhan.fibri.ieum.main.answer.domain.AnswerImage;
 import shinhan.fibri.ieum.main.answer.dto.CreateAnswerRequest;
+import shinhan.fibri.ieum.main.answer.dto.FinalizeAcceptedAnswersRequest;
+import shinhan.fibri.ieum.main.answer.dto.FinalizeAcceptedAnswersResponse;
+import shinhan.fibri.ieum.main.answer.exception.AnswerSelectionFinalizedException;
 import shinhan.fibri.ieum.main.answer.exception.AnswerNotFoundException;
 import shinhan.fibri.ieum.main.answer.exception.InvalidAnswerRequestException;
-import shinhan.fibri.ieum.main.answer.exception.QuestionAlreadyResolvedException;
 import shinhan.fibri.ieum.main.answer.exception.SelfAcceptanceNotAllowedException;
 import shinhan.fibri.ieum.main.answer.event.AcceptedHumanAnswerEvent;
 import shinhan.fibri.ieum.main.answer.repository.AnswerImageRepository;
@@ -168,6 +170,28 @@ class AnswerServiceTest {
 	}
 
 	@Test
+	void createRejectsResolvedQuestionBeforeContentAndImageValidationOrSideEffects() {
+		UUID imageId = UUID.fromString("00000000-0000-0000-0000-000000000007");
+		Question question = Question.create(100L, 99L, "title", "question");
+		setId(question, 200L);
+		question.markResolved();
+		when(questionRepository.findActiveByIdForShare(200L)).thenReturn(Optional.of(question));
+
+		assertThatThrownBy(() -> service.create(
+			principal(),
+			200L,
+			new CreateAnswerRequest("   ", List.of(imageId, imageId))
+		)).isInstanceOf(AnswerSelectionFinalizedException.class);
+
+		InOrder inOrder = inOrder(questionRepository, fileRepository, answerRepository, answerImageRepository, notificationPublisher);
+		inOrder.verify(questionRepository).findActiveByIdForShare(200L);
+		verify(fileRepository, never()).findAllByFileIdInAndUploaderId(any(), any());
+		verify(answerRepository, never()).save(any());
+		verify(answerImageRepository, never()).saveAll(any());
+		verify(notificationPublisher, never()).publishDurable(any(), any(), any(), any(), any(), any());
+	}
+
+	@Test
 	void createRejectsBlankContentWithNoImages() {
 		Question question = Question.create(100L, 99L, "title", "question");
 		setId(question, 200L);
@@ -258,115 +282,287 @@ class AnswerServiceTest {
 	}
 
 	@Test
-	void acceptMarksAnswerAndQuestionThenRecordsHumanAuthorAcceptance() {
-		Answer answer = Answer.createHuman(200L, 77L, "answer");
-		setId(answer, 300L);
+	void finalizeSelectionAcceptsSeveralHumanAndAiAnswersAtomically() {
 		Question question = Question.create(100L, 42L, "title", "question");
 		setId(question, 200L);
-		User answerAuthor = user(77L);
-		for (int i = 0; i < 4; i++) {
-			answerAuthor.recordAcceptedAnswer();
-		}
-		when(answerRepository.findById(300L)).thenReturn(Optional.of(answer));
+		Answer firstHuman = humanAnswer(200L, 77L, 300L);
+		Answer ai = aiAnswer(200L, 301L);
+		Answer secondHuman = humanAnswer(200L, 88L, 302L);
+		User firstAuthor = user(77L);
+		User secondAuthor = user(88L);
 		when(questionRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(question));
-		when(userRepository.findByIdForUpdate(77L)).thenReturn(Optional.of(answerAuthor));
+		when(answerRepository.findAcceptedIdsByQuestionIdOrderByIdAsc(200L)).thenReturn(List.of());
+		when(answerRepository.findAllByQuestionIdAndIdInForUpdate(200L, List.of(300L, 301L, 302L)))
+			.thenReturn(List.of(firstHuman, ai, secondHuman));
+		when(userRepository.findByIdForUpdate(77L)).thenReturn(Optional.of(firstAuthor));
+		when(userRepository.findByIdForUpdate(88L)).thenReturn(Optional.of(secondAuthor));
 
-		service.accept(principal(), 300L);
+		FinalizeAcceptedAnswersResponse response = service.finalizeSelection(
+			principal(),
+			200L,
+			new FinalizeAcceptedAnswersRequest(List.of(302L, 300L, 301L))
+		);
 
-		assertThat(answer.isAccepted()).isTrue();
+		assertThat(response).isEqualTo(new FinalizeAcceptedAnswersResponse(200L, true, List.of(300L, 301L, 302L)));
+		assertThat(firstHuman.isAccepted()).isTrue();
+		assertThat(ai.isAccepted()).isTrue();
+		assertThat(secondHuman.isAccepted()).isTrue();
 		assertThat(question.isResolved()).isTrue();
-		assertThat(answerAuthor.getAcceptedCount()).isEqualTo(5);
-		assertThat(answerAuthor.getGrade()).isEqualTo(UserGrade.silver);
-		verify(notificationPublisher).publishDurable(
+		assertThat(firstAuthor.getAcceptedCount()).isEqualTo(1);
+		assertThat(secondAuthor.getAcceptedCount()).isEqualTo(1);
+		verify(notificationPublisher).publishDurableOnce(
 			77L,
 			NotificationType.question,
 			"답변 채택",
 			"회원님의 답변이 채택됐어요",
-			200L
+			200L,
+			false,
+			"answer-accepted:300"
+		);
+		verify(notificationPublisher).publishDurableOnce(
+			88L,
+			NotificationType.question,
+			"답변 채택",
+			"회원님의 답변이 채택됐어요",
+			200L,
+			false,
+			"answer-accepted:302"
 		);
 		verify(eventPublisher).publishEvent(new AcceptedHumanAnswerEvent(300L));
+		verify(eventPublisher).publishEvent(new AcceptedHumanAnswerEvent(302L));
+		verify(notificationPublisher, never()).publishDurableOnce(
+			any(),
+			any(),
+			any(),
+			any(),
+			any(),
+			any(),
+			org.mockito.ArgumentMatchers.eq("answer-accepted:301")
+		);
+		verify(eventPublisher, never()).publishEvent(new AcceptedHumanAnswerEvent(301L));
+		InOrder inOrder = inOrder(questionRepository, answerRepository, userRepository);
+		inOrder.verify(questionRepository).findByIdForUpdate(200L);
+		inOrder.verify(answerRepository).findAcceptedIdsByQuestionIdOrderByIdAsc(200L);
+		inOrder.verify(answerRepository).findAllByQuestionIdAndIdInForUpdate(200L, List.of(300L, 301L, 302L));
+		inOrder.verify(userRepository).findByIdForUpdate(77L);
+		inOrder.verify(userRepository).findByIdForUpdate(88L);
 	}
 
 	@Test
-	void acceptRejectsMissingAnswer() {
-		when(answerRepository.findById(999L)).thenReturn(Optional.empty());
-
-		assertThatThrownBy(() -> service.accept(principal(), 999L))
-			.isInstanceOf(AnswerNotFoundException.class);
-
-		verify(questionRepository, never()).findByIdForUpdate(any());
-	}
-
-	@Test
-	void acceptRejectsNonQuestionAuthor() {
-		Answer answer = Answer.createHuman(200L, 77L, "answer");
-		setId(answer, 300L);
-		Question question = Question.create(100L, 99L, "title", "question");
-		setId(question, 200L);
-		when(answerRepository.findById(300L)).thenReturn(Optional.of(answer));
-		when(questionRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(question));
-
-		assertThatThrownBy(() -> service.accept(principal(), 300L))
-			.isInstanceOf(QuestionForbiddenException.class);
-
-		assertThat(answer.isAccepted()).isFalse();
-		assertThat(question.isResolved()).isFalse();
-	}
-
-	@Test
-	void acceptRejectsAlreadyResolvedQuestion() {
-		Answer answer = Answer.createHuman(200L, 77L, "answer");
-		setId(answer, 300L);
+	void finalizeSelectionReturnsCanonicalResponseForSameSetRetryWithoutSideEffects() {
 		Question question = Question.create(100L, 42L, "title", "question");
 		setId(question, 200L);
 		question.markResolved();
-		when(answerRepository.findById(300L)).thenReturn(Optional.of(answer));
 		when(questionRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(question));
+		when(answerRepository.findAcceptedIdsByQuestionIdOrderByIdAsc(200L)).thenReturn(List.of(300L, 302L));
 
-		assertThatThrownBy(() -> service.accept(principal(), 300L))
-			.isInstanceOf(QuestionAlreadyResolvedException.class);
+		FinalizeAcceptedAnswersResponse response = service.finalizeSelection(
+			principal(),
+			200L,
+			new FinalizeAcceptedAnswersRequest(List.of(302L, 300L))
+		);
 
-		assertThat(answer.isAccepted()).isFalse();
+		assertThat(response).isEqualTo(new FinalizeAcceptedAnswersResponse(200L, true, List.of(300L, 302L)));
+		verify(answerRepository, never()).findAllByQuestionIdAndIdInForUpdate(any(), any());
 		verify(userRepository, never()).findByIdForUpdate(any());
+		verify(notificationPublisher, never()).publishDurableOnce(any(), any(), any(), any(), any(), any(), any());
+		verify(eventPublisher, never()).publishEvent(any());
 	}
 
 	@Test
-	void acceptRejectsAnswerWrittenByQuestionAuthor() {
-		Answer answer = Answer.createHuman(200L, 42L, "self answer");
-		setId(answer, 300L);
+	void finalizeSelectionRejectsDifferentSetAfterFinalization() {
 		Question question = Question.create(100L, 42L, "title", "question");
 		setId(question, 200L);
-		when(answerRepository.findById(300L)).thenReturn(Optional.of(answer));
+		question.markResolved();
 		when(questionRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(question));
+		when(answerRepository.findAcceptedIdsByQuestionIdOrderByIdAsc(200L)).thenReturn(List.of(300L));
 
-		assertThatThrownBy(() -> service.accept(principal(), 300L))
-			.isInstanceOf(SelfAcceptanceNotAllowedException.class);
+		assertThatThrownBy(() -> service.finalizeSelection(
+			principal(),
+			200L,
+			new FinalizeAcceptedAnswersRequest(List.of(302L))
+		)).isInstanceOf(AnswerSelectionFinalizedException.class);
+
+		verify(answerRepository, never()).findAllByQuestionIdAndIdInForUpdate(any(), any());
+		verify(userRepository, never()).findByIdForUpdate(any());
+		verify(notificationPublisher, never()).publishDurableOnce(any(), any(), any(), any(), any(), any(), any());
+		verify(eventPublisher, never()).publishEvent(any());
+	}
+
+	@Test
+	void finalizeSelectionRejectsDuplicateIds() {
+		assertThatThrownBy(() -> service.finalizeSelection(
+			principal(),
+			200L,
+			new FinalizeAcceptedAnswersRequest(List.of(300L, 300L))
+		)).isInstanceOf(InvalidAnswerRequestException.class)
+			.hasMessage("Duplicate answerIds");
+
+		verify(questionRepository, never()).findByIdForUpdate(any());
+		verify(answerRepository, never()).findAllByQuestionIdAndIdInForUpdate(any(), any());
+		verify(userRepository, never()).findByIdForUpdate(any());
+		verify(notificationPublisher, never()).publishDurableOnce(any(), any(), any(), any(), any(), any(), any());
+		verify(eventPublisher, never()).publishEvent(any());
+	}
+
+	@Test
+	void finalizeSelectionRejectsNullIdBeforeRepositoryInteractions() {
+		assertThatThrownBy(() -> service.finalizeSelection(
+			principal(),
+			200L,
+			new FinalizeAcceptedAnswersRequest(Collections.singletonList(null))
+		)).isInstanceOfSatisfying(InvalidAnswerRequestException.class, exception -> {
+			assertThat(exception.code()).isEqualTo("VALIDATION_FAILED");
+			assertThat(exception.field()).isEqualTo("answerIds");
+			assertThat(exception).hasMessage("Invalid answerIds");
+		});
+
+		verify(questionRepository, never()).findByIdForUpdate(any());
+		verify(answerRepository, never()).findAcceptedIdsByQuestionIdOrderByIdAsc(any());
+		verify(answerRepository, never()).findAllByQuestionIdAndIdInForUpdate(any(), any());
+		verify(userRepository, never()).findByIdForUpdate(any());
+		verify(notificationPublisher, never()).publishDurableOnce(any(), any(), any(), any(), any(), any(), any());
+		verify(eventPublisher, never()).publishEvent(any());
+	}
+
+	@Test
+	void finalizeSelectionRejectsZeroIdBeforeRepositoryInteractions() {
+		assertThatThrownBy(() -> service.finalizeSelection(
+			principal(),
+			200L,
+			new FinalizeAcceptedAnswersRequest(List.of(0L))
+		)).isInstanceOfSatisfying(InvalidAnswerRequestException.class, exception -> {
+			assertThat(exception.code()).isEqualTo("VALIDATION_FAILED");
+			assertThat(exception.field()).isEqualTo("answerIds");
+			assertThat(exception).hasMessage("Invalid answerIds");
+		});
+
+		verify(questionRepository, never()).findByIdForUpdate(any());
+		verify(answerRepository, never()).findAcceptedIdsByQuestionIdOrderByIdAsc(any());
+		verify(answerRepository, never()).findAllByQuestionIdAndIdInForUpdate(any(), any());
+		verify(userRepository, never()).findByIdForUpdate(any());
+		verify(notificationPublisher, never()).publishDurableOnce(any(), any(), any(), any(), any(), any(), any());
+		verify(eventPublisher, never()).publishEvent(any());
+	}
+
+	@Test
+	void finalizeSelectionRejectsNegativeIdBeforeRepositoryInteractions() {
+		assertThatThrownBy(() -> service.finalizeSelection(
+			principal(),
+			200L,
+			new FinalizeAcceptedAnswersRequest(List.of(-1L))
+		)).isInstanceOfSatisfying(InvalidAnswerRequestException.class, exception -> {
+			assertThat(exception.code()).isEqualTo("VALIDATION_FAILED");
+			assertThat(exception.field()).isEqualTo("answerIds");
+			assertThat(exception).hasMessage("Invalid answerIds");
+		});
+
+		verify(questionRepository, never()).findByIdForUpdate(any());
+		verify(answerRepository, never()).findAcceptedIdsByQuestionIdOrderByIdAsc(any());
+		verify(answerRepository, never()).findAllByQuestionIdAndIdInForUpdate(any(), any());
+		verify(userRepository, never()).findByIdForUpdate(any());
+		verify(notificationPublisher, never()).publishDurableOnce(any(), any(), any(), any(), any(), any(), any());
+		verify(eventPublisher, never()).publishEvent(any());
+	}
+
+	@Test
+	void finalizeSelectionRejectsMissingOrForeignAnswerWithoutPartialChanges() {
+		Question question = Question.create(100L, 42L, "title", "question");
+		setId(question, 200L);
+		Answer answer = humanAnswer(200L, 77L, 300L);
+		when(questionRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(question));
+		when(answerRepository.findAcceptedIdsByQuestionIdOrderByIdAsc(200L)).thenReturn(List.of());
+		when(answerRepository.findAllByQuestionIdAndIdInForUpdate(200L, List.of(300L, 999L)))
+			.thenReturn(List.of(answer));
+
+		assertThatThrownBy(() -> service.finalizeSelection(
+			principal(),
+			200L,
+			new FinalizeAcceptedAnswersRequest(List.of(999L, 300L))
+		)).isInstanceOf(AnswerNotFoundException.class);
 
 		assertThat(answer.isAccepted()).isFalse();
 		assertThat(question.isResolved()).isFalse();
 		verify(userRepository, never()).findByIdForUpdate(any());
+		verify(notificationPublisher, never()).publishDurableOnce(any(), any(), any(), any(), any(), any(), any());
+		verify(eventPublisher, never()).publishEvent(any());
 	}
 
 	@Test
-	void acceptSkipsUserGradeUpdateForAiAnswer() {
-		Answer answer = Answer.createAi(200L, "ai answer");
-		setId(answer, 300L);
+	void finalizeSelectionRejectsQuestionAuthorsHumanAnswer() {
 		Question question = Question.create(100L, 42L, "title", "question");
 		setId(question, 200L);
-		when(answerRepository.findById(300L)).thenReturn(Optional.of(answer));
+		Answer selfAnswer = humanAnswer(200L, 42L, 300L);
 		when(questionRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(question));
+		when(answerRepository.findAcceptedIdsByQuestionIdOrderByIdAsc(200L)).thenReturn(List.of());
+		when(answerRepository.findAllByQuestionIdAndIdInForUpdate(200L, List.of(300L))).thenReturn(List.of(selfAnswer));
 
-		service.accept(principal(), 300L);
+		assertThatThrownBy(() -> service.finalizeSelection(
+			principal(),
+			200L,
+			new FinalizeAcceptedAnswersRequest(List.of(300L))
+		)).isInstanceOf(SelfAcceptanceNotAllowedException.class);
 
-		assertThat(answer.isAccepted()).isTrue();
-		assertThat(question.isResolved()).isTrue();
+		assertThat(selfAnswer.isAccepted()).isFalse();
+		assertThat(question.isResolved()).isFalse();
 		verify(userRepository, never()).findByIdForUpdate(any());
-		verify(notificationPublisher, never()).publishDurable(any(), any(), any(), any(), any());
-		verify(eventPublisher, never()).publishEvent(any(AcceptedHumanAnswerEvent.class));
+		verify(notificationPublisher, never()).publishDurableOnce(any(), any(), any(), any(), any(), any(), any());
+		verify(eventPublisher, never()).publishEvent(any());
+	}
+
+	@Test
+	void finalizeSelectionCountsAndNotifiesEachSelectedHumanAnswer() {
+		Question question = Question.create(100L, 42L, "title", "question");
+		setId(question, 200L);
+		Answer firstAnswer = humanAnswer(200L, 77L, 300L);
+		Answer secondAnswer = humanAnswer(200L, 77L, 301L);
+		User author = user(77L);
+		when(questionRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(question));
+		when(answerRepository.findAcceptedIdsByQuestionIdOrderByIdAsc(200L)).thenReturn(List.of());
+		when(answerRepository.findAllByQuestionIdAndIdInForUpdate(200L, List.of(300L, 301L)))
+			.thenReturn(List.of(firstAnswer, secondAnswer));
+		when(userRepository.findByIdForUpdate(77L)).thenReturn(Optional.of(author));
+
+		service.finalizeSelection(principal(), 200L, new FinalizeAcceptedAnswersRequest(List.of(301L, 300L)));
+
+		assertThat(author.getAcceptedCount()).isEqualTo(2);
+		verify(userRepository).findByIdForUpdate(77L);
+		verify(notificationPublisher).publishDurableOnce(
+			77L,
+			NotificationType.question,
+			"답변 채택",
+			"회원님의 답변이 채택됐어요",
+			200L,
+			false,
+			"answer-accepted:300"
+		);
+		verify(notificationPublisher).publishDurableOnce(
+			77L,
+			NotificationType.question,
+			"답변 채택",
+			"회원님의 답변이 채택됐어요",
+			200L,
+			false,
+			"answer-accepted:301"
+		);
+		verify(eventPublisher).publishEvent(new AcceptedHumanAnswerEvent(300L));
+		verify(eventPublisher).publishEvent(new AcceptedHumanAnswerEvent(301L));
 	}
 
 	private AuthenticatedUser principal() {
 		return new AuthenticatedUser(42L, "user@example.com", UserRole.user, UserStatus.active);
+	}
+
+	private Answer humanAnswer(Long questionId, Long authorId, Long id) {
+		Answer answer = Answer.createHuman(questionId, authorId, "answer");
+		setId(answer, id);
+		return answer;
+	}
+
+	private Answer aiAnswer(Long questionId, Long id) {
+		Answer answer = Answer.createAi(questionId, "ai answer");
+		setId(answer, id);
+		return answer;
 	}
 
 	private File uploadedFile(UUID fileId, Long uploaderId) {

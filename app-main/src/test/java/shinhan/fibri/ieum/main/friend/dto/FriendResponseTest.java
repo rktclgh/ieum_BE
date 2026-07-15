@@ -25,8 +25,19 @@ class FriendResponseTest {
 		assertThat(response.userId()).isEqualTo(77L);
 		assertThat(response.nickname()).isEqualTo("friend");
 		assertThat(response.profileImageUrl()).isEqualTo("/api/v1/files/11111111-1111-1111-1111-111111111111");
+		assertThat(response.nationality()).isEqualTo("KR");
 		assertThat(response.lastActiveAt()).isEqualTo(NOW.minusMinutes(4));
 		assertThat(response.active()).isTrue();
+	}
+
+	@Test
+	void fromReturnsNullNationalityWhenUserHasNone() {
+		User user = user(77L, "friend");
+		ReflectionTestUtils.setField(user, "nationality", null);
+
+		FriendResponse response = FriendResponse.from(user, NOW);
+
+		assertThat(response.nationality()).isNull();
 	}
 
 	@Test

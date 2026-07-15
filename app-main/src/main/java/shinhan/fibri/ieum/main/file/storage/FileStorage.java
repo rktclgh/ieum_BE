@@ -7,6 +7,8 @@ public interface FileStorage {
 
 	URI createPresignedPutUrl(String key, String contentType, Long sizeBytes, Duration ttl);
 
+	URI createPresignedGetUrl(String key, Duration ttl);
+
 	FileObjectMetadata head(String key);
 
 	StoredFileStream get(String key);

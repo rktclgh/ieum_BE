@@ -117,6 +117,7 @@ CREATE TYPE ai_recommendation AS ENUM ('temporary_suspend', 'hold', 'dismiss'); 
 CREATE TYPE ai_report_decision AS ENUM ('suspend', 'hold', 'normal');
 CREATE TYPE sanction_type AS ENUM ('temporary', 'permanent');
 CREATE TYPE sanction_decision_source AS ENUM ('ai_recommendation', 'admin'); -- 집행은 항상 app-main
+CREATE TYPE sanction_review_status AS ENUM ('pending_review', 'confirmed', 'dismissed', 'not_required');
 CREATE TYPE ai_job_status AS ENUM ('pending', 'processing', 'retry', 'completed', 'cancelled', 'dead');
 CREATE TYPE ai_job_stage AS ENUM ('discovered', 'retrieving', 'generating', 'validating', 'persisting', 'analyzing', 'embedding', 'web_grounding');
 CREATE TYPE knowledge_source_type AS ENUM ('curated', 'accepted_human_answer', 'verified_external');
@@ -288,7 +289,7 @@ CREATE TABLE answers (
 );
 CREATE INDEX idx_answers_question ON answers(question_id);
 CREATE INDEX idx_answers_author ON answers(author_id);
-CREATE UNIQUE INDEX uidx_accepted_answer ON answers(question_id) WHERE is_accepted;
+CREATE INDEX idx_answers_accepted_question ON answers(question_id) WHERE is_accepted;
 CREATE UNIQUE INDEX uidx_one_ai_answer_per_question ON answers(question_id) WHERE is_ai;
 
 -- accepted-answer knowledge final persist TX에서 호출한다.
@@ -861,6 +862,15 @@ CREATE TABLE reports (
         AND ai_review_result IS NOT NULL
         AND ai_reviewed_at IS NOT NULL
     )),
+    CONSTRAINT ck_reports_ai_completed_projection CHECK (ai_review_state <> 'completed' OR (
+        ai_decision IS NOT NULL
+        AND ai_confidence IS NOT NULL
+        AND ai_reason IS NOT NULL
+        AND ai_model_version IS NOT NULL
+        AND ai_policy_set_hash IS NOT NULL
+        AND ai_reviewed_at IS NOT NULL
+        AND ai_review_result IS NOT NULL
+    )),
     CONSTRAINT ck_reports_ai_dead CHECK (ai_review_state <> 'dead' OR ai_last_error_code IS NOT NULL)
 );
 
@@ -962,16 +972,36 @@ CREATE TABLE user_sanctions (
     reason TEXT NOT NULL,
     starts_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     ends_at TIMESTAMPTZ,
+    duration_minutes INTEGER,
+    review_status sanction_review_status NOT NULL DEFAULT 'not_required',
+    revoked_at TIMESTAMPTZ,
+    revoked_by BIGINT CONSTRAINT fk_user_sanctions_revoked_by REFERENCES users(user_id),
     released_at TIMESTAMPTZ,                             -- 관리자 번복(해제) 시각
     released_by BIGINT REFERENCES users(user_id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CHECK (sanction_type <> 'temporary' OR ends_at IS NOT NULL),
     CHECK (decision_source <> 'admin' OR admin_id IS NOT NULL),
-    CHECK (decision_source <> 'ai_recommendation' OR sanction_type = 'temporary')
+    CHECK (decision_source <> 'ai_recommendation' OR sanction_type = 'temporary'),
+    CONSTRAINT ck_user_sanctions_duration CHECK (
+        (sanction_type = 'temporary' AND duration_minutes IS NOT NULL AND duration_minutes > 0 AND ends_at IS NOT NULL)
+        OR (sanction_type = 'permanent' AND duration_minutes IS NULL)
+    ),
+    CONSTRAINT ck_user_sanctions_review_status CHECK (
+        (
+            decision_source = 'ai_recommendation'
+            AND (report_id IS NOT NULL OR revoked_at IS NOT NULL)
+            AND review_status IN ('pending_review', 'confirmed', 'dismissed')
+        )
+        OR (decision_source = 'admin' AND review_status = 'not_required')
+    )
 );
 CREATE INDEX idx_sanctions_user ON user_sanctions(user_id, created_at DESC);
 CREATE INDEX idx_sanctions_pending_review ON user_sanctions(created_at)
     WHERE decision_source = 'ai_recommendation' AND released_at IS NULL;
+CREATE UNIQUE INDEX uq_user_sanctions_ai_report ON user_sanctions(report_id)
+    WHERE decision_source = 'ai_recommendation' AND report_id IS NOT NULL;
+CREATE INDEX idx_user_sanctions_effective ON user_sanctions(user_id, ends_at, sanction_id)
+    WHERE revoked_at IS NULL AND review_status <> 'dismissed';
 
 -- ============================================================
 -- 문의 / 알림 / 로그인 로그

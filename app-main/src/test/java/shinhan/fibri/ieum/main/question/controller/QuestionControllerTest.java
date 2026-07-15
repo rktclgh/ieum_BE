@@ -84,6 +84,8 @@ class QuestionControllerTest {
 			.andExpect(status().isCreated())
 			.andExpect(header().string(HttpHeaders.LOCATION, "/api/v1/questions/200"))
 			.andExpect(jsonPath("$.questionId", is(200)))
+			.andExpect(jsonPath("$.isResolved", is(false)))
+			.andExpect(jsonPath("$.answerSelectionFinalized", is(false)))
 			.andExpect(jsonPath("$.imageUrls[0]", is("/api/v1/files/00000000-0000-0000-0000-000000000001?v=display")));
 	}
 
@@ -94,6 +96,8 @@ class QuestionControllerTest {
 		mockMvc.perform(get("/api/v1/questions/200").with(authenticated()))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.title", is("title")))
+			.andExpect(jsonPath("$.isResolved", is(false)))
+			.andExpect(jsonPath("$.answerSelectionFinalized", is(false)))
 			.andExpect(jsonPath("$.author.nickname", is("nickname")))
 			.andExpect(jsonPath("$.location.address", is("서울특별시 강남구")));
 	}
@@ -106,6 +110,7 @@ class QuestionControllerTest {
 					200L,
 					"title",
 					false,
+					false,
 					"/api/v1/files/00000000-0000-0000-0000-000000000001?v=thumb",
 					2,
 					OffsetDateTime.parse("2026-07-08T10:00:00Z")
@@ -115,8 +120,42 @@ class QuestionControllerTest {
 
 		mockMvc.perform(get("/api/v1/questions/me").with(authenticated()))
 			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.items[0].isResolved", is(false)))
+			.andExpect(jsonPath("$.items[0].answerSelectionFinalized", is(false)))
 			.andExpect(jsonPath("$.items[0].thumbnailUrl", is("/api/v1/files/00000000-0000-0000-0000-000000000001?v=thumb")))
 			.andExpect(jsonPath("$.nextCursor", is("bmV4dA")));
+	}
+
+	@Test
+	void getResolvedQuestionDetailReturnsMatchingResolvedAliases() throws Exception {
+		when(questionService.getDetail(201L)).thenReturn(detailResponse(true));
+
+		mockMvc.perform(get("/api/v1/questions/201").with(authenticated()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.isResolved", is(true)))
+			.andExpect(jsonPath("$.answerSelectionFinalized", is(true)));
+	}
+
+	@Test
+	void listMineReturnsMatchingResolvedAliasesForResolvedItem() throws Exception {
+		when(questionService.listMine(any(AuthenticatedUser.class), eq(null), eq(20)))
+			.thenReturn(new CursorPage<>(
+				List.of(new MyQuestionItem(
+					201L,
+					"resolved title",
+					true,
+					true,
+					null,
+					1,
+					OffsetDateTime.parse("2026-07-08T10:00:00Z")
+				)),
+				null
+			));
+
+		mockMvc.perform(get("/api/v1/questions/me").with(authenticated()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.items[0].isResolved", is(true)))
+			.andExpect(jsonPath("$.items[0].answerSelectionFinalized", is(true)));
 	}
 
 	@Test
@@ -186,11 +225,16 @@ class QuestionControllerTest {
 	}
 
 	private QuestionDetailResponse detailResponse() {
+		return detailResponse(false);
+	}
+
+	private QuestionDetailResponse detailResponse(boolean resolved) {
 		return new QuestionDetailResponse(
 			200L,
 			"title",
 			"content",
-			false,
+			resolved,
+			resolved,
 			new AuthorSummary(42L, "nickname", null, "KR"),
 			new LocationSnapshot(37.4979, 127.0276, "서울특별시 강남구", "", "강남역"),
 			List.of("/api/v1/files/00000000-0000-0000-0000-000000000001?v=display"),

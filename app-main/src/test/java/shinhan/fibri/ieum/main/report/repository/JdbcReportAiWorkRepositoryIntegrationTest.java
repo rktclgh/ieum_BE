@@ -3,10 +3,12 @@ package shinhan.fibri.ieum.main.report.repository;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -135,6 +137,48 @@ class JdbcReportAiWorkRepositoryIntegrationTest {
 	}
 
 	@Test
+	void marksCurrentAttemptCompletedAndRejectsStaleAttempt() {
+		insertDueReport(100L, OffsetDateTime.parse("2026-07-11T00:00:00Z"));
+		ClaimedReport claimed = repository.claimNext("worker-a", Duration.ofMinutes(2), MAX_ATTEMPTS).orElseThrow();
+		UUID staleAttemptId = UUID.randomUUID();
+		ReportAiReviewResult result = reviewResult();
+
+		assertThat(repository.markCompleted(claimed.reportId(), staleAttemptId, result)).isFalse();
+		assertThat(repository.markCompleted(claimed.reportId(), claimed.attemptId(), result)).isTrue();
+
+		var row = jdbc.sql("""
+			SELECT ai_review_state::text, status::text, ai_review_attempt_id, ai_next_attempt_at,
+			       ai_lease_until, ai_locked_by, ai_last_error_code, ai_last_error_message,
+			       ai_decision::text, ai_recommendation::text, ai_confidence, ai_reason,
+			       ai_model_version, ai_policy_version, ai_policy_set_hash, ai_reviewed_at,
+			       ai_review_result::text
+			FROM reports
+			WHERE report_id = :reportId
+			""").param("reportId", claimed.reportId()).query().singleRow();
+		assertThat(row.get("ai_review_state")).isEqualTo("completed");
+		assertThat(row.get("status")).isEqualTo("ai_reviewed");
+		assertThat(row.get("ai_review_attempt_id")).isNull();
+		assertThat(row.get("ai_next_attempt_at")).isNull();
+		assertThat(row.get("ai_lease_until")).isNull();
+		assertThat(row.get("ai_locked_by")).isNull();
+		assertThat(row.get("ai_last_error_code")).isNull();
+		assertThat(row.get("ai_last_error_message")).isNull();
+		assertThat(row.get("ai_decision")).isEqualTo("suspend");
+		assertThat(row.get("ai_recommendation")).isEqualTo("temporary_suspend");
+		assertThat(row.get("ai_confidence")).isEqualTo(new BigDecimal("0.9400"));
+		assertThat(row.get("ai_reason")).isEqualTo("abusive content detected");
+		assertThat(row.get("ai_model_version")).isEqualTo("model-v1");
+		assertThat(row.get("ai_policy_version")).isEqualTo("policy-v1");
+		assertThat(row.get("ai_policy_set_hash")).isEqualTo("c".repeat(64));
+		assertThat(((java.sql.Timestamp) row.get("ai_reviewed_at")).toInstant())
+			.isEqualTo(result.reviewedAt().toInstant());
+		assertThat((String) row.get("ai_review_result"))
+			.contains("\"decision\": \"suspend\"")
+			.contains("\"recommendation\": \"temporary_suspend\"");
+		assertThat(countAiRecommendationSanctions(claimed.reportId())).isZero();
+	}
+
+	@Test
 	void recoversAnExpiredFifthAttemptAsDeadWork() {
 		insertDueReport(100L, OffsetDateTime.parse("2026-07-11T00:00:00Z"));
 		ClaimedReport claimed = null;
@@ -178,6 +222,34 @@ class JdbcReportAiWorkRepositoryIntegrationTest {
 			.param("reportId", reportId)
 			.query(String.class)
 			.single();
+	}
+
+	private int countAiRecommendationSanctions(long reportId) {
+		return jdbc.sql("""
+			SELECT COUNT(*)
+			FROM user_sanctions
+			WHERE report_id = :reportId
+			  AND decision_source = 'ai_recommendation'
+			""")
+			.param("reportId", reportId)
+			.query(Integer.class)
+			.single();
+	}
+
+	private ReportAiReviewResult reviewResult() {
+		return new ReportAiReviewResult(
+			"suspend",
+			"temporary_suspend",
+			new BigDecimal("0.9400"),
+			"abusive content detected",
+			"model-v1",
+			"policy-v1",
+			"c".repeat(64),
+			OffsetDateTime.parse("2026-07-11T00:03:00Z"),
+			"""
+			{"decision":"suspend","recommendation":"temporary_suspend","confidence":0.94,"reason":"abusive content detected"}
+			"""
+		);
 	}
 
 	private void seedUsersAndRoom() {

@@ -9,6 +9,7 @@ public record FriendResponse(
 	Long userId,
 	String nickname,
 	String profileImageUrl,
+	String nationality,
 	OffsetDateTime lastActiveAt,
 	boolean active
 ) {
@@ -24,6 +25,7 @@ public record FriendResponse(
 			user.getId(),
 			user.getNickname(),
 			ProfileImageUrls.of(user),
+			user.getNationality(),
 			user.getLastActiveAt(),
 			isActive(user.getLastActiveAt(), now)
 		);

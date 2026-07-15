@@ -8,6 +8,7 @@ public record FriendRequestResponse(
 	Long userId,
 	String nickname,
 	String profileImageUrl,
+	String nationality,
 	OffsetDateTime requestedAt
 ) {
 
@@ -16,6 +17,7 @@ public record FriendRequestResponse(
 			user.getId(),
 			user.getNickname(),
 			ProfileImageUrls.of(user),
+			user.getNationality(),
 			requestedAt
 		);
 	}

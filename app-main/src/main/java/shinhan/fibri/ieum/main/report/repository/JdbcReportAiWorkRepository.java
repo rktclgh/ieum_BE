@@ -104,6 +104,47 @@ public class JdbcReportAiWorkRepository implements ReportAiWorkRepository {
 	}
 
 	@Override
+	public boolean markCompleted(long reportId, UUID attemptId, ReportAiReviewResult result) {
+		validateCompletedTransition(reportId, attemptId, result);
+		return jdbc.sql("""
+			UPDATE reports
+			SET ai_review_state = 'completed',
+			    status = 'ai_reviewed',
+			    ai_review_attempt_id = NULL,
+			    ai_next_attempt_at = NULL,
+			    ai_lease_until = NULL,
+			    ai_locked_by = NULL,
+			    ai_last_error_code = NULL,
+			    ai_last_error_message = NULL,
+			    ai_decision = CAST(:decision AS ai_report_decision),
+			    ai_recommendation = CAST(:recommendation AS ai_recommendation),
+			    ai_confidence = :confidence,
+			    ai_reason = :reason,
+			    ai_model_version = :modelVersion,
+			    ai_policy_version = :policyVersion,
+			    ai_policy_set_hash = :policySetHash,
+			    ai_reviewed_at = :reviewedAt,
+			    ai_review_result = CAST(:reviewResult AS jsonb)
+			WHERE report_id = :reportId
+			  AND ai_review_state = 'processing'
+			  AND ai_review_attempt_id = :attemptId
+			  AND ai_lease_until > CURRENT_TIMESTAMP
+			""")
+			.param("reportId", reportId)
+			.param("attemptId", attemptId)
+			.param("decision", result.decision())
+			.param("recommendation", result.recommendation())
+			.param("confidence", result.confidence())
+			.param("reason", result.reason())
+			.param("modelVersion", result.modelVersion())
+			.param("policyVersion", result.policyVersion())
+			.param("policySetHash", result.policySetHash())
+			.param("reviewedAt", result.reviewedAt())
+			.param("reviewResult", result.reviewResultJson())
+			.update() == 1;
+	}
+
+	@Override
 	public boolean markDead(long reportId, UUID attemptId, String errorCode, String errorMessage) {
 		validateFencedTransition(reportId, attemptId, errorCode, errorMessage);
 		return jdbc.sql("""
@@ -164,6 +205,18 @@ public class JdbcReportAiWorkRepository implements ReportAiWorkRepository {
 			throw new IllegalArgumentException("lease must be at least one second");
 		}
 		validateMaxAttempts(maxAttempts);
+	}
+
+	private void validateCompletedTransition(long reportId, UUID attemptId, ReportAiReviewResult result) {
+		if (reportId < 1) {
+			throw new IllegalArgumentException("reportId must be positive");
+		}
+		if (attemptId == null) {
+			throw new IllegalArgumentException("attemptId must not be null");
+		}
+		if (result == null) {
+			throw new IllegalArgumentException("result must not be null");
+		}
 	}
 
 	private void validateFencedTransition(long reportId, UUID attemptId, String errorCode, String errorMessage) {

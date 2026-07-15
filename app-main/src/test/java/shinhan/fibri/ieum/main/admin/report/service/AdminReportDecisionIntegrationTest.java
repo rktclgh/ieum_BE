@@ -100,6 +100,10 @@ class AdminReportDecisionIntegrationTest {
 			UPDATE reports
 			SET ai_review_state = 'completed',
 			    ai_decision = 'normal',
+			    ai_confidence = 0.90,
+			    ai_reason = 'normal content',
+			    ai_model_version = 'test-model',
+			    ai_policy_set_hash = repeat('b', 64),
 			    ai_review_result = '{"category":"normal"}'::jsonb,
 			    ai_reviewed_at = CURRENT_TIMESTAMP
 			WHERE report_id = 10
@@ -187,17 +191,19 @@ class AdminReportDecisionIntegrationTest {
 		insertMessageReport(10L, 2L, "pending", "pending", null, null);
 		insertMessageReport(11L, 2L, "pending", "pending", null, null);
 		insertSanction(100L, 2L, 10L, "ai_recommendation", null, false);
-		insertSanction(101L, 2L, 10L, "ai_recommendation", null, false);
 		insertSanction(102L, 2L, 10L, "admin", 8L, false);
 		insertSanction(103L, 2L, 11L, "ai_recommendation", null, false);
-		insertSanction(104L, 2L, 10L, "ai_recommendation", null, true);
 
 		inTransaction(() -> service.dismiss(10L, 9L));
 
 		assertThat(count("""
 			SELECT COUNT(*) FROM user_sanctions
-			WHERE report_id = 10 AND decision_source = 'ai_recommendation' AND released_by = 9
-			""")).isEqualTo(2);
+			WHERE report_id = 10
+			  AND decision_source = 'ai_recommendation'
+			  AND released_by = 9
+			  AND revoked_by = 9
+			  AND review_status = 'dismissed'
+			""")).isEqualTo(1);
 		assertThat(count("""
 			SELECT COUNT(*) FROM user_sanctions
 			WHERE sanction_id IN (102, 103) AND released_at IS NULL
@@ -209,12 +215,39 @@ class AdminReportDecisionIntegrationTest {
 	void dismissActivatesUserOnlyAfterEveryActiveSanctionIsGone() {
 		insertMessageReport(10L, 2L, "pending", "pending", null, null);
 		insertSanction(100L, 2L, 10L, "ai_recommendation", null, false);
-		insertSanction(101L, 2L, 10L, "ai_recommendation", null, false);
 
 		inTransaction(() -> service.dismiss(10L, 9L));
 
-		assertThat(count("SELECT COUNT(*) FROM user_sanctions WHERE released_at IS NULL")).isZero();
+		assertThat(count("SELECT COUNT(*) FROM user_sanctions WHERE revoked_at IS NULL")).isZero();
 		assertThat(value("SELECT status::text FROM users WHERE user_id = 2")).isEqualTo("active");
+	}
+
+	@Test
+	void dismissRemovesOnlyTheRemainingSentenceAndPullsQueuedSanctionsForward() {
+		insertMessageReport(10L, 2L, "pending", "pending", null, null);
+		insertMessageReport(11L, 2L, "pending", "pending", null, null);
+		OffsetDateTime decisionWindowStart = OffsetDateTime.now();
+		OffsetDateTime firstStartsAt = decisionWindowStart.minusHours(1);
+		OffsetDateTime firstEndsAt = decisionWindowStart.plusHours(71);
+		OffsetDateTime secondEndsAt = firstEndsAt.plusHours(72);
+		insertTimedAiSanction(100L, 2L, 10L, firstStartsAt, firstEndsAt);
+		insertTimedAiSanction(101L, 2L, 11L, firstEndsAt, secondEndsAt);
+
+		inTransaction(() -> service.dismiss(10L, 9L));
+		OffsetDateTime decisionWindowEnd = OffsetDateTime.now().plusSeconds(1);
+
+		OffsetDateTime shiftedStartsAt = jdbc.queryForObject(
+			"SELECT starts_at FROM user_sanctions WHERE sanction_id = 101",
+			OffsetDateTime.class
+		);
+		OffsetDateTime shiftedEndsAt = jdbc.queryForObject(
+			"SELECT ends_at FROM user_sanctions WHERE sanction_id = 101",
+			OffsetDateTime.class
+		);
+		assertThat(shiftedStartsAt).isBetween(decisionWindowStart, decisionWindowEnd);
+		assertThat(shiftedEndsAt).isEqualTo(shiftedStartsAt.plusHours(72));
+		assertThat(value("SELECT review_status::text FROM user_sanctions WHERE sanction_id = 100"))
+			.isEqualTo("dismissed");
 	}
 
 	@Test
@@ -295,14 +328,42 @@ class AdminReportDecisionIntegrationTest {
 		jdbc.update("""
 			INSERT INTO user_sanctions(
 				sanction_id, user_id, report_id, decision_source, admin_id, sanction_type, reason,
-				starts_at, ends_at, released_at, released_by, created_at
+				starts_at, ends_at, duration_minutes, review_status, revoked_at, revoked_by,
+				released_at, released_by, created_at
 			) VALUES (?, ?, ?, ?::sanction_decision_source, ?,
 				 CASE WHEN ? = 'admin' THEN 'permanent'::sanction_type ELSE 'temporary'::sanction_type END,
 				 'reason', CURRENT_TIMESTAMP, CASE WHEN ? = 'admin' THEN NULL ELSE CURRENT_TIMESTAMP + INTERVAL '7 days' END,
+				 CASE WHEN ? = 'admin' THEN NULL ELSE 10080 END,
+				 CASE WHEN ? = 'admin' THEN 'not_required'::sanction_review_status ELSE 'pending_review'::sanction_review_status END,
+				 CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE NULL END,
+				 CASE WHEN ? THEN 8 ELSE NULL END,
 				 CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE NULL END,
 				 CASE WHEN ? THEN 8 ELSE NULL END, CURRENT_TIMESTAMP + (? * INTERVAL '1 second'))
 			""",
-			sanctionId, userId, reportId, source, adminId, source, source, released, released, sanctionId
+			sanctionId, userId, reportId, source, adminId, source, source, source, source,
+			released, released, released, released, sanctionId
+		);
+	}
+
+	private void insertTimedAiSanction(
+		long sanctionId,
+		long userId,
+		long reportId,
+		OffsetDateTime startsAt,
+		OffsetDateTime endsAt
+	) {
+		jdbc.update("""
+			INSERT INTO user_sanctions(
+				sanction_id, user_id, report_id, decision_source, sanction_type, reason,
+				starts_at, ends_at, duration_minutes, review_status, created_at
+			) VALUES (?, ?, ?, 'ai_recommendation', 'temporary', 'reason', ?, ?, ?, 'pending_review', CURRENT_TIMESTAMP)
+			""",
+			sanctionId,
+			userId,
+			reportId,
+			startsAt,
+			endsAt,
+			Math.toIntExact(java.time.Duration.between(startsAt, endsAt).toMinutes())
 		);
 	}
 

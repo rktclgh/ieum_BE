@@ -13,8 +13,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import shinhan.fibri.ieum.main.answer.exception.AnswerNotFoundException;
+import shinhan.fibri.ieum.main.answer.exception.AnswerSelectionFinalizedException;
 import shinhan.fibri.ieum.main.answer.exception.InvalidAnswerRequestException;
-import shinhan.fibri.ieum.main.answer.exception.QuestionAlreadyResolvedException;
 import shinhan.fibri.ieum.main.answer.exception.SelfAcceptanceNotAllowedException;
 import shinhan.fibri.ieum.main.auth.dto.AuthErrorResponse;
 import shinhan.fibri.ieum.main.question.exception.QuestionForbiddenException;
@@ -42,10 +42,10 @@ public class AnswerExceptionHandler {
 			.body(new AuthErrorResponse("FORBIDDEN", exception.getMessage()));
 	}
 
-	@ExceptionHandler(QuestionAlreadyResolvedException.class)
-	public ResponseEntity<AuthErrorResponse> handleQuestionAlreadyResolved(QuestionAlreadyResolvedException exception) {
+	@ExceptionHandler(AnswerSelectionFinalizedException.class)
+	public ResponseEntity<AuthErrorResponse> handleAnswerSelectionFinalized(AnswerSelectionFinalizedException exception) {
 		return ResponseEntity.status(HttpStatus.CONFLICT)
-			.body(new AuthErrorResponse("QUESTION_ALREADY_RESOLVED", exception.getMessage()));
+			.body(new AuthErrorResponse("ANSWER_SELECTION_FINALIZED", exception.getMessage()));
 	}
 
 	@ExceptionHandler(SelfAcceptanceNotAllowedException.class)

@@ -99,6 +99,8 @@ class QuestionServiceTest {
 
 		assertThat(response.questionId()).isEqualTo(200L);
 		assertThat(response.title()).isEqualTo("title");
+		assertThat(response.isResolved()).isFalse();
+		assertThat(response.answerSelectionFinalized()).isFalse();
 		assertThat(response.author().profileImageUrl()).isEqualTo("/api/v1/files/%s".formatted(profileId));
 		assertThat(response.location()).isEqualTo(location);
 		assertThat(response.imageUrls()).containsExactly("/api/v1/files/%s?v=display".formatted(imageId));
@@ -156,6 +158,8 @@ class QuestionServiceTest {
 		QuestionDetailResponse response = service.getDetail(200L);
 
 		assertThat(response.questionId()).isEqualTo(200L);
+		assertThat(response.isResolved()).isFalse();
+		assertThat(response.answerSelectionFinalized()).isFalse();
 		assertThat(response.imageUrls()).containsExactly(
 			"/api/v1/files/%s?v=display".formatted(first),
 			"/api/v1/files/%s?v=display".formatted(second)
@@ -209,6 +213,8 @@ class QuestionServiceTest {
 
 		QuestionDetailResponse response = service.getDetail(200L);
 
+		assertThat(response.isResolved()).isTrue();
+		assertThat(response.answerSelectionFinalized()).isTrue();
 		assertThat(response.answers()).hasSize(2);
 		AnswerItem humanAnswer = response.answers().get(0);
 		assertThat(humanAnswer.answerId()).isEqualTo(300L);
@@ -245,6 +251,8 @@ class QuestionServiceTest {
 		var page = service.listMine(principal(), null, 1);
 
 		assertThat(page.items()).hasSize(1);
+		assertThat(page.items().get(0).isResolved()).isFalse();
+		assertThat(page.items().get(0).answerSelectionFinalized()).isFalse();
 		assertThat(page.items().get(0).thumbnailUrl()).isEqualTo("/api/v1/files/%s?v=thumb".formatted(thumbnail));
 		assertThat(page.nextCursor()).isEqualTo("MjAw");
 	}
@@ -252,13 +260,15 @@ class QuestionServiceTest {
 	@Test
 	void listMineUsesDecodedCursorQueryWhenCursorIsPresent() {
 		when(questionRepository.findMineAfterCursor(42L, 200L, 2)).thenReturn(List.of(
-			new MineProjection(100L, "older", false, null, 0, Instant.parse("2026-07-06T10:00:00Z"))
+			new MineProjection(100L, "older", true, null, 0, Instant.parse("2026-07-06T10:00:00Z"))
 		));
 
 		var page = service.listMine(principal(), "MjAw", 1);
 
 		assertThat(page.items()).hasSize(1);
 		assertThat(page.items().get(0).questionId()).isEqualTo(100L);
+		assertThat(page.items().get(0).isResolved()).isTrue();
+		assertThat(page.items().get(0).answerSelectionFinalized()).isTrue();
 		assertThat(page.nextCursor()).isNull();
 	}
 

@@ -2,6 +2,7 @@ package shinhan.fibri.ieum.main.answer.service;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -20,9 +21,11 @@ import shinhan.fibri.ieum.main.answer.domain.Answer;
 import shinhan.fibri.ieum.main.answer.domain.AnswerImage;
 import shinhan.fibri.ieum.main.answer.dto.CreateAnswerRequest;
 import shinhan.fibri.ieum.main.answer.dto.CreateAnswerResponse;
+import shinhan.fibri.ieum.main.answer.dto.FinalizeAcceptedAnswersRequest;
+import shinhan.fibri.ieum.main.answer.dto.FinalizeAcceptedAnswersResponse;
 import shinhan.fibri.ieum.main.answer.exception.AnswerNotFoundException;
+import shinhan.fibri.ieum.main.answer.exception.AnswerSelectionFinalizedException;
 import shinhan.fibri.ieum.main.answer.exception.InvalidAnswerRequestException;
-import shinhan.fibri.ieum.main.answer.exception.QuestionAlreadyResolvedException;
 import shinhan.fibri.ieum.main.answer.exception.SelfAcceptanceNotAllowedException;
 import shinhan.fibri.ieum.main.answer.event.AcceptedHumanAnswerEvent;
 import shinhan.fibri.ieum.main.answer.repository.AnswerImageRepository;
@@ -50,6 +53,9 @@ public class AnswerService {
 	public CreateAnswerResponse create(AuthenticatedUser principal, Long questionId, CreateAnswerRequest request) {
 		Question question = questionRepository.findActiveByIdForShare(questionId)
 			.orElseThrow(QuestionNotFoundException::new);
+		if (question.isResolved()) {
+			throw new AnswerSelectionFinalizedException();
+		}
 		String content = requireContentOrImages(request);
 		List<UUID> imageFileIds = normalizeImageFileIds(request.imageFileIds());
 		List<File> files = validateImages(imageFileIds, principal.userId());
@@ -74,35 +80,61 @@ public class AnswerService {
 	}
 
 	@Transactional(timeout = 30)
-	public void accept(AuthenticatedUser principal, Long answerId) {
-		Answer answer = answerRepository.findById(answerId)
-			.orElseThrow(AnswerNotFoundException::new);
-		Question question = questionRepository.findByIdForUpdate(answer.getQuestionId())
+	public FinalizeAcceptedAnswersResponse finalizeSelection(
+		AuthenticatedUser principal,
+		Long questionId,
+		FinalizeAcceptedAnswersRequest request
+	) {
+		List<Long> answerIds = normalizeAcceptedAnswerIds(request.answerIds());
+		Question question = questionRepository.findByIdForUpdate(questionId)
 			.orElseThrow(QuestionNotFoundException::new);
 		if (!question.getAuthorId().equals(principal.userId())) {
 			throw new QuestionForbiddenException();
 		}
-		if (!answer.isAi() && question.getAuthorId().equals(answer.getAuthorId())) {
-			throw new SelfAcceptanceNotAllowedException();
-		}
+
+		List<Long> acceptedIds = answerRepository.findAcceptedIdsByQuestionIdOrderByIdAsc(questionId);
 		if (question.isResolved()) {
-			throw new QuestionAlreadyResolvedException();
+			if (acceptedIds.equals(answerIds)) {
+				return new FinalizeAcceptedAnswersResponse(questionId, true, acceptedIds);
+			}
+			throw new AnswerSelectionFinalizedException();
 		}
 
-		answer.accept();
+		List<Answer> answers = answerRepository.findAllByQuestionIdAndIdInForUpdate(questionId, answerIds);
+		if (answers.size() != answerIds.size()) {
+			throw new AnswerNotFoundException();
+		}
+		for (Answer answer : answers) {
+			if (!answer.isAi() && question.getAuthorId().equals(answer.getAuthorId())) {
+				throw new SelfAcceptanceNotAllowedException();
+			}
+		}
+
+		Map<Long, User> humanAuthorsById = lockHumanAuthors(answers);
+		for (Answer answer : answers) {
+			answer.accept();
+		}
 		question.markResolved();
-		if (!answer.isAi()) {
-			userRepository.findByIdForUpdate(answer.getAuthorId())
-				.ifPresent(User::recordAcceptedAnswer);
-			notificationPublisher.publishDurable(
+		for (Answer answer : answers) {
+			if (answer.isAi()) {
+				continue;
+			}
+			User author = humanAuthorsById.get(answer.getAuthorId());
+			if (author != null) {
+				author.recordAcceptedAnswer();
+			}
+			notificationPublisher.publishDurableOnce(
 				answer.getAuthorId(),
 				NotificationType.question,
 				"답변 채택",
 				"회원님의 답변이 채택됐어요",
-				question.getId()
+				questionId,
+				false,
+				"answer-accepted:%d".formatted(answer.getId())
 			);
 			eventPublisher.publishEvent(new AcceptedHumanAnswerEvent(answer.getId()));
 		}
+		return new FinalizeAcceptedAnswersResponse(questionId, true, answerIds);
 	}
 
 	// content와 imageFileIds는 각각 선택이지만 최소 하나는 있어야 한다(설계 보강 2026-07-03).
@@ -134,6 +166,37 @@ public class AnswerService {
 			}
 		}
 		return List.copyOf(imageFileIds);
+	}
+
+	private List<Long> normalizeAcceptedAnswerIds(List<Long> answerIds) {
+		if (answerIds == null || answerIds.isEmpty()) {
+			throw new InvalidAnswerRequestException("VALIDATION_FAILED", "answerIds", "answerIds is required");
+		}
+		for (Long answerId : answerIds) {
+			if (answerId == null || answerId <= 0) {
+				throw new InvalidAnswerRequestException("VALIDATION_FAILED", "answerIds", "Invalid answerIds");
+			}
+		}
+		List<Long> normalized = answerIds.stream()
+			.sorted()
+			.distinct()
+			.toList();
+		if (normalized.size() != answerIds.size()) {
+			throw new InvalidAnswerRequestException("VALIDATION_FAILED", "answerIds", "Duplicate answerIds");
+		}
+		return normalized;
+	}
+
+	private Map<Long, User> lockHumanAuthors(List<Answer> answers) {
+		Map<Long, User> humanAuthorsById = new LinkedHashMap<>();
+		answers.stream()
+			.filter(answer -> !answer.isAi())
+			.map(Answer::getAuthorId)
+			.distinct()
+			.sorted()
+			.forEach(authorId -> userRepository.findByIdForUpdate(authorId)
+				.ifPresent(user -> humanAuthorsById.put(authorId, user)));
+		return humanAuthorsById;
 	}
 
 	private List<File> validateImages(List<UUID> imageFileIds, Long userId) {

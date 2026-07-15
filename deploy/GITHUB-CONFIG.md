@@ -34,7 +34,8 @@ Variables:
 - `SSH_PORT=22`
 - `DEPLOY_PATH=/home/ubuntu/ieum/app-main`
 - `APP_MAIN_PRIVATE_BIND_ADDRESS=172.31.38.97`
-- `LETSENCRYPT_EMAIL`: certificate expiry and recovery notices
+- `LETSENCRYPT_EMAIL`: optional when the origin certificate already exists;
+  required only for initial Let's Encrypt issuance
 - `NEXT_PUBLIC_GOOGLE_CLIENT_ID`
 - `NEXT_PUBLIC_KAKAO_REST_API_KEY`
 
@@ -42,7 +43,10 @@ Secrets:
 
 - `SSH_PRIVATE_KEY`: complete PEM contents
 - `SSH_KNOWN_HOSTS`: verified known_hosts line for `54.116.123.11`
-- `APP_MAIN_ENV_FILE`: completed `deploy/env/app-main.env.example`
+- `APP_MAIN_ENV_FILE`: completed `deploy/env/app-main.env.example`; its
+  `SPRING_DATASOURCE_URL` must use the production database host, never
+  `localhost`, `127.0.0.1`, or the example placeholder, and it must include
+  `INQUIRY_ADMIN_EMAIL`
 
 ### `app-ai-production`
 

@@ -57,6 +57,29 @@ class GeminiSearchWebGroundingGatewayTest {
 	}
 
 	@Test
+	void forwardsTheConfiguredGroundingModelToTheClient() {
+		RecordingClient client = new RecordingClient(validResponse("서울 버스입니다."));
+		WebGroundingProperties properties = new WebGroundingProperties(
+			"gemini-2.5-flash-lite",
+			"test-only-api-key",
+			"question-web-grounding-v1",
+			1024,
+			TIMEOUT
+		);
+		GeminiSearchWebGroundingGateway gateway = new GeminiSearchWebGroundingGateway(
+			client,
+			promptFactory(),
+			parser(),
+			properties,
+			clock()
+		);
+
+		gateway.ground(prompt(), TIMEOUT);
+
+		assertThat(client.request.model()).isEqualTo("gemini-2.5-flash-lite");
+	}
+
+	@Test
 	void rejectsAnyTimeoutOtherThanThePinnedModelTimeoutBeforeCallingTheClient() {
 		RecordingClient client = new RecordingClient(validResponse("서울 버스입니다."));
 		GeminiSearchWebGroundingGateway gateway = gateway(client);

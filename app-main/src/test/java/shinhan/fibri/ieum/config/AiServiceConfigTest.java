@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
@@ -12,6 +13,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.web.client.RestClientResponseException;
 import shinhan.fibri.ieum.common.ai.report.dto.ReportReviewRequest;
 import shinhan.fibri.ieum.main.ai.client.AiServiceClient;
 
@@ -69,15 +71,19 @@ class AiServiceConfigTest {
 				new ObjectMapper()
 			);
 
-			client.review(new ReportReviewRequest(
-				1L,
-				UUID.randomUUID(),
-				2L,
-				"harassment",
-				"detail",
-				"a".repeat(64),
-				List.of()
-			));
+			assertThatThrownBy(() -> client.review(new ReportReviewRequest(
+					1L,
+					UUID.randomUUID(),
+					2L,
+					"harassment",
+					"detail",
+					"a".repeat(64),
+					List.of()
+				)))
+				.isInstanceOf(RestClientResponseException.class)
+				.satisfies(failure -> assertThat(
+					((RestClientResponseException)failure).getStatusCode().value()
+				).isEqualTo(302));
 		}
 		finally {
 			server.stop(0);

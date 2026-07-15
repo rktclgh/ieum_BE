@@ -3,7 +3,9 @@ package shinhan.fibri.ieum.ai.question.retrieval;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.BiConsumer;
 import org.junit.jupiter.api.BeforeAll;
@@ -63,6 +65,33 @@ class AcceptedAnswerKnowledgeRetrievalGuardIntegrationTest {
 		assertThat(graphRepository.findEligibleRelationIds(List.of(fixture.relationId()))).isEmpty();
 	}
 
+	@ParameterizedTest(name = "{0}")
+	@MethodSource("sameQuestionEligibilityLosses")
+	void sameQuestionAcceptedSourcesDisappearTogetherFromVectorAndKgCandidatesAndRevalidation(
+		String name,
+		BiConsumer<JdbcClient, SameQuestionFixture> mutation
+	) {
+		SameQuestionFixture fixture = insertSameQuestionAcceptedFixture();
+
+		assertThat(vectorRepository.findGlobalCandidates(vector(), 20))
+			.extracting(VectorKnowledgeCandidate::sourceId)
+			.containsExactly(fixture.firstSourceId(), fixture.secondSourceId());
+		assertThat(vectorRepository.findEligibleChunkIds(List.of(fixture.firstChunkId(), fixture.secondChunkId())))
+			.isEqualTo(Set.of(fixture.firstChunkId(), fixture.secondChunkId()));
+		assertThat(graphRepository.findOneHopCandidates(List.of("서울"), 20))
+			.extracting(KnowledgeGraphCandidate::sourceId)
+			.containsExactly(fixture.firstSourceId(), fixture.secondSourceId());
+		assertThat(graphRepository.findEligibleRelationIds(List.of(fixture.firstRelationId(), fixture.secondRelationId())))
+			.isEqualTo(Set.of(fixture.firstRelationId(), fixture.secondRelationId()));
+
+		mutation.accept(jdbc, fixture);
+
+		assertThat(vectorRepository.findGlobalCandidates(vector(), 20)).isEmpty();
+		assertThat(vectorRepository.findEligibleChunkIds(List.of(fixture.firstChunkId(), fixture.secondChunkId()))).isEmpty();
+		assertThat(graphRepository.findOneHopCandidates(List.of("서울"), 20)).isEmpty();
+		assertThat(graphRepository.findEligibleRelationIds(List.of(fixture.firstRelationId(), fixture.secondRelationId()))).isEmpty();
+	}
+
 	private static List<Object[]> eligibilityLosses() {
 		return List.of(
 			new Object[]{"acceptance revoked", (BiConsumer<JdbcClient, AcceptedFixture>) (jdbc, fixture) ->
@@ -77,6 +106,14 @@ class AcceptedAnswerKnowledgeRetrievalGuardIntegrationTest {
 			new Object[]{"answer text removed", (BiConsumer<JdbcClient, AcceptedFixture>) (jdbc, fixture) ->
 				jdbc.sql("UPDATE answers SET content='   ' WHERE answer_id=:id")
 					.param("id", fixture.answerId()).update()}
+		);
+	}
+
+	private static List<Object[]> sameQuestionEligibilityLosses() {
+		return Collections.singletonList(
+			new Object[]{"question soft deleted", (BiConsumer<JdbcClient, SameQuestionFixture>) (jdbc, fixture) ->
+				jdbc.sql("UPDATE questions SET deleted_at=now() WHERE question_id=:id")
+					.param("id", fixture.questionId()).update()}
 		);
 	}
 
@@ -122,6 +159,81 @@ class AcceptedAnswerKnowledgeRetrievalGuardIntegrationTest {
 		return new AcceptedFixture(pinId, questionId, answerId, chunkId, relationId);
 	}
 
+	private SameQuestionFixture insertSameQuestionAcceptedFixture() {
+		long questionAuthor = insertUser("same-question-author");
+		long firstAnswerAuthor = insertUser("same-question-answer-author-a");
+		long secondAnswerAuthor = insertUser("same-question-answer-author-b");
+		long pinId = jdbc.sql("""
+			INSERT INTO pins(author_id,pin_type,location,address)
+			VALUES (:authorId,'question',ST_SetSRID(ST_MakePoint(126.978,37.5665),4326)::geography,
+			        '대한민국 서울특별시 중구 세종대로 110')
+			RETURNING pin_id
+			""").param("authorId", questionAuthor).query(Long.class).single();
+		long questionId = jdbc.sql("""
+			INSERT INTO questions(pin_id,author_id,title,content)
+			VALUES (:pinId,:authorId,'버스 질문','버스 이용 방법') RETURNING question_id
+			""").param("pinId", pinId).param("authorId", questionAuthor).query(Long.class).single();
+		long firstAnswerId = insertAcceptedAnswer(questionId, firstAnswerAuthor, "첫 번째 사람은 앞문 승차를 안내합니다.");
+		long secondAnswerId = insertAcceptedAnswer(questionId, secondAnswerAuthor, "두 번째 사람은 환승 규칙을 안내합니다.");
+		long firstSourceId = insertReadySource(questionId, firstAnswerId, "b".repeat(64));
+		long secondSourceId = insertReadySource(questionId, secondAnswerId, "c".repeat(64));
+		long firstChunkId = insertChunk(firstSourceId, "서울 버스 승차 근거", "[1" + ",0".repeat(767) + "]");
+		long secondChunkId = insertChunk(secondSourceId, "서울 버스 환승 근거", "[0.9" + ",0".repeat(767) + "]");
+		long firstRelationId = insertRelation(firstSourceId, firstChunkId, "서울", "버스 승차", "0.9000");
+		long secondRelationId = insertRelation(secondSourceId, secondChunkId, "서울", "버스 환승", "0.8000");
+
+		return new SameQuestionFixture(
+			questionId,
+			firstSourceId,
+			secondSourceId,
+			firstChunkId,
+			secondChunkId,
+			firstRelationId,
+			secondRelationId
+		);
+	}
+
+	private long insertAcceptedAnswer(long questionId, long answerAuthor, String content) {
+		return jdbc.sql("""
+			INSERT INTO answers(question_id,author_id,is_ai,content,is_accepted)
+			VALUES (:questionId,:authorId,false,:content,true)
+			RETURNING answer_id
+			""").param("questionId", questionId).param("authorId", answerAuthor)
+			.param("content", content).query(Long.class).single();
+	}
+
+	private long insertReadySource(long questionId, long answerId, String contentHash) {
+		return jdbc.sql("""
+			INSERT INTO knowledge_sources(
+			  source_type,question_id,answer_id,content_hash,display_name,status,
+			  ingestion_attempts,geo_scope,region_context,metadata
+			)
+			VALUES ('accepted_human_answer',:questionId,:answerId,:hash,'채택 답변','ready',
+			        1,'general','{}',jsonb_build_object('sourceGrade','community'))
+			RETURNING source_id
+			""").param("questionId", questionId).param("answerId", answerId)
+			.param("hash", contentHash).query(Long.class).single();
+	}
+
+	private long insertChunk(long sourceId, String content, String embedding) {
+		return jdbc.sql("""
+			INSERT INTO knowledge_chunks(source_id,content,chunk_order,embedding,embedding_model)
+			VALUES (:sourceId,:content,0,CAST(:embedding AS vector),'gemini-embedding-2')
+			RETURNING chunk_id
+			""").param("sourceId", sourceId).param("content", content)
+			.param("embedding", embedding).query(Long.class).single();
+	}
+
+	private long insertRelation(long sourceId, long chunkId, String subject, String object, String confidence) {
+		return jdbc.sql("""
+			INSERT INTO knowledge_relations(source_id,subject,predicate,object,confidence,evidence_chunk_id)
+			VALUES (:sourceId,:subject,'supports',:object,CAST(:confidence AS numeric),:chunkId)
+			RETURNING relation_id
+			""").param("sourceId", sourceId).param("subject", subject)
+			.param("object", object).param("confidence", confidence)
+			.param("chunkId", chunkId).query(Long.class).single();
+	}
+
 	private long insertUser(String prefix) {
 		String suffix = UUID.randomUUID().toString();
 		return jdbc.sql("""
@@ -144,6 +256,17 @@ class AcceptedAnswerKnowledgeRetrievalGuardIntegrationTest {
 		long answerId,
 		long chunkId,
 		long relationId
+	) {
+	}
+
+	private record SameQuestionFixture(
+		long questionId,
+		long firstSourceId,
+		long secondSourceId,
+		long firstChunkId,
+		long secondChunkId,
+		long firstRelationId,
+		long secondRelationId
 	) {
 	}
 }

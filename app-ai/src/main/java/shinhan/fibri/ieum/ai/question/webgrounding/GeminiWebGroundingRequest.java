@@ -7,13 +7,14 @@ record GeminiWebGroundingRequest(
 	int maxOutputTokens
 ) {
 
-	private static final String REQUIRED_MODEL = "gemini-3.1-flash-lite";
+	private static final int MAX_MODEL_LENGTH = 120;
 	private static final int MIN_MAX_OUTPUT_TOKENS = 128;
 	private static final int MAX_MAX_OUTPUT_TOKENS = 8192;
 
 	GeminiWebGroundingRequest {
-		if (!REQUIRED_MODEL.equals(model)) {
-			throw new IllegalArgumentException("model must be " + REQUIRED_MODEL);
+		model = required(model, "model");
+		if (model.length() > MAX_MODEL_LENGTH) {
+			throw new IllegalArgumentException("model is too long");
 		}
 		systemInstruction = required(systemInstruction, "systemInstruction");
 		userInstruction = required(userInstruction, "userInstruction");

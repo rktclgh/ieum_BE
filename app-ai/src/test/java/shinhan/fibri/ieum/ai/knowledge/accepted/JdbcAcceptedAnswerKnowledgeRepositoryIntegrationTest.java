@@ -254,6 +254,46 @@ class JdbcAcceptedAnswerKnowledgeRepositoryIntegrationTest {
 	}
 
 	@Test
+	void finalizesTwoAcceptedAnswersForOneQuestionAsTwoReadySourcesAndChunks() {
+		List<Long> answerIds = insertTwoAcceptedAnswersForOneQuestion();
+		AcceptedAnswerKnowledgeClaim first = repository.claimByAnswerId(answerIds.get(0), LEASE, MAX_ATTEMPTS)
+			.orElseThrow();
+		AcceptedAnswerKnowledgeClaim second = repository.claimByAnswerId(answerIds.get(1), LEASE, MAX_ATTEMPTS)
+			.orElseThrow();
+
+		assertThat(first.questionId()).isEqualTo(second.questionId());
+		assertThat(first.answerId()).isNotEqualTo(second.answerId());
+		assertThat(repository.finalizeClaim(first, vector(0.31f)))
+			.isEqualTo(AcceptedAnswerKnowledgeFinalizeResult.READY);
+		assertThat(repository.finalizeClaim(second, vector(0.73f)))
+			.isEqualTo(AcceptedAnswerKnowledgeFinalizeResult.READY);
+
+		assertThat(jdbc.sql("""
+			SELECT ks.answer_id, ks.status, ks.active::text, vector_dims(kc.embedding), kc.embedding_model, kc.content
+			FROM knowledge_sources ks
+			JOIN knowledge_chunks kc ON kc.source_id = ks.source_id
+			WHERE ks.question_id = :questionId
+			ORDER BY ks.answer_id
+			""").param("questionId", first.questionId())
+			.query((rs, row) -> List.of(
+				Long.toString(rs.getLong(1)), rs.getString(2), rs.getString(3),
+				Integer.toString(rs.getInt(4)), rs.getString(5), rs.getString(6)))
+			.list()).containsExactly(
+				List.of(Long.toString(first.answerId()), "ready", "true", "768", "gemini-embedding-2",
+					first.document().chunkText()),
+				List.of(Long.toString(second.answerId()), "ready", "true", "768", "gemini-embedding-2",
+					second.document().chunkText())
+			);
+		assertThat(jdbc.sql("""
+			SELECT count(DISTINCT source_id), count(DISTINCT answer_id)
+			FROM knowledge_sources
+			WHERE question_id = :questionId AND status = 'ready'
+			""").param("questionId", first.questionId())
+			.query((rs, row) -> List.of(Integer.toString(rs.getInt(1)), Integer.toString(rs.getInt(2))))
+			.single()).containsExactly("2", "2");
+	}
+
+	@Test
 	void staleTokenAndChangedLeaseCannotFinalizeOrFailANewerClaim() {
 		long answerId = insertAcceptedAnswer("fencing 대상");
 		AcceptedAnswerKnowledgeClaim stale = repository.claimByAnswerId(answerId, LEASE, MAX_ATTEMPTS)
@@ -350,6 +390,46 @@ class JdbcAcceptedAnswerKnowledgeRepositoryIntegrationTest {
 
 	private long insertAcceptedAnswer(String content) {
 		return insertAnswer(content, true, false);
+	}
+
+	private List<Long> insertTwoAcceptedAnswersForOneQuestion() {
+		long questionAuthor = insertUser("question-author-" + UUID.randomUUID());
+		long firstAnswerAuthor = insertUser("answer-author-" + UUID.randomUUID());
+		long secondAnswerAuthor = insertUser("answer-author-" + UUID.randomUUID());
+		long pinId = jdbc.sql("""
+			INSERT INTO pins(author_id,pin_type,location,address,detail_address,label)
+			VALUES (:authorId,'question',ST_SetSRID(ST_MakePoint(126.978,37.5665),4326)::geography,
+			        '대한민국 서울특별시 중구 세종대로 110','','서울시청')
+			RETURNING pin_id
+			""").param("authorId", questionAuthor).query(Long.class).single();
+		long questionId = jdbc.sql("""
+			INSERT INTO questions(pin_id,author_id,title,content)
+			VALUES (:pinId,:authorId,'한 질문 두 답변','같은 질문에 채택 답변이 둘일 수 있나요?')
+			RETURNING question_id
+			""").param("pinId", pinId).param("authorId", questionAuthor).query(Long.class).single();
+		long firstAnswerId = insertAcceptedAnswerForQuestion(
+			questionId,
+			firstAnswerAuthor,
+			"첫 번째 사람이 남긴 채택 답변입니다."
+		);
+		long secondAnswerId = insertAcceptedAnswerForQuestion(
+			questionId,
+			secondAnswerAuthor,
+			"두 번째 사람이 남긴 채택 답변입니다."
+		);
+		return List.of(firstAnswerId, secondAnswerId);
+	}
+
+	private long insertAcceptedAnswerForQuestion(long questionId, long authorId, String content) {
+		return jdbc.sql("""
+			INSERT INTO answers(question_id,author_id,is_ai,content,is_accepted)
+			VALUES (:questionId,:authorId,false,:content,true)
+			RETURNING answer_id
+			""")
+			.param("questionId", questionId)
+			.param("authorId", authorId)
+			.param("content", content)
+			.query(Long.class).single();
 	}
 
 	private long insertAnswer(String content, boolean accepted, boolean ai) {

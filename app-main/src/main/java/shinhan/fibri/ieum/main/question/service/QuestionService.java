@@ -89,12 +89,14 @@ public class QuestionService {
 		eventPublisher.publishEvent(new QuestionCreatedEvent(
 			question.getId(), principal.userId(), question.getTitle(), request.location().lat(), request.location().lng()
 		));
+		boolean resolved = question.isResolved();
 
 		return new QuestionDetailResponse(
 			question.getId(),
 			question.getTitle(),
 			question.getContent(),
-			question.isResolved(),
+			resolved,
+			resolved,
 			new AuthorSummary(author.getId(), author.getNickname(), profileUrl(author.getProfileFileId()), author.getNationality()),
 			request.location(),
 			imageFileIds.stream()
@@ -132,14 +134,18 @@ public class QuestionService {
 			rows = rows.subList(0, requestedSize);
 		}
 		List<MyQuestionItem> items = rows.stream()
-			.map(row -> new MyQuestionItem(
-				row.getQuestionId(),
-				row.getTitle(),
-				row.getResolved(),
-				row.getThumbnailFileId() == null ? null : THUMB_URL_TEMPLATE.formatted(row.getThumbnailFileId()),
-				row.getAnswerCount(),
-				row.getCreatedAt().atOffset(ZoneOffset.UTC)
-			))
+			.map(row -> {
+				boolean resolved = row.getResolved();
+				return new MyQuestionItem(
+					row.getQuestionId(),
+					row.getTitle(),
+					resolved,
+					resolved,
+					row.getThumbnailFileId() == null ? null : THUMB_URL_TEMPLATE.formatted(row.getThumbnailFileId()),
+					row.getAnswerCount(),
+					row.getCreatedAt().atOffset(ZoneOffset.UTC)
+				);
+			})
 			.toList();
 		return new CursorPage<>(items, nextCursor);
 	}
@@ -177,11 +183,13 @@ public class QuestionService {
 		List<String> imageUrls,
 		List<AnswerItem> answers
 	) {
+		boolean resolved = detail.getResolved();
 		return new QuestionDetailResponse(
 			detail.getQuestionId(),
 			detail.getTitle(),
 			detail.getContent(),
-			detail.getResolved(),
+			resolved,
+			resolved,
 			new AuthorSummary(
 				detail.getAuthorId(),
 				detail.getAuthorNickname(),

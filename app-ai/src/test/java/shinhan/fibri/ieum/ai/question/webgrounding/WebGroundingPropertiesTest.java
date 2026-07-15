@@ -51,9 +51,22 @@ class WebGroundingPropertiesTest {
 	}
 
 	@Test
-	void rejectsAnyModelOtherThanThePinnedGeminiModel() {
+	void acceptsAConfiguredGroundingCapableGeminiModel() {
+		WebGroundingProperties properties = new WebGroundingProperties(
+			"  gemini-2.5-flash-lite  ",
+			"api-key",
+			"prompt-v1",
+			1024,
+			Duration.ofSeconds(45)
+		);
+
+		assertThat(properties.model()).isEqualTo("gemini-2.5-flash-lite");
+	}
+
+	@Test
+	void rejectsBlankOrMissingModel() {
 		assertThatThrownBy(() -> new WebGroundingProperties(
-			"gemini-3.1-flash",
+			"  ",
 			"api-key",
 			"prompt-v1",
 			1024,

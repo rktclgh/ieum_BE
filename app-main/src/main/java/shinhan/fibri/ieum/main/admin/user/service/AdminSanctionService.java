@@ -1,11 +1,11 @@
 package shinhan.fibri.ieum.main.admin.user.service;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -22,10 +22,10 @@ import shinhan.fibri.ieum.main.admin.user.dto.CreateSanctionResponse;
 import shinhan.fibri.ieum.main.admin.user.exception.AdminUserNotFoundException;
 import shinhan.fibri.ieum.main.admin.user.exception.CannotSanctionAdminException;
 import shinhan.fibri.ieum.main.admin.user.exception.InvalidSanctionRequestException;
-import shinhan.fibri.ieum.main.admin.user.exception.SanctionAlreadyActiveException;
 import shinhan.fibri.ieum.main.admin.user.exception.UserNotSanctionedException;
 import shinhan.fibri.ieum.main.admin.user.repository.UserSanctionRepository;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
+import shinhan.fibri.ieum.main.notification.sse.SseConnectionRegistry;
 
 @Service
 @RequiredArgsConstructor
@@ -36,6 +36,7 @@ public class AdminSanctionService {
 	private final UserRepository userRepository;
 	private final UserSanctionRepository userSanctionRepository;
 	private final RedisAuthSessionStore sessionStore;
+	private final SseConnectionRegistry sseConnectionRegistry;
 
 	@Transactional
 	public CreateSanctionResponse sanction(AuthenticatedUser principal, Long userId, CreateSanctionRequest request) {
@@ -45,33 +46,24 @@ public class AdminSanctionService {
 			throw new CannotSanctionAdminException();
 		}
 		validateRequest(request);
-		if (userSanctionRepository.existsByUserIdAndReleasedAtIsNull(userId)) {
-			revokeSessions(userId);
-			throw new SanctionAlreadyActiveException();
-		}
-
 		target.suspend();
 		UserSanction sanction = createSanction(principal, userId, request);
-		try {
-			UserSanction saved = userSanctionRepository.save(sanction);
-			revokeSessionsAfterCommit(userId);
-			return new CreateSanctionResponse(saved.getId());
-		} catch (DataIntegrityViolationException exception) {
-			revokeSessions(userId);
-			throw new SanctionAlreadyActiveException();
-		}
+		UserSanction saved = userSanctionRepository.save(sanction);
+		revokeSessionsAfterCommit(userId);
+		return new CreateSanctionResponse(saved.getId());
 	}
 
 	@Transactional
 	public void activate(AuthenticatedUser principal, Long userId) {
 		User target = userRepository.findByIdForUpdate(userId)
 			.orElseThrow(AdminUserNotFoundException::new);
-		UserSanction activeSanction = userSanctionRepository.findByUserIdAndReleasedAtIsNull(userId).orElse(null);
-		if (activeSanction == null && target.getStatus() == UserStatus.active) {
+		List<UserSanction> activeSanctions = userSanctionRepository.findByUserIdAndRevokedAtIsNullForUpdate(userId);
+		if (activeSanctions.isEmpty() && target.getStatus() == UserStatus.active) {
 			throw new UserNotSanctionedException();
 		}
-		if (activeSanction != null) {
-			activeSanction.release(OffsetDateTime.now(), principal.userId());
+		if (!activeSanctions.isEmpty()) {
+			OffsetDateTime now = OffsetDateTime.now();
+			activeSanctions.forEach(sanction -> sanction.release(now, principal.userId()));
 			if (target.getStatus() == UserStatus.active) {
 				log.warn("Activating user with active sanction but active status: userId={}", userId);
 			} else {
@@ -89,16 +81,23 @@ public class AdminSanctionService {
 		// user 락을 sanction 락보다 먼저 잡는다 — sanction()/activate()와 락 순서를 통일해
 		// 만료 시점에 관리자의 activate 호출과 겹쳐도 AB-BA 데드락이 나지 않게 한다.
 		Optional<User> target = userRepository.findByIdForUpdate(userId);
-		UserSanction sanction = userSanctionRepository.findByIdForUpdate(sanctionId).orElse(null);
-		if (sanction == null || !sanction.isActive()) {
+		if (target.isEmpty()) {
+			log.warn("Expired sanction found but user was not found: userId={}, sanctionId={}", userId, sanctionId);
 			return;
 		}
-		sanction.release(OffsetDateTime.now(), null);
-		target.ifPresentOrElse(User::activate, () -> log.warn(
-			"Expired sanction released but user was not found: userId={}, sanctionId={}",
-			userId,
-			sanctionId
-		));
+		UserSanction sanction = userSanctionRepository.findByIdForUpdate(sanctionId).orElse(null);
+		OffsetDateTime now = OffsetDateTime.now();
+		if (sanction == null
+				|| !sanction.isActive()
+				|| !userId.equals(sanction.getUserId())
+				|| sanction.getType() != SanctionType.temporary
+				|| sanction.getEndsAt() == null
+				|| sanction.getEndsAt().isAfter(now)) {
+			return;
+		}
+		if (!userSanctionRepository.existsEffectiveSanction(userId, now)) {
+			target.orElseThrow().activate();
+		}
 	}
 
 	private void validateRequest(CreateSanctionRequest request) {
@@ -125,22 +124,27 @@ public class AdminSanctionService {
 
 	private void revokeSessionsAfterCommit(Long userId) {
 		if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-			revokeSessions(userId);
+			revokeSessionsAndCloseSse(userId);
 			return;
 		}
 		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
 			@Override
 			public void afterCommit() {
-				revokeSessions(userId);
+				revokeSessionsAndCloseSse(userId);
 			}
 		});
 	}
 
-	private void revokeSessions(Long userId) {
+	private void revokeSessionsAndCloseSse(Long userId) {
 		try {
 			sessionStore.revokeAllSessionsOfUser(userId);
 		} catch (RuntimeException exception) {
 			log.error("Failed to revoke sessions for sanctioned user: userId={}", userId, exception);
+		}
+		try {
+			sseConnectionRegistry.closeUser(userId);
+		} catch (RuntimeException exception) {
+			log.error("Failed to close SSE for sanctioned user: userId={}", userId, exception);
 		}
 	}
 }

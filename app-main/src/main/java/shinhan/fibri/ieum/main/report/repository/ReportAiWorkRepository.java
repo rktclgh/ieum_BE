@@ -11,6 +11,8 @@ public interface ReportAiWorkRepository {
 
 	boolean markRetry(long reportId, UUID attemptId, OffsetDateTime nextAttemptAt, String errorCode, String errorMessage);
 
+	boolean markCompleted(long reportId, UUID attemptId, ReportAiReviewResult result);
+
 	boolean markDead(long reportId, UUID attemptId, String errorCode, String errorMessage);
 
 	int recoverExpiredLeases(OffsetDateTime now, int maxAttempts);

@@ -72,9 +72,17 @@ grep -Fq ':app-main:test :app-main:bootJar' "$main_workflow"
 grep -Fq 'docker.io/${DOCKERHUB_USERNAME}/ieum-app-main:' "$main_workflow"
 grep -Fq 'deploy/nginx/' "$main_workflow"
 grep -Fq 'configure-nginx.sh' "$main_workflow"
+grep -Fq 'if [[ -n "$LETSENCRYPT_EMAIL" ]]; then' "$main_workflow"
 grep -Fq '[[ "$status" == "200" ]]' "$main_workflow"
 forbid_literal 'vars.APP_MAIN_PORT' "$main_workflow"
 grep -Fq '54.116.123.11' deploy/GITHUB-CONFIG.md
+
+nginx_configure_line="$(grep -n -m1 -F '"sudo bash '\''$DEPLOY_PATH/configure-nginx.sh' "$main_workflow" | cut -d: -f1)"
+compose_deploy_line="$(grep -n -m1 -F '"sudo env APP_MAIN_PRIVATE_BIND_ADDRESS=' "$main_workflow" | cut -d: -f1)"
+(( nginx_configure_line < compose_deploy_line )) || {
+  echo "Nginx must be configured before the app-main health-gated deployment." >&2
+  exit 1
+}
 
 grep -Fq ':app-ai:test :app-ai:bootJar' "$ai_workflow"
 grep -Fq 'docker.io/${DOCKERHUB_USERNAME}/ieum-app-ai:' "$ai_workflow"
@@ -96,6 +104,12 @@ grep -Fq 'DOCKERHUB_TOKEN' "$main_workflow"
 grep -Fq 'DOCKERHUB_USERNAME' "$ai_workflow"
 grep -Fq 'DOCKERHUB_TOKEN' "$ai_workflow"
 grep -Fq 'docker login --username' deploy/scripts/deploy-compose.sh
+grep -Fq 'SPRING_DATASOURCE_URL must target the production database' deploy/scripts/deploy-compose.sh
+grep -Fq 'jdbc:postgresql://localhost:' deploy/scripts/deploy-compose.sh
+grep -Fq 'jdbc:postgresql://127.0.0.1:' deploy/scripts/deploy-compose.sh
+grep -Fq '*YOUR_DATABASE_HOST*' deploy/scripts/deploy-compose.sh
+grep -Fq 'INQUIRY_ADMIN_EMAIL is required in .env.runtime.' deploy/scripts/deploy-compose.sh
+grep -Fq 'REDIS_HOST must be redis in .env.runtime.' deploy/scripts/deploy-compose.sh
 
 grep -Fq 'redis:7' deploy/app-main/compose.yml
 grep -Fq 'image: redis:7.2-alpine' deploy/app-main/compose.yml
@@ -113,6 +127,7 @@ grep -Fq '.env.runtime' deploy/app-ai/compose.yml
 
 grep -Fq 'REDIS_HOST=redis' deploy/env/app-main.env.example
 grep -Fq 'SPRING_DATASOURCE_URL=jdbc:postgresql://YOUR_DATABASE_HOST:5432/ieum' deploy/env/app-main.env.example
+grep -Fq 'INQUIRY_ADMIN_EMAIL=' deploy/env/app-main.env.example
 grep -Fq 'SPRING_DATASOURCE_URL=jdbc:postgresql://YOUR_DATABASE_HOST:5432/ieum' deploy/env/app-ai.env.example
 forbid_regex 'rds\.amazonaws\.com' deploy/env
 grep -Fq 'APP_MAIN_PRIVATE_BIND_ADDRESS=172.31.38.97' deploy/env/app-main.env.example

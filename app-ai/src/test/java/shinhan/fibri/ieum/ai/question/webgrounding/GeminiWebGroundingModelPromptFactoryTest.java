@@ -85,7 +85,7 @@ class GeminiWebGroundingModelPromptFactoryTest {
 	}
 
 	@Test
-	void requestRequiresPinnedModelNonblankInstructionsAndBoundedTokens() {
+	void requestRequiresConfiguredModelNonblankInstructionsAndBoundedTokens() {
 		GeminiWebGroundingRequest request = new GeminiWebGroundingRequest(
 			REQUIRED_MODEL,
 			"system instruction",
@@ -100,8 +100,21 @@ class GeminiWebGroundingModelPromptFactoryTest {
 			"user instruction",
 			8192
 		).maxOutputTokens()).isEqualTo(8192);
+		assertThat(new GeminiWebGroundingRequest(
+			" gemini-2.5-flash-lite ",
+			"system instruction",
+			"user instruction",
+			1024
+		).model()).isEqualTo("gemini-2.5-flash-lite");
 		assertThatThrownBy(() -> new GeminiWebGroundingRequest(
-			" " + REQUIRED_MODEL,
+			" ",
+			"system instruction",
+			"user instruction",
+			1024
+		)).isInstanceOf(IllegalArgumentException.class)
+			.hasMessageContaining("model");
+		assertThatThrownBy(() -> new GeminiWebGroundingRequest(
+			"m".repeat(121),
 			"system instruction",
 			"user instruction",
 			1024

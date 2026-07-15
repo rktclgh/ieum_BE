@@ -166,6 +166,20 @@ class ReportPolicyEvaluatorTest {
 		assertThat(qualifiedHold.category()).isEqualTo("content-hold-001");
 	}
 
+	@Test
+	void uncertaintyDowngradesAQualifiedSuspendToRuleBackedHold() {
+		ReportPolicyEvaluationResult result = evaluate(
+			snapshot(rule("CONTENT-SUSPEND-001", ReportPolicyDecision.suspend, ReportPolicySeverity.critical, "0.98", 1)),
+			output(true, match("CONTENT-SUSPEND-001", "0.99"))
+		);
+
+		assertThat(result.decision()).isEqualTo(ReportPolicyDecision.hold);
+		assertThat(result.sourceRuleCode()).isEqualTo("CONTENT-SUSPEND-001");
+		assertThat(result.category()).isEqualTo("content-suspend-001");
+		assertThat(result.severity()).isEqualTo(ReportPolicySeverity.critical);
+		assertThat(result.confidence()).isEqualByComparingTo("0.99");
+	}
+
 	private ReportPolicySnapshot snapshot(ReportPolicyRule... rules) {
 		return new ReportPolicySnapshot("a".repeat(64), Arrays.asList(rules));
 	}

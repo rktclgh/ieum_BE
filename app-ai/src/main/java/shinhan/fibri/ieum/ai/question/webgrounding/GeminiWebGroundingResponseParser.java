@@ -163,14 +163,13 @@ final class GeminiWebGroundingResponseParser {
 		Segment segment = support.segment().orElse(null);
 		if (segment == null
 			|| segment.partIndex().orElse(0) != 0
-			|| segment.startIndex().isEmpty()
 			|| segment.endIndex().isEmpty()
 			|| segment.text().isEmpty()) {
 			return Optional.empty();
 		}
 		Optional<Utf8CitationRangeResolver.Range> resolved = Utf8CitationRangeResolver.resolve(
 			answer,
-			segment.startIndex().orElseThrow(),
+			segment.startIndex().orElse(0),
 			segment.endIndex().orElseThrow(),
 			segment.text().orElseThrow()
 		);

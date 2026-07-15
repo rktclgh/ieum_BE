@@ -6,6 +6,7 @@ public record MyQuestionItem(
 	Long questionId,
 	String title,
 	boolean isResolved,
+	boolean answerSelectionFinalized,
 	String thumbnailUrl,
 	int answerCount,
 	OffsetDateTime createdAt

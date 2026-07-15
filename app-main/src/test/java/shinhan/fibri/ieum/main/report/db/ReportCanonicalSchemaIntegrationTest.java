@@ -59,6 +59,10 @@ class ReportCanonicalSchemaIntegrationTest {
 		assertThat(indexNames(jdbc, "reports")).contains("idx_reports_answer");
 		assertThat(triggerNames(jdbc, "reports")).contains("trg_reports_target_integrity");
 		assertThat(tableExists(jdbc, "user_sanctions")).isTrue();
+		assertThat(validCheckConstraints(jdbc, "user_sanctions"))
+			.contains("ck_user_sanctions_review_status");
+		assertThat(foreignKeyNames(jdbc, "user_sanctions"))
+			.contains("fk_user_sanctions_revoked_by");
 	}
 
 	private static String reportTargetFunctionDefinition(JdbcClient jdbc) {

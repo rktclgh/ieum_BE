@@ -10,6 +10,10 @@ import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import shinhan.fibri.ieum.main.admin.user.scheduler.SanctionExpiryScheduler;
+import shinhan.fibri.ieum.main.meeting.scheduler.MeetingRecurrenceExpansionScheduler;
+import shinhan.fibri.ieum.main.meeting.scheduler.MeetingScheduleCompletionScheduler;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class StaticFrontendHttpIntegrationTest {
@@ -20,6 +24,15 @@ class StaticFrontendHttpIntegrationTest {
 
 	@LocalServerPort
 	private int port;
+
+	@MockitoBean
+	private SanctionExpiryScheduler sanctionExpiryScheduler;
+
+	@MockitoBean
+	private MeetingRecurrenceExpansionScheduler recurrenceExpansionScheduler;
+
+	@MockitoBean
+	private MeetingScheduleCompletionScheduler scheduleCompletionScheduler;
 
 	@Test
 	void servesForwardedHtmlWithoutConsultingAnInvalidAuthCookie() throws Exception {

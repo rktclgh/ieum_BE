@@ -40,6 +40,12 @@ public class ReportPolicyEvaluator {
 		List<PolicyCandidate> candidates = modelOutput.matchedRules().stream()
 			.map(match -> toCandidate(rulesByCode, messagesById, match))
 			.toList();
+		if (modelOutput.uncertain()) {
+			PolicyCandidate potentialHarm = select(candidates, candidate ->
+				candidate.rule().decision() == ReportPolicyDecision.suspend
+					|| candidate.rule().decision() == ReportPolicyDecision.hold);
+			return potentialHarm == null ? systemUncertainHold() : fromRule(ReportPolicyDecision.hold, potentialHarm);
+		}
 
 		PolicyCandidate qualifiedSuspend = select(candidates, candidate ->
 			candidate.rule().decision() == ReportPolicyDecision.suspend && candidate.qualifies());
@@ -60,19 +66,6 @@ public class ReportPolicyEvaluator {
 			return fromRule(ReportPolicyDecision.hold, subthresholdPotential);
 		}
 
-		if (modelOutput.uncertain()) {
-			return new ReportPolicyEvaluationResult(
-				ReportPolicyDecision.hold,
-				SYSTEM_HOLD_CATEGORY,
-				ReportPolicySeverity.low,
-				SYSTEM_HOLD_CONFIDENCE,
-				SYSTEM_HOLD_REASON,
-				null,
-				List.of(),
-				List.of()
-			);
-		}
-
 		PolicyCandidate qualifiedNormal = select(candidates, candidate ->
 			candidate.rule().decision() == ReportPolicyDecision.normal && candidate.qualifies());
 		if (qualifiedNormal != null) {
@@ -85,6 +78,19 @@ public class ReportPolicyEvaluator {
 			null,
 			BigDecimal.ZERO,
 			NO_MATCH_REASON,
+			null,
+			List.of(),
+			List.of()
+		);
+	}
+
+	private ReportPolicyEvaluationResult systemUncertainHold() {
+		return new ReportPolicyEvaluationResult(
+			ReportPolicyDecision.hold,
+			SYSTEM_HOLD_CATEGORY,
+			ReportPolicySeverity.low,
+			SYSTEM_HOLD_CONFIDENCE,
+			SYSTEM_HOLD_REASON,
 			null,
 			List.of(),
 			List.of()
