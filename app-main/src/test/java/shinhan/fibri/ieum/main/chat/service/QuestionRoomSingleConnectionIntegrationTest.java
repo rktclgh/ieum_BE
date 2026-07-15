@@ -69,6 +69,12 @@ class QuestionRoomSingleConnectionIntegrationTest {
 	@MockitoBean
 	private FriendRequestNotifier friendRequestNotifier;
 
+	@MockitoBean
+	private ChatRoomSummaryQueryService chatRoomSummaryQueryService;
+
+	@MockitoBean
+	private ChatRoomListChangeEmitter chatRoomListChangeEmitter;
+
 	private long ownerId;
 	private long answererId;
 	private long questionId;
