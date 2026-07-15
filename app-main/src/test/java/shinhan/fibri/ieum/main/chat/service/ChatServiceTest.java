@@ -378,6 +378,7 @@ class ChatServiceTest {
 			RoomType.direct,
 			null,
 			null,
+			null,
 			false,
 			true,
 			3L,

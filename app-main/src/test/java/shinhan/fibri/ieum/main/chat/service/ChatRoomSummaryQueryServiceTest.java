@@ -19,16 +19,20 @@ import shinhan.fibri.ieum.common.chat.domain.RoomType;
 import shinhan.fibri.ieum.common.chat.repository.ChatMemberRepository;
 import shinhan.fibri.ieum.common.chat.repository.ChatRoomRepository;
 import shinhan.fibri.ieum.common.chat.repository.MessageRepository;
+import shinhan.fibri.ieum.main.question.repository.QuestionRepository;
+import shinhan.fibri.ieum.main.question.repository.QuestionTitleProjection;
 
 class ChatRoomSummaryQueryServiceTest {
 
 	private final ChatRoomRepository chatRoomRepository = org.mockito.Mockito.mock(ChatRoomRepository.class);
 	private final ChatMemberRepository chatMemberRepository = org.mockito.Mockito.mock(ChatMemberRepository.class);
 	private final MessageRepository messageRepository = org.mockito.Mockito.mock(MessageRepository.class);
+	private final QuestionRepository questionRepository = org.mockito.Mockito.mock(QuestionRepository.class);
 	private final ChatRoomSummaryQueryService service = new ChatRoomSummaryQueryService(
 		chatRoomRepository,
 		chatMemberRepository,
-		messageRepository
+		messageRepository,
+		questionRepository
 	);
 
 	@Test
@@ -50,6 +54,7 @@ class ChatRoomSummaryQueryServiceTest {
 			.thenReturn(List.of(unread(100L, 3L)));
 		when(messageRepository.findLastMessagesByRoomIds(List.of(100L, 200L)))
 			.thenReturn(List.of(normalLast, pinnedLast));
+		when(questionRepository.findTitlesByIds(List.of(10L))).thenReturn(List.of(questionTitle(10L, "question")));
 
 		var response = service.listForUser(42L, null);
 
@@ -58,6 +63,7 @@ class ChatRoomSummaryQueryServiceTest {
 			.containsExactly(200L, 100L);
 		assertThat(response.get(0).pinned()).isTrue();
 		assertThat(response.get(0).notifyEnabled()).isFalse();
+		assertThat(response.get(0).questionTitle()).isEqualTo("question");
 		assertThat(response.get(0).lastMessage().content()).isEqualTo("pinned");
 		assertThat(response.get(1).unreadCount()).isEqualTo(3L);
 	}
@@ -144,6 +150,20 @@ class ChatRoomSummaryQueryServiceTest {
 			@Override
 			public Long getUnreadCount() {
 				return count;
+			}
+		};
+	}
+
+	private QuestionTitleProjection questionTitle(Long questionId, String title) {
+		return new QuestionTitleProjection() {
+			@Override
+			public Long getQuestionId() {
+				return questionId;
+			}
+
+			@Override
+			public String getTitle() {
+				return title;
 			}
 		};
 	}

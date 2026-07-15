@@ -41,6 +41,7 @@ class ChatRoomListEventTest {
 			RoomType.direct,
 			null,
 			null,
+			null,
 			true,
 			true,
 			3L,

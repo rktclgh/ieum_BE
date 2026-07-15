@@ -34,6 +34,7 @@ import org.springframework.messaging.simp.stomp.StompSessionHandlerAdapter;
 import org.springframework.messaging.simp.user.SimpUserRegistry;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.web.socket.WebSocketHttpHeaders;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import org.springframework.web.socket.messaging.WebSocketStompClient;
@@ -42,6 +43,7 @@ import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.chat.domain.RoomType;
 import shinhan.fibri.ieum.common.chat.repository.ChatMemberRepository;
+import shinhan.fibri.ieum.main.admin.content.service.ContentPurgeService;
 import shinhan.fibri.ieum.main.auth.session.AuthSession;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
@@ -91,6 +93,9 @@ class ChatWebSocketIntegrationTest {
 
 	@Autowired
 	private SimpUserRegistry userRegistry;
+
+	@MockitoBean
+	private ContentPurgeService contentPurgeService;
 
 	@BeforeEach
 	void setUp() {
@@ -296,7 +301,7 @@ class ChatWebSocketIntegrationTest {
 	}
 
 	private ChatRoomSummaryResponse roomSummary(Long roomId, boolean pinned) {
-		return new ChatRoomSummaryResponse(roomId, RoomType.direct, null, null, pinned, true, 0L, null);
+		return new ChatRoomSummaryResponse(roomId, RoomType.direct, null, null, null, pinned, true, 0L, null);
 	}
 
 	@TestConfiguration
