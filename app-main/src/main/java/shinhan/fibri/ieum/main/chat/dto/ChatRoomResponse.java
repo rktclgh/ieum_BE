@@ -7,15 +7,17 @@ public record ChatRoomResponse(
 	Long roomId,
 	RoomType roomType,
 	Long meetingId,
-	Long questionId
+	Long questionId,
+	String questionTitle
 ) {
 
-	public static ChatRoomResponse from(ChatRoom room) {
+	public static ChatRoomResponse from(ChatRoom room, String questionTitle) {
 		return new ChatRoomResponse(
 			room.getId(),
 			room.getRoomType(),
 			room.getMeetingId(),
-			room.getQuestionId()
+			room.getQuestionId(),
+			questionTitle
 		);
 	}
 }
