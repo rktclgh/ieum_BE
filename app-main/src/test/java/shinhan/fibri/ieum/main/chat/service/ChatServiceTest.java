@@ -61,6 +61,7 @@ class ChatServiceTest {
 	private final AnswerRepository answerRepository = org.mockito.Mockito.mock(AnswerRepository.class);
 	private final ChatRoomLifecycle chatRoomLifecycle = org.mockito.Mockito.mock(ChatRoomLifecycle.class);
 	private final ChatRoomSummaryQueryService chatRoomSummaryQueryService = org.mockito.Mockito.mock(ChatRoomSummaryQueryService.class);
+	private final ChatRoomListChangeEmitter chatRoomListChangeEmitter = org.mockito.Mockito.mock(ChatRoomListChangeEmitter.class);
 	private final List<TransactionDefinition> transactionDefinitions = new ArrayList<>();
 	private final PlatformTransactionManager transactionManager = new PlatformTransactionManager() {
 		@Override
@@ -88,6 +89,7 @@ class ChatServiceTest {
 		answerRepository,
 		chatRoomLifecycle,
 		chatRoomSummaryQueryService,
+		chatRoomListChangeEmitter,
 		transactionManager
 	);
 
@@ -506,6 +508,7 @@ class ChatServiceTest {
 		service.markRead(principal(42L), 100L);
 
 		assertThat(member.getLastReadAt()).isNotNull();
+		verify(chatRoomListChangeEmitter).upsert(100L, List.of(42L));
 	}
 
 	@Test
@@ -517,9 +520,11 @@ class ChatServiceTest {
 
 		service.setPinned(principal(42L), 100L, true);
 		assertThat(member.getPinnedAt()).isNotNull();
+		verify(chatRoomListChangeEmitter).upsert(100L, List.of(42L));
 
 		service.setPinned(principal(42L), 100L, false);
 		assertThat(member.getPinnedAt()).isNull();
+		verify(chatRoomListChangeEmitter, times(2)).upsert(100L, List.of(42L));
 	}
 
 	@Test
@@ -532,6 +537,21 @@ class ChatServiceTest {
 		service.setNotifyEnabled(principal(42L), 100L, false);
 
 		assertThat(member.isNotifyEnabled()).isFalse();
+		verify(chatRoomListChangeEmitter).upsert(100L, List.of(42L));
+	}
+
+	@Test
+	void settingsChangesDoNotEmitListEventsWhenMembershipValidationFails() {
+		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.markRead(principal(42L), 100L))
+			.isInstanceOf(NotRoomMemberException.class);
+		assertThatThrownBy(() -> service.setPinned(principal(42L), 100L, true))
+			.isInstanceOf(NotRoomMemberException.class);
+		assertThatThrownBy(() -> service.setNotifyEnabled(principal(42L), 100L, false))
+			.isInstanceOf(NotRoomMemberException.class);
+
+		verify(chatRoomListChangeEmitter, never()).upsert(any(), any());
 	}
 
 	@Test

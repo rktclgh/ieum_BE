@@ -63,6 +63,7 @@ public class ChatService {
 	private final AnswerRepository answerRepository;
 	private final ChatRoomLifecycle chatRoomLifecycle;
 	private final ChatRoomSummaryQueryService chatRoomSummaryQueryService;
+	private final ChatRoomListChangeEmitter chatRoomListChangeEmitter;
 	private final PlatformTransactionManager transactionManager;
 
 	public ChatRoomResponse createDirectRoom(AuthenticatedUser principal, Long friendId) {
@@ -196,16 +197,19 @@ public class ChatService {
 	@Transactional
 	public void markRead(AuthenticatedUser principal, Long roomId) {
 		findActiveMember(roomId, principal.userId()).markRead(java.time.OffsetDateTime.now());
+		chatRoomListChangeEmitter.upsert(roomId, List.of(principal.userId()));
 	}
 
 	@Transactional
 	public void setPinned(AuthenticatedUser principal, Long roomId, boolean pinned) {
 		findActiveMember(roomId, principal.userId()).setPinned(pinned, java.time.OffsetDateTime.now());
+		chatRoomListChangeEmitter.upsert(roomId, List.of(principal.userId()));
 	}
 
 	@Transactional
 	public void setNotifyEnabled(AuthenticatedUser principal, Long roomId, boolean enabled) {
 		findActiveMember(roomId, principal.userId()).setNotifyEnabled(enabled);
+		chatRoomListChangeEmitter.upsert(roomId, List.of(principal.userId()));
 	}
 
 	@Transactional
