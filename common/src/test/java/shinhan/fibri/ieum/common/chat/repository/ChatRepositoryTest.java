@@ -3,6 +3,7 @@ package shinhan.fibri.ieum.common.chat.repository;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -50,6 +51,9 @@ class ChatRepositoryTest {
 
 	@Autowired
 	private EntityManager entityManager;
+
+	@Autowired
+	private EntityManagerFactory entityManagerFactory;
 
 	@Test
 	void findsActiveRoomsForUserAndOptionalType() {
@@ -194,6 +198,43 @@ class ChatRepositoryTest {
 		assertThat(messageRepository.findLastMessagesByRoomIds(List.of(room.getId())))
 			.extracting(Message::getContent)
 			.containsExactly("new");
+	}
+
+	@Test
+	void findsLastMessagesByCreatedAtThenIdInsteadOfMaxIdInBulk() {
+		User me = persist(user("last-order-me@example.com", "last-order-me"));
+		User friend = persist(user("last-order-friend@example.com", "last-order-friend"));
+		ChatRoom room = chatRoomRepository.save(ChatRoom.direct(me.getId(), friend.getId()));
+		OffsetDateTime base = OffsetDateTime.parse("2026-07-08T10:00:00+09:00");
+		Message latestByCreatedAt = messageRepository.save(Message.text(room, friend, "latest-created-at", base.plusMinutes(1)));
+		Message olderWithHigherId = messageRepository.save(Message.text(room, friend, "older-higher-id", base));
+		entityManager.flush();
+		entityManager.clear();
+
+		assertThat(olderWithHigherId.getId()).isGreaterThan(latestByCreatedAt.getId());
+		List<Message> messages = messageRepository.findLastMessagesByRoomIds(List.of(room.getId()));
+
+		assertThat(messages)
+			.extracting(Message::getContent)
+			.containsExactly("latest-created-at");
+		assertThat(entityManagerFactory.getPersistenceUnitUtil().isLoaded(messages.get(0).getSender())).isTrue();
+		assertThat(entityManagerFactory.getPersistenceUnitUtil().isLoaded(messages.get(0).getRoom())).isTrue();
+	}
+
+	@Test
+	void findsLastMessagesByHigherIdWhenCreatedAtTies() {
+		User me = persist(user("last-tie-me@example.com", "last-tie-me"));
+		User friend = persist(user("last-tie-friend@example.com", "last-tie-friend"));
+		ChatRoom room = chatRoomRepository.save(ChatRoom.direct(me.getId(), friend.getId()));
+		OffsetDateTime createdAt = OffsetDateTime.parse("2026-07-08T10:00:00+09:00");
+		messageRepository.save(Message.text(room, friend, "same-created-at-lower-id", createdAt));
+		Message higherId = messageRepository.save(Message.text(room, friend, "same-created-at-higher-id", createdAt));
+		entityManager.flush();
+		entityManager.clear();
+
+		assertThat(messageRepository.findLastMessagesByRoomIds(List.of(room.getId())))
+			.extracting(Message::getContent)
+			.containsExactly(higherId.getContent());
 	}
 
 	@Test

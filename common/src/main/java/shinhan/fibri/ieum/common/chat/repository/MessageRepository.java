@@ -77,14 +77,20 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 	@Query("""
 		SELECT message
 		FROM Message message
+		JOIN FETCH message.room
 		JOIN FETCH message.sender
-		WHERE message.id IN (
-			SELECT MAX(latest.id)
-			FROM Message latest
-			WHERE latest.room.id IN :roomIds
-			  AND latest.deletedAt IS NULL
-			GROUP BY latest.room.id
-		)
+		WHERE message.room.id IN :roomIds
+		  AND message.deletedAt IS NULL
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM Message newer
+			WHERE newer.room = message.room
+			  AND newer.deletedAt IS NULL
+			  AND (
+				newer.createdAt > message.createdAt
+				OR (newer.createdAt = message.createdAt AND newer.id > message.id)
+			  )
+		  )
 		ORDER BY message.createdAt DESC, message.id DESC
 		""")
 	List<Message> findLastMessagesByRoomIds(@Param("roomIds") List<Long> roomIds);
