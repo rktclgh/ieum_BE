@@ -60,6 +60,11 @@ class QuestionServiceTest {
 	private final PinWriter pinWriter = mock(PinWriter.class);
 	private final QuestionAnswerTicketWriter questionAnswerTicketWriter = mock(QuestionAnswerTicketWriter.class);
 	private final ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
+	private final QuestionDeletionExecutor questionDeletionExecutor = new QuestionDeletionExecutor(
+		questionRepository,
+		pinWriter,
+		questionAnswerTicketWriter
+	);
 	private final QuestionService service = new QuestionService(
 		questionRepository,
 		questionImageRepository,
@@ -68,7 +73,8 @@ class QuestionServiceTest {
 		userRepository,
 		pinWriter,
 		questionAnswerTicketWriter,
-		eventPublisher
+		eventPublisher,
+		questionDeletionExecutor
 	);
 
 	@Test

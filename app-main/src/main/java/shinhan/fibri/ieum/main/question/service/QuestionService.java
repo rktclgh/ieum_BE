@@ -39,7 +39,6 @@ import shinhan.fibri.ieum.main.question.exception.QuestionNotFoundException;
 import shinhan.fibri.ieum.main.question.repository.AnswerItemProjection;
 import shinhan.fibri.ieum.main.question.repository.MyQuestionItemProjection;
 import shinhan.fibri.ieum.main.question.repository.QuestionDetailProjection;
-import shinhan.fibri.ieum.main.question.repository.QuestionDeletionState;
 import shinhan.fibri.ieum.main.question.repository.QuestionImageRepository;
 import shinhan.fibri.ieum.main.question.repository.QuestionRepository;
 import shinhan.fibri.ieum.main.notification.presence.QuestionCreatedEvent;
@@ -60,6 +59,7 @@ public class QuestionService {
 	private final PinWriter pinWriter;
 	private final QuestionAnswerTicketWriter questionAnswerTicketWriter;
 	private final ApplicationEventPublisher eventPublisher;
+	private final QuestionDeletionExecutor questionDeletionExecutor;
 
 	@Transactional
 	public QuestionDetailResponse create(AuthenticatedUser principal, QuestionCreateRequest request) {
@@ -152,30 +152,12 @@ public class QuestionService {
 
 	@Transactional
 	public void delete(AuthenticatedUser principal, Long questionId) {
-		QuestionDeletionState precheck = questionRepository.findDeletionState(questionId)
-			.orElseThrow(QuestionNotFoundException::new);
-		if (!precheck.getAuthorId().equals(principal.userId())) {
-			throw new QuestionForbiddenException();
-		}
-		if (precheck.getDeletedAt() != null) {
-			return;
-		}
-
-		questionAnswerTicketWriter.requestCancellation(questionId);
-		Question question = questionRepository.findByIdForUpdate(questionId).orElse(null);
-		if (question == null) {
-			return;
-		}
-		if (!question.getAuthorId().equals(principal.userId())) {
-			throw new QuestionForbiddenException();
-		}
-		if (question.isDeleted()) {
-			return;
-		}
-
-		OffsetDateTime deletedAt = OffsetDateTime.now();
-		question.softDelete(deletedAt);
-		pinWriter.softDelete(question.getPinId(), deletedAt);
+		questionDeletionExecutor.deleteQuestion(
+			questionId,
+			principal.userId(),
+			QuestionNotFoundException::new,
+			QuestionForbiddenException::new
+		);
 	}
 
 	private QuestionDetailResponse toDetailResponse(
