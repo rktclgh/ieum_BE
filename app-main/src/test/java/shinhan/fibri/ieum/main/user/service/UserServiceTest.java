@@ -392,7 +392,7 @@ class UserServiceTest {
 	@Test
 	void withdrawRunsRemainingInvalidationActionsWhenPushCleanupFails() {
 		User user = user();
-		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user));
+		when(userRepository.findByIdForUpdate(42L)).thenReturn(Optional.of(user));
 		doThrow(new IllegalStateException("database unavailable"))
 			.when(webPushSubscriptionCleanup)
 			.deleteForUser(42L);
@@ -408,7 +408,7 @@ class UserServiceTest {
 	@Test
 	void withdrawDoesNotRunInvalidationActionsWhenTransactionRollsBack() {
 		User user = user();
-		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user));
+		when(userRepository.findByIdForUpdate(42L)).thenReturn(Optional.of(user));
 
 		TransactionSynchronizationManager.initSynchronization();
 		try {
