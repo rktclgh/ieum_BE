@@ -50,6 +50,7 @@ public class AdminUserHardDeleteService {
 			throw new CannotHardDeleteUserException("User is referenced as an administrative actor");
 		}
 
+		log.info("Admin hard deleting user. adminUserId={} targetUserId={}", principal.userId(), userId);
 		List<String> s3Keys = repository.hardDelete(userId);
 		cleanupAfterCommit(userId, s3Keys);
 	}

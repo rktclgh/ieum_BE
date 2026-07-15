@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.main.admin.user.service;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -11,6 +12,9 @@ import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
@@ -26,6 +30,7 @@ import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
 import shinhan.fibri.ieum.main.file.storage.FileStorage;
 import shinhan.fibri.ieum.main.notification.sse.SseConnectionRegistry;
 
+@ExtendWith(OutputCaptureExtension.class)
 class AdminUserHardDeleteServiceTest {
 
 	private final AdminUserHardDeleteRepository repository = mock(AdminUserHardDeleteRepository.class);
@@ -119,6 +124,19 @@ class AdminUserHardDeleteServiceTest {
 		verify(fileStorage).delete("final/10/profile/file/original.jpg");
 		verify(fileStorage).delete("final/10/profile/file/display.webp");
 		verify(fileStorage).delete("final/10/profile/file/thumb.webp");
+	}
+
+	@Test
+	void hardDeleteLogsAdminActorAndTargetBeforeDeleting(CapturedOutput output) {
+		when(repository.findForHardDelete(10L)).thenReturn(Optional.of(target(10L, "user@example.com", UserRole.user)));
+		when(repository.hardDelete(10L)).thenReturn(List.of());
+
+		service.hardDelete(adminPrincipal(), 10L, "user@example.com");
+
+		assertThat(output)
+			.contains("Admin hard deleting user")
+			.contains("adminUserId=1")
+			.contains("targetUserId=10");
 	}
 
 	@Test
