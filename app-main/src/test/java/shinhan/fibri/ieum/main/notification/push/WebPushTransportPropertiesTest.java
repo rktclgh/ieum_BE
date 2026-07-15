@@ -61,6 +61,22 @@ class WebPushTransportPropertiesTest {
 	}
 
 	@Test
+	void rejectsUppercaseOrMixedCaseVapidSubjectSchemes() {
+		WebPushTestKeys.RawVapidKeys keys = WebPushTestKeys.generateVapidKeys();
+
+		assertThatThrownBy(() -> properties(keys.privateKey(), "MAILTO:ops@example.com")
+			.createVapidKeys(keys.publicKey()))
+			.isInstanceOf(IllegalStateException.class)
+			.hasMessageContaining("app.web-push.vapid-subject")
+			.hasMessageNotContaining(keys.privateKey());
+		assertThatThrownBy(() -> properties(keys.privateKey(), "Https://example.com/contact")
+			.createVapidKeys(keys.publicKey()))
+			.isInstanceOf(IllegalStateException.class)
+			.hasMessageContaining("app.web-push.vapid-subject")
+			.hasMessageNotContaining(keys.privateKey());
+	}
+
+	@Test
 	void rejectsMalformedOrMismatchedRawVapidKeysWithoutLeakingThem() {
 		WebPushTestKeys.RawVapidKeys publicKeys = WebPushTestKeys.generateVapidKeys();
 		WebPushTestKeys.RawVapidKeys privateKeys = WebPushTestKeys.generateVapidKeys();

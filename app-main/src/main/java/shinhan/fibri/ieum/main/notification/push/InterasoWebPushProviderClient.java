@@ -16,32 +16,36 @@ public class InterasoWebPushProviderClient implements WebPushProviderClient {
 	private final HttpClient httpClient;
 	private final WebPushTransportProperties properties;
 	private final VapidKeys vapidKeys;
+	private final WebPushEndpointPolicy endpointPolicy;
 
 	public InterasoWebPushProviderClient(
 		HttpClient httpClient,
 		WebPushTransportProperties properties,
-		VapidKeys vapidKeys
+		VapidKeys vapidKeys,
+		WebPushEndpointPolicy endpointPolicy
 	) {
 		this.httpClient = Objects.requireNonNull(httpClient, "httpClient");
 		this.properties = Objects.requireNonNull(properties, "properties");
 		this.vapidKeys = Objects.requireNonNull(vapidKeys, "vapidKeys");
+		this.endpointPolicy = Objects.requireNonNull(endpointPolicy, "endpointPolicy");
 	}
 
 	@Override
 	public int send(WebPushProviderRequest request) {
 		Objects.requireNonNull(request, "request");
 		try {
+			URI endpoint = endpointPolicy.validate(request.endpoint());
 			byte[] p256dh = decodeKey(request.p256dh(), 65, true);
 			byte[] auth = decodeKey(request.auth(), 16, false);
 			WebPush webPush = new WebPush(properties.vapidSubject(), vapidKeys);
 			byte[] encryptedBody = webPush.getBody(request.payload(), p256dh, auth);
 			Map<String, String> headers = webPush.getHeaders(
-				request.endpoint(),
+				endpoint.toString(),
 				request.ttlSeconds(),
 				request.topic(),
 				request.urgency()
 			);
-			HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(URI.create(request.endpoint()))
+			HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(endpoint)
 				.timeout(properties.requestTimeout());
 			headers.forEach(requestBuilder::header);
 			HttpRequest httpRequest = requestBuilder

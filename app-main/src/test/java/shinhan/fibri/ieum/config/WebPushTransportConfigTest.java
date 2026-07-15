@@ -7,6 +7,7 @@ import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import shinhan.fibri.ieum.main.notification.push.WebPushProviderClient;
+import shinhan.fibri.ieum.main.notification.push.WebPushEndpointPolicy;
 import shinhan.fibri.ieum.main.notification.push.WebPushTestKeys;
 import shinhan.fibri.ieum.main.notification.push.WebPushTransportProperties;
 
@@ -19,6 +20,7 @@ class WebPushTransportConfigTest {
 	void disabledConfigurationCreatesNoProviderOrHttpClient() {
 		contextRunner.run(context -> {
 			assertThat(context).hasSingleBean(WebPushTransportProperties.class);
+			assertThat(context).hasSingleBean(WebPushEndpointPolicy.class);
 			assertThat(context).doesNotHaveBean(WebPushProviderClient.class);
 			assertThat(context).doesNotHaveBean(HttpClient.class);
 		});
@@ -40,6 +42,7 @@ class WebPushTransportConfigTest {
 			)
 			.run(context -> {
 				assertThat(context).hasSingleBean(WebPushProviderClient.class);
+				assertThat(context).hasSingleBean(WebPushEndpointPolicy.class);
 				assertThat(context).hasSingleBean(HttpClient.class);
 				HttpClient client = context.getBean(HttpClient.class);
 				assertThat(client.followRedirects()).isEqualTo(HttpClient.Redirect.NEVER);

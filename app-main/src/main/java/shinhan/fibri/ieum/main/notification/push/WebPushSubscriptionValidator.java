@@ -1,33 +1,31 @@
 package shinhan.fibri.ieum.main.notification.push;
 
-import java.net.URI;
 import java.time.Clock;
 import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Base64;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 
 public class WebPushSubscriptionValidator {
 
-	private static final int MAX_ENDPOINT_LENGTH = 2048;
 	private static final int MAX_P256DH_LENGTH = 512;
 	private static final int MAX_AUTH_SECRET_LENGTH = 256;
 	private static final int P256DH_LENGTH = 65;
 	private static final int AUTH_SECRET_LENGTH = 16;
 	private static final long MAX_EXPIRATION_EPOCH_MILLIS = 253_402_300_799_999L;
 
-	private final Set<String> allowedEndpointHosts;
+	private final WebPushEndpointPolicy endpointPolicy;
 	private final Clock clock;
 
 	public WebPushSubscriptionValidator(Set<String> allowedEndpointHosts, Clock clock) {
-		this.allowedEndpointHosts = Set.copyOf(Objects.requireNonNull(
-			allowedEndpointHosts,
-			"allowedEndpointHosts must not be null"
-		));
+		this(new WebPushEndpointPolicy(allowedEndpointHosts), clock);
+	}
+
+	public WebPushSubscriptionValidator(WebPushEndpointPolicy endpointPolicy, Clock clock) {
+		this.endpointPolicy = Objects.requireNonNull(endpointPolicy, "endpointPolicy must not be null");
 		this.clock = Objects.requireNonNull(clock, "clock must not be null");
 	}
 
@@ -58,31 +56,13 @@ public class WebPushSubscriptionValidator {
 	}
 
 	private String validateEndpoint(String endpoint) {
-		if (endpoint == null || endpoint.isBlank() || endpoint.length() > MAX_ENDPOINT_LENGTH
-				|| !endpoint.equals(endpoint.trim())) {
-			throw invalid("endpoint", "Invalid push endpoint");
-		}
-		URI uri;
 		try {
-			uri = URI.create(endpoint);
+			endpointPolicy.validate(endpoint);
+			return endpoint;
 		}
 		catch (IllegalArgumentException exception) {
-			throw invalid("endpoint", "Invalid push endpoint");
+			throw invalid("endpoint", exception.getMessage());
 		}
-		String host = uri.getHost();
-		if (!uri.isAbsolute() || !"https".equalsIgnoreCase(uri.getScheme())
-				|| host == null || host.isBlank()
-				|| uri.getUserInfo() != null || uri.getRawFragment() != null
-				|| (uri.getPort() != -1 && uri.getPort() != 443)) {
-			throw invalid("endpoint", "Invalid push endpoint");
-		}
-		String normalizedHost = host.toLowerCase(Locale.ROOT);
-		boolean allowed = allowedEndpointHosts.stream()
-			.anyMatch(suffix -> normalizedHost.equals(suffix) || normalizedHost.endsWith("." + suffix));
-		if (!allowed) {
-			throw invalid("endpoint", "Push endpoint host is not allowed");
-		}
-		return endpoint;
 	}
 
 	private void validateP256dh(String value) {

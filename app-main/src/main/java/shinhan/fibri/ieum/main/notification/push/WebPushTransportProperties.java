@@ -50,10 +50,11 @@ public record WebPushTransportProperties(
 		}
 		try {
 			URI uri = URI.create(value);
-			if ("mailto".equalsIgnoreCase(uri.getScheme())) {
+			if ("mailto".equals(uri.getScheme())) {
 				return uri.getSchemeSpecificPart() != null && !uri.getSchemeSpecificPart().isBlank();
 			}
-			return "https".equalsIgnoreCase(uri.getScheme())
+			return "https".equals(uri.getScheme())
+				&& value.startsWith("https://")
 				&& uri.getHost() != null
 				&& uri.getUserInfo() == null;
 		}

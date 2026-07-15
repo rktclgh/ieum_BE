@@ -18,6 +18,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Flow;
 import org.junit.jupiter.api.AfterEach;
@@ -45,7 +46,12 @@ class InterasoWebPushProviderClientTest {
 		);
 		VapidKeys vapidKeys = properties.createVapidKeys(keys.publicKey());
 		httpClient = mock(HttpClient.class);
-		client = new InterasoWebPushProviderClient(httpClient, properties, vapidKeys);
+		client = new InterasoWebPushProviderClient(
+			httpClient,
+			properties,
+			vapidKeys,
+			new WebPushEndpointPolicy(Set.of("push.example.test"))
+		);
 	}
 
 	@AfterEach
@@ -124,10 +130,37 @@ class InterasoWebPushProviderClientTest {
 		verifyNoInteractions(httpClient);
 	}
 
+	@Test
+	void blocksDisallowedEndpointBeforeEncryptionOrNetworkCall() {
+		String disallowedEndpoint = "https://push.example.test.evil.example/message/secret-endpoint";
+
+		assertThatThrownBy(() -> client.send(validRequest(disallowedEndpoint)))
+			.isInstanceOf(WebPushProviderException.class)
+			.hasMessageNotContaining(disallowedEndpoint)
+			.hasMessageNotContaining("secret-endpoint")
+			.hasCause(null);
+		verifyNoInteractions(httpClient);
+	}
+
+	@Test
+	void blocksOversizedEndpointBeforeEncryptionOrNetworkCall() {
+		String oversizedEndpoint = "https://push.example.test/" + "a".repeat(2_049);
+
+		assertThatThrownBy(() -> client.send(validRequest(oversizedEndpoint)))
+			.isInstanceOf(WebPushProviderException.class)
+			.hasMessageNotContaining(oversizedEndpoint)
+			.hasCause(null);
+		verifyNoInteractions(httpClient);
+	}
+
 	private static WebPushProviderRequest validRequest() {
+		return validRequest(ENDPOINT);
+	}
+
+	private static WebPushProviderRequest validRequest(String endpoint) {
 		return new WebPushProviderRequest(
 			PAYLOAD,
-			ENDPOINT,
+			endpoint,
 			WebPushTestKeys.generateSubscriptionP256dh(),
 			WebPushTestKeys.authSecret(),
 			300,

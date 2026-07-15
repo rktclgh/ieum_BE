@@ -11,6 +11,7 @@ import org.springframework.boot.convert.DurationStyle;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import shinhan.fibri.ieum.main.notification.push.InterasoWebPushProviderClient;
+import shinhan.fibri.ieum.main.notification.push.WebPushEndpointPolicy;
 import shinhan.fibri.ieum.main.notification.push.WebPushProperties;
 import shinhan.fibri.ieum.main.notification.push.WebPushProviderClient;
 import shinhan.fibri.ieum.main.notification.push.WebPushSubscriptionValidator;
@@ -29,8 +30,13 @@ public class WebPushConfig {
 	}
 
 	@Bean
-	WebPushSubscriptionValidator webPushSubscriptionValidator(WebPushProperties properties) {
-		return new WebPushSubscriptionValidator(properties.allowedEndpointHosts(), Clock.systemUTC());
+	WebPushEndpointPolicy webPushEndpointPolicy(WebPushProperties properties) {
+		return new WebPushEndpointPolicy(properties.allowedEndpointHosts());
+	}
+
+	@Bean
+	WebPushSubscriptionValidator webPushSubscriptionValidator(WebPushEndpointPolicy endpointPolicy) {
+		return new WebPushSubscriptionValidator(endpointPolicy, Clock.systemUTC());
 	}
 
 	@Bean
@@ -62,10 +68,11 @@ public class WebPushConfig {
 	WebPushProviderClient webPushProviderClient(
 		@Qualifier("webPushHttpClient") HttpClient httpClient,
 		WebPushProperties webPushProperties,
-		WebPushTransportProperties transportProperties
+		WebPushTransportProperties transportProperties,
+		WebPushEndpointPolicy endpointPolicy
 	) {
 		VapidKeys vapidKeys = transportProperties.createVapidKeys(webPushProperties.vapidPublicKey());
-		return new InterasoWebPushProviderClient(httpClient, transportProperties, vapidKeys);
+		return new InterasoWebPushProviderClient(httpClient, transportProperties, vapidKeys, endpointPolicy);
 	}
 
 	private static Duration parseDuration(String value, String propertyName) {
