@@ -20,7 +20,9 @@ routes=(
   meetups/detail
   my
   my/edit
-  my/settings
+  my/inquiry
+  my/notifications
+  my/permissions
   oauth/kakao/callback
   questions
   questions/detail
