@@ -1,6 +1,10 @@
 name: Sync EC2 timezone
 
 on:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/sync-ec2-timezone.yml"
   workflow_dispatch:
 
 permissions:
