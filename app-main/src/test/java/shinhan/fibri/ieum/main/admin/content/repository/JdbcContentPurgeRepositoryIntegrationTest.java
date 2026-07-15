@@ -38,12 +38,15 @@ class JdbcContentPurgeRepositoryIntegrationTest {
 		long userId = insertUser("owner");
 		UUID questionFile = UUID.fromString("11111111-1111-1111-1111-111111111111");
 		UUID answerFile = UUID.fromString("22222222-2222-2222-2222-222222222222");
+		UUID messageFile = UUID.fromString("44444444-4444-4444-4444-444444444444");
 		long oldQuestionId = insertQuestion(userId, "old", OffsetDateTime.parse("2026-03-01T00:00:00Z"));
 		long oldAnswerId = insertAnswer(oldQuestionId, userId);
 		insertFile(questionFile, userId, "final/42/question/" + questionFile + "/original.jpg");
 		insertFile(answerFile, userId, "final/42/answer/" + answerFile + "/original.jpg");
+		insertFile(messageFile, userId, "final/42/chat/" + messageFile + "/original.jpg");
 		linkQuestionImage(oldQuestionId, questionFile);
 		linkAnswerImage(oldAnswerId, answerFile);
+		insertQuestionChatImageMessage(oldQuestionId, userId, messageFile);
 		insertAiQuestionTask(oldQuestionId);
 		insertKnowledgeSource(oldQuestionId, oldAnswerId);
 
@@ -59,7 +62,8 @@ class JdbcContentPurgeRepositoryIntegrationTest {
 		assertThat(result.purgedCount()).isEqualTo(1);
 		assertThat(result.s3Keys()).containsExactlyInAnyOrder(
 			"final/42/question/" + questionFile + "/original.jpg",
-			"final/42/answer/" + answerFile + "/original.jpg"
+			"final/42/answer/" + answerFile + "/original.jpg",
+			"final/42/chat/" + messageFile + "/original.jpg"
 		);
 		assertThat(count("questions", "question_id", oldQuestionId)).isZero();
 		assertThat(count("answers", "answer_id", oldAnswerId)).isZero();
@@ -67,6 +71,7 @@ class JdbcContentPurgeRepositoryIntegrationTest {
 		assertThat(count("knowledge_sources", "question_id", oldQuestionId)).isZero();
 		assertThat(count("files", "file_id", questionFile)).isZero();
 		assertThat(count("files", "file_id", answerFile)).isZero();
+		assertThat(count("files", "file_id", messageFile)).isZero();
 		assertThat(count("questions", "question_id", recentQuestionId)).isEqualTo(1);
 		assertThat(count("files", "file_id", recentFile)).isEqualTo(1);
 		assertThat(count("meetings", "pin_id", meetingPinId)).isEqualTo(1);
@@ -173,6 +178,28 @@ class JdbcContentPurgeRepositoryIntegrationTest {
 				)
 				""",
 			new MapSqlParameterSource("questionId", questionId).addValue("answerId", answerId)
+		);
+	}
+
+	private void insertQuestionChatImageMessage(long questionId, long userId, UUID fileId) {
+		long roomId = jdbc.queryForObject(
+			"""
+				INSERT INTO chat_rooms (room_type, question_id, room_key)
+				VALUES ('question', :questionId, :roomKey)
+				RETURNING room_id
+				""",
+			new MapSqlParameterSource("questionId", questionId)
+				.addValue("roomKey", "q:" + questionId + ":1:2"),
+			Long.class
+		);
+		jdbc.update(
+			"""
+				INSERT INTO messages (room_id, sender_id, image_file_id)
+				VALUES (:roomId, :userId, :fileId)
+				""",
+			new MapSqlParameterSource("roomId", roomId)
+				.addValue("userId", userId)
+				.addValue("fileId", fileId)
 		);
 	}
 

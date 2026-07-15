@@ -81,6 +81,12 @@ public class JdbcContentPurgeRepository implements ContentPurgeRepository {
 				  JOIN answer_images ai ON ai.file_id = f.file_id
 				  JOIN answers a ON a.answer_id = ai.answer_id
 				 WHERE a.question_id IN (:questionIds)
+				UNION
+				SELECT DISTINCT f.file_id, f.s3_key
+				  FROM files f
+				  JOIN messages m ON m.image_file_id = f.file_id
+				  JOIN chat_rooms cr ON cr.room_id = m.room_id
+				 WHERE cr.question_id IN (:questionIds)
 				""",
 			params,
 			this::toFileRow
