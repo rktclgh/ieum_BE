@@ -708,6 +708,7 @@ public class MeetingService {
 		OffsetDateTime deletedAt = OffsetDateTime.now();
 		meeting.cancel(deletedAt);
 		pinWriter.softDelete(meeting.getPinId(), deletedAt);
+		chatRoomLifecycle.disbandGroupRoom(meetingId);
 	}
 
 	private UUID validateImage(UUID imageFileId, Long userId) {

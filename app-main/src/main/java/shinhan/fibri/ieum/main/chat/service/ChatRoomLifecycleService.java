@@ -68,6 +68,16 @@ public class ChatRoomLifecycleService implements ChatRoomLifecycle {
 		chatRoomListChangeEmitter.remove(roomId, List.of(userId));
 	}
 
+	@Override
+	@Transactional
+	public void disbandGroupRoom(Long meetingId) {
+		chatRoomRepository.findByMeetingId(meetingId).ifPresent(room -> {
+			List<Long> activeUserIds = chatMemberRepository.findActiveUserIdsByRoomId(room.getId());
+			chatRoomRepository.delete(room);
+			chatRoomListChangeEmitter.remove(room.getId(), activeUserIds);
+		});
+	}
+
 	private void restoreMember(ChatRoom room, User user, List<ChatMember> members) {
 		members.stream()
 			.filter(member -> member.getUser().getId().equals(user.getId()))
