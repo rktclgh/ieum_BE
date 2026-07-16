@@ -98,6 +98,15 @@ class FallbackReportReviewModelGatewayTest {
 		assertThat(fallback.calls).isEqualTo(1);
 	}
 
+	@Test
+	void treatsMissingProviderAttemptsAsEmptyMetadata() {
+		ReportReviewModelGatewayException exception = new ReportReviewModelGatewayException(
+			(List<ReportReviewProviderAttempt>) null
+		);
+
+		assertThat(exception.providerAttempts()).isEmpty();
+	}
+
 	private ReportPolicyEvaluationResult evaluation(ReportModelReviewOutput output) {
 		return new ReportPolicyEvaluator().evaluate(emptySnapshot(), output, prepared().evidenceMessages());
 	}

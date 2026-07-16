@@ -69,8 +69,7 @@ public class ReportReviewObservationLogger {
 		String errorCode,
 		List<ReportReviewProviderAttempt> providerAttempts
 	) {
-		List<ReportReviewProviderAttempt> attempts = List.copyOf(providerAttempts);
-		if (attempts.isEmpty()) {
+		if (providerAttempts == null || providerAttempts.isEmpty()) {
 			log.warn(
 				"event=report_review_failure reportId={} reviewAttemptId={} errorCode={} durationMs={}",
 				reportId(servletRequest),
@@ -85,7 +84,7 @@ public class ReportReviewObservationLogger {
 			reportId(servletRequest),
 			valueOrUnknown(servletRequest.getAttribute(ATTEMPT_ID_ATTRIBUTE)),
 			errorCode,
-			providerAttempts(attempts),
+			providerAttempts(providerAttempts),
 			durationMs(servletRequest)
 		);
 	}
@@ -113,7 +112,7 @@ public class ReportReviewObservationLogger {
 				attempt.path("provider").asText("unknown"),
 				attempt.path("model").asText("unknown"),
 				attempt.path("outcome").asText("unknown"),
-				attempt.path("errorCode").isNull() ? "none" : attempt.path("errorCode").asText("unknown"),
+				!attempt.hasNonNull("errorCode") ? "none" : attempt.path("errorCode").asText("unknown"),
 				Math.max(0L, attempt.path("latencyMs").asLong(0L))
 			));
 		}

@@ -23,6 +23,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import shinhan.fibri.ieum.ai.report.support.ReportReviewObservationLogger;
@@ -209,6 +210,25 @@ class ReportReviewInternalControllerTest {
 	}
 
 	@Test
+	void logsFailureWhenProviderAttemptsAreMissing(CapturedOutput output) {
+		MockHttpServletRequest servletRequest = new MockHttpServletRequest(
+			"POST",
+			"/ai/v1/internal/reports/900/review"
+		);
+
+		observationLogger.failed(
+			servletRequest,
+			"report_model_inference_failed",
+			null
+		);
+
+		assertThat(output)
+			.contains("event=report_review_failure")
+			.contains("reportId=900")
+			.doesNotContain("providerAttempts=");
+	}
+
+	@Test
 	void preservesTheSerializationFailureAsTheGatewayExceptionCause() throws Exception {
 		ObjectMapper failingObjectMapper = mock(ObjectMapper.class);
 		ReportReviewObservationLogger logger = mock(ReportReviewObservationLogger.class);
@@ -306,7 +326,6 @@ class ReportReviewInternalControllerTest {
 			.put("provider", "bedrock")
 			.put("model", "amazon.nova-lite-v1:0")
 			.put("outcome", "success")
-			.putNull("errorCode")
 			.put("latencyMs", 8L);
 		return new ReportReviewResponse(
 			"hold", "harassment", "medium", new BigDecimal("0.91"), "reason",

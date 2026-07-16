@@ -12,7 +12,7 @@ public class ReportReviewModelGatewayException extends RuntimeException {
 
 	public ReportReviewModelGatewayException(List<ReportReviewProviderAttempt> providerAttempts) {
 		super("Report review model inference failed");
-		this.providerAttempts = List.copyOf(providerAttempts);
+		this.providerAttempts = providerAttempts == null ? List.of() : List.copyOf(providerAttempts);
 	}
 
 	public ReportReviewModelGatewayException(Throwable cause) {
