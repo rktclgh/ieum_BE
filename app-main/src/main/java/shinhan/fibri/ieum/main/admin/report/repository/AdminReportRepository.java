@@ -34,7 +34,7 @@ public class AdminReportRepository {
 		       CASE
 		           WHEN r.target_type = 'message' THEN r.message_id IS NULL
 		           WHEN r.target_type = 'answer' THEN r.answer_id IS NULL
-		           ELSE r.schedule_id IS NULL
+		           ELSE r.schedule_id IS NULL OR schedule.deleted_at IS NOT NULL
 		       END AS target_deleted,
 		       r.reporter_id,
 		       reporter.nickname AS reporter_nickname,
@@ -51,6 +51,7 @@ public class AdminReportRepository {
 		FROM reports r
 		JOIN users reporter ON reporter.user_id = r.reporter_id
 		LEFT JOIN users reported ON reported.user_id = r.reported_user_id
+		LEFT JOIN meeting_schedules schedule ON schedule.schedule_id = r.schedule_id
 		WHERE 1 = 1
 		""";
 
@@ -133,7 +134,7 @@ public class AdminReportRepository {
 			       CASE
 			           WHEN r.target_type = 'message' THEN r.message_id IS NULL
 			           WHEN r.target_type = 'answer' THEN r.answer_id IS NULL
-			           ELSE r.schedule_id IS NULL
+			           ELSE r.schedule_id IS NULL OR schedule.deleted_at IS NOT NULL
 			       END
 			           AS target_deleted,
 			       r.reporter_id, reporter.nickname AS reporter_nickname,
@@ -150,6 +151,7 @@ public class AdminReportRepository {
 			JOIN users reporter ON reporter.user_id = r.reporter_id
 			LEFT JOIN users reported ON reported.user_id = r.reported_user_id
 			LEFT JOIN users resolver ON resolver.user_id = r.resolved_by
+			LEFT JOIN meeting_schedules schedule ON schedule.schedule_id = r.schedule_id
 			WHERE r.report_id = :reportId
 			""";
 		return jdbcTemplate.query(sql, Map.of("reportId", reportId), (rs, rowNumber) -> new AdminReportDetailRow(

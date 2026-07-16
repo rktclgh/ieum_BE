@@ -31,7 +31,7 @@ class AdminReportRepositoryIntegrationTest {
 
 	@BeforeEach
 	void seedRows() {
-		jdbc.update("TRUNCATE TABLE reports, users");
+		jdbc.update("TRUNCATE TABLE reports, meeting_schedules, users");
 		jdbc.update("INSERT INTO users(user_id, nickname) VALUES (1, 'reporter'), (2, 'reported')");
 		insertReport(1, "message", 101L, null, null, 2L, "spam", "pending", "pending", null, null,
 			"2026-07-14T10:00:00.123456789+09:00", "{\"reported\":{\"messageId\":101}}");
@@ -87,6 +87,15 @@ class AdminReportRepositoryIntegrationTest {
 	}
 
 	@Test
+	void marksSoftDeletedScheduleTargetAsDeleted() {
+		jdbc.update("INSERT INTO meeting_schedules(schedule_id, deleted_at) VALUES (606, now())");
+
+		AdminReportListRow schedule = row(repository.findReports(null, null, null, null, 10), 6L);
+
+		assertThat(schedule.targetDeleted()).isTrue();
+	}
+
+	@Test
 	void keysetPagingIsDuplicateFreeWhenRowsShareExactNanosecondTimestamp() {
 		List<AdminReportListRow> first = repository.findReports(null, null, null, null, 4);
 		AdminReportListRow last = first.getLast();
@@ -123,6 +132,7 @@ class AdminReportRepositoryIntegrationTest {
 				nickname VARCHAR(50) NOT NULL
 			)
 			""");
+		jdbc.execute("CREATE TABLE meeting_schedules(schedule_id BIGINT PRIMARY KEY, deleted_at TIMESTAMPTZ)");
 		jdbc.execute("""
 			CREATE TABLE reports (
 				report_id BIGINT PRIMARY KEY,

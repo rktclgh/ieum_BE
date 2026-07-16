@@ -54,7 +54,8 @@ class ReportCanonicalSchemaIntegrationTest {
 			"ck_reports_target_xor",
 			"ck_reports_message_reported_user",
 			"ck_reports_answer_manual_only",
-			"ck_reports_schedule_manual_only"
+			"ck_reports_schedule_manual_only",
+			"ck_reports_schedule_reported_user"
 		);
 		assertThat(foreignKeyNames(jdbc, "reports")).contains("fk_reports_answer", "fk_reports_schedule");
 		assertThat(reportTargetFunctionDefinition(jdbc))

@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doThrow;
@@ -500,6 +501,32 @@ class MeetingServiceTest {
 		assertThat(response.location().lng()).isEqualTo(127.0);
 		assertThat(response.myStatus()).isEqualTo("joined");
 		assertThat(response.createdAt()).isEqualTo(createdAt);
+	}
+
+	@Test
+	void getDetailFallsBackLegacyScheduleLocationToPinAddressWhenLabelIsBlank() {
+		OffsetDateTime createdAt = OffsetDateTime.parse("2026-07-09T10:00:00+09:00");
+		MeetingDetailProjection detail = spy(detailRow(null, null, null, createdAt, "one_time"));
+		when(detail.getLabel()).thenReturn("  ");
+		when(detail.getAddress()).thenReturn("서울특별시 용산구 한강대로");
+		MeetingSchedule legacySchedule = MeetingSchedule.create(
+			3L,
+			42L,
+			OffsetDateTime.parse("2099-07-14T19:00:00+09:00"),
+			null,
+			OffsetDateTime.parse("2099-07-14T23:59:59+09:00"),
+			1
+		);
+		when(meetingRepository.findDetailById(3L)).thenReturn(Optional.of(detail));
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 1L)).thenReturn(Optional.empty());
+		when(participantRepository.countByIdMeetingIdAndStatus(3L, ParticipantStatus.joined)).thenReturn(1L);
+		when(meetingScheduleRepository.findFirstActiveSchedule(eq(3L), any(OffsetDateTime.class)))
+			.thenReturn(Optional.of(legacySchedule));
+		when(recurrenceRuleRepository.findByMeetingId(3L)).thenReturn(Optional.empty());
+
+		MeetingDetailResponse response = service.getDetail(principal(1L), 3L);
+
+		assertThat(response.nextSchedule().locationName()).isEqualTo("서울특별시 용산구 한강대로");
 	}
 
 	@Test

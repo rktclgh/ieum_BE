@@ -28,7 +28,7 @@ class AdminReportDetailRepositoryIntegrationTest {
 
 	@BeforeEach
 	void seedRows() {
-		jdbc.update("TRUNCATE TABLE user_sanctions, reports, users");
+		jdbc.update("TRUNCATE TABLE user_sanctions, reports, meeting_schedules, users");
 		jdbc.update("INSERT INTO users(user_id, nickname) VALUES (1, 'reporter'), (2, 'reported'), (9, 'resolver')");
 		insertReport(10, "message", null, null, null, 2L, "confirmed", "completed",
 			"{\"schemaVersion\":1,\"reported\":{\"messageId\":1010,\"content\":\"snapshot\"}}");
@@ -92,6 +92,15 @@ class AdminReportDetailRepositoryIntegrationTest {
 	}
 
 	@Test
+	void detailMarksSoftDeletedScheduleTargetAsDeleted() {
+		jdbc.update("INSERT INTO meeting_schedules(schedule_id, deleted_at) VALUES (1313, now())");
+
+		AdminReportDetailRow schedule = repository.findDetail(13L).orElseThrow();
+
+		assertThat(schedule.targetDeleted()).isTrue();
+	}
+
+	@Test
 	void missingDetailIsEmpty() {
 		assertThat(repository.findDetail(999L)).isEmpty();
 	}
@@ -117,6 +126,7 @@ class AdminReportDetailRepositoryIntegrationTest {
 		jdbc.execute("CREATE TYPE sanction_decision_source AS ENUM ('ai_recommendation', 'admin')");
 		jdbc.execute("CREATE TYPE sanction_type AS ENUM ('temporary', 'permanent')");
 		jdbc.execute("CREATE TABLE users(user_id BIGINT PRIMARY KEY, nickname VARCHAR(50) NOT NULL)");
+		jdbc.execute("CREATE TABLE meeting_schedules(schedule_id BIGINT PRIMARY KEY, deleted_at TIMESTAMPTZ)");
 		jdbc.execute("""
 			CREATE TABLE reports (
 				report_id BIGINT PRIMARY KEY, reporter_id BIGINT NOT NULL REFERENCES users(user_id),

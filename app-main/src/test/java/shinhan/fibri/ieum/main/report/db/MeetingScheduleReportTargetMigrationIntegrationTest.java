@@ -1,10 +1,12 @@
 package shinhan.fibri.ieum.main.report.db;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import shinhan.fibri.ieum.testsupport.CanonicalPostgresContainer;
@@ -68,6 +70,21 @@ class MeetingScheduleReportTargetMigrationIntegrationTest {
 
 		assertThat(jdbc.sql("SELECT ai_review_state::text FROM reports WHERE report_id = :reportId")
 			.param("reportId", reportId).query(String.class).single()).isEqualTo("cancelled");
+		assertThatThrownBy(() -> jdbc.sql("""
+			INSERT INTO reports (
+			    reporter_id, target_type, schedule_id, reported_user_id, reason, context_snapshot,
+			    context_hash, ai_review_state, ai_next_attempt_at, status
+			)
+			VALUES (
+			    42, 'schedule', 31, 42, 'spam',
+			    '{"schemaVersion":1,"targetType":"schedule","reported":{"scheduleId":31}}'::jsonb,
+			    repeat('b', 64), 'cancelled', NULL, 'pending'
+			)
+			""").update()).isInstanceOf(DataIntegrityViolationException.class);
+		assertThatThrownBy(() -> jdbc.sql("UPDATE reports SET schedule_id = 32 WHERE report_id = :reportId")
+			.param("reportId", reportId).update()).isInstanceOf(DataIntegrityViolationException.class);
+		assertThatThrownBy(() -> jdbc.sql("UPDATE reports SET schedule_id = NULL WHERE report_id = :reportId")
+			.param("reportId", reportId).update()).isInstanceOf(DataIntegrityViolationException.class);
 		jdbc.sql("DELETE FROM meeting_schedules WHERE schedule_id = 31").update();
 
 		assertThat(jdbc.sql("SELECT target_type::text FROM reports WHERE report_id = :reportId")
@@ -104,7 +121,9 @@ class MeetingScheduleReportTargetMigrationIntegrationTest {
 			INSERT INTO meeting_schedules (
 			    schedule_id, meeting_id, created_by, starts_at, visible_until, status, sequence_no
 			)
-			VALUES (31, 3, 77, '2099-07-20T19:00:00+09:00', '2099-07-20T23:59:59+09:00', 'scheduled', 1)
+			VALUES
+			    (31, 3, 77, '2099-07-20T19:00:00+09:00', '2099-07-20T23:59:59+09:00', 'scheduled', 1),
+			    (32, 3, 77, '2099-07-21T19:00:00+09:00', '2099-07-21T23:59:59+09:00', 'scheduled', 2)
 			""").update();
 	}
 

@@ -166,7 +166,7 @@ public class MeetingService {
 			nextSchedule.map(schedule -> toScheduleItem(
 				schedule,
 				detail.getTitle(),
-				detail.getLabel(),
+				meetingPinLocationName(detail),
 				scheduleCapabilities(
 					principal,
 					detail.getHostUserId(),
