@@ -43,6 +43,7 @@ import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.auth.repository.UserAuthState;
 import shinhan.fibri.ieum.common.chat.domain.RoomType;
+import shinhan.fibri.ieum.common.chat.domain.MessageType;
 import shinhan.fibri.ieum.common.chat.repository.ChatMemberRepository;
 import shinhan.fibri.ieum.main.admin.content.service.ContentPurgeService;
 import shinhan.fibri.ieum.main.auth.session.AuthSession;
@@ -157,6 +158,7 @@ class ChatWebSocketIntegrationTest {
 				42L,
 				"user",
 				"/api/v1/files/11111111-1111-1111-1111-111111111111",
+				MessageType.user,
 				request.content(),
 				null,
 				OffsetDateTime.parse("2026-07-08T12:00:00+09:00")
@@ -168,6 +170,7 @@ class ChatWebSocketIntegrationTest {
 				42L,
 				"user",
 				"/api/v1/files/11111111-1111-1111-1111-111111111111",
+				MessageType.user,
 				request.content(),
 				null,
 				event.createdAt()
@@ -190,6 +193,7 @@ class ChatWebSocketIntegrationTest {
 		assertThat(message.roomId()).isEqualTo(100L);
 		assertThat(message.content()).isEqualTo("hello");
 		assertThat(message.senderProfileImageUrl()).isEqualTo("/api/v1/files/11111111-1111-1111-1111-111111111111");
+		assertThat(message.messageType()).isEqualTo(MessageType.user);
 		session.disconnect();
 	}
 
