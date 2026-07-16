@@ -363,12 +363,13 @@ jobs:
           ssh "${ssh_opts[@]}" "$remote" "install -d -m 700 '$DEPLOY_PATH' '$DEPLOY_PATH/nginx'"
           scp "${scp_opts[@]}" deploy/app-main/compose.yml "$remote:$DEPLOY_PATH/compose.yml"
           scp "${scp_opts[@]}" deploy/nginx/* "$remote:$DEPLOY_PATH/nginx/"
-          scp "${scp_opts[@]}" deploy/scripts/bootstrap-docker.sh deploy/scripts/configure-nginx.sh deploy/scripts/deploy-compose.sh "$remote:$DEPLOY_PATH/"
+          scp "${scp_opts[@]}" deploy/scripts/bootstrap-docker.sh deploy/scripts/configure-host-redis.sh deploy/scripts/configure-nginx.sh deploy/scripts/deploy-compose.sh "$remote:$DEPLOY_PATH/"
 
           # .env.runtime is managed manually on the server; fail early if it is missing.
           ssh "${ssh_opts[@]}" "$remote" "test -f '$DEPLOY_PATH/.env.runtime'" \
             || { echo "::error::.env.runtime missing at $DEPLOY_PATH on the server — create it manually (chmod 600)"; exit 1; }
           ssh "${ssh_opts[@]}" "$remote" "bash '$DEPLOY_PATH/bootstrap-docker.sh'"
+          ssh "${ssh_opts[@]}" "$remote" "sudo bash '$DEPLOY_PATH/configure-host-redis.sh' '$DEPLOY_PATH/.env.runtime'"
           ssh "${ssh_opts[@]}" "$remote" \
             "sudo bash '$DEPLOY_PATH/configure-nginx.sh' '$DEPLOY_PATH/nginx' '$LETSENCRYPT_EMAIL'"
           printf '%s\n' "$DOCKERHUB_TOKEN" | ssh "${ssh_opts[@]}" "$remote" \

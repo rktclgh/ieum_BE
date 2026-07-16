@@ -6,9 +6,8 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
       - "${APP_MAIN_PRIVATE_BIND_ADDRESS:?APP_MAIN_PRIVATE_BIND_ADDRESS is required}:8080:8080"
-    depends_on:
-      redis:
-        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/actuator/health >/dev/null || exit 1"]
@@ -16,18 +15,3 @@ services:
       timeout: 3s
       retries: 12
       start_period: 30s
-
-  redis:
-    image: redis:7.2-alpine
-    command: ["redis-server", "--appendonly", "yes"]
-    restart: unless-stopped
-    volumes:
-      - redis-data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
-volumes:
-  redis-data:
