@@ -37,8 +37,17 @@ public class ReportReviewInternalExceptionHandler {
 	}
 
 	@ExceptionHandler(ReportReviewModelGatewayException.class)
-	ResponseEntity<ReportReviewErrorResponse> modelInferenceFailure(HttpServletRequest servletRequest) {
-		return error(servletRequest, HttpStatus.SERVICE_UNAVAILABLE, "report_model_inference_failed", true);
+	ResponseEntity<ReportReviewErrorResponse> modelInferenceFailure(
+		HttpServletRequest servletRequest,
+		ReportReviewModelGatewayException exception
+	) {
+		observationLogger.failed(
+			servletRequest,
+			"report_model_inference_failed",
+			exception.providerAttempts()
+		);
+		return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+			.body(new ReportReviewErrorResponse("report_model_inference_failed", true));
 	}
 
 	private ResponseEntity<ReportReviewErrorResponse> error(

@@ -27,6 +27,11 @@ public enum QuestionTaskFailure {
 		"QUESTION_ANSWER_PROVIDER_RATE_LIMITED",
 		"Question answer provider is rate limited"
 	),
+	WEB_GROUNDING_RATE_LIMITED(
+		QuestionTaskFailureDisposition.RETRY,
+		"QUESTION_ANSWER_WEB_GROUNDING_RATE_LIMITED",
+		"Question web grounding provider is rate limited"
+	),
 	PROVIDER_UNAVAILABLE(
 		QuestionTaskFailureDisposition.RETRY,
 		"QUESTION_ANSWER_PROVIDER_UNAVAILABLE",

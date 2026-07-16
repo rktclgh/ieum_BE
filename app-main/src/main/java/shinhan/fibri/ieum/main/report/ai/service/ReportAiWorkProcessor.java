@@ -62,7 +62,7 @@ public class ReportAiWorkProcessor {
 		try {
 			ReportReviewRequest request = requestFactory.create(claimed);
 			ReportReviewResponse response = requestAiReview(claimed, request);
-			ReportAiApplyOutcome outcome = resultApplier.apply(claimed, response);
+			ReportAiApplyOutcome outcome = applyResult(claimed, response);
 			if (!outcome.transitioned()) {
 				log.warn(
 					"event=report_ai_stale_discarded reportId={} attemptId={} workerId={} attempts={} durationMs={}",
@@ -81,22 +81,55 @@ public class ReportAiWorkProcessor {
 		return true;
 	}
 
+	private ReportAiApplyOutcome applyResult(ClaimedReport claimed, ReportReviewResponse response) {
+		long startedAt = System.nanoTime();
+		log.info(
+			"event=report_ai_result_apply_started stage=result_apply reportId={} attemptId={} workerId={} attempts={}",
+			claimed.reportId(), claimed.attemptId(), properties.workerId(), claimed.attempts()
+		);
+		try {
+			ReportAiApplyOutcome outcome = resultApplier.apply(claimed, response);
+			log.info(
+				"event=report_ai_result_apply_succeeded stage=result_apply reportId={} attemptId={} workerId={} attempts={} transitioned={} durationMs={}",
+				claimed.reportId(),
+				claimed.attemptId(),
+				properties.workerId(),
+				claimed.attempts(),
+				outcome.transitioned(),
+				elapsedMs(startedAt)
+			);
+			return outcome;
+		}
+		catch (RuntimeException failure) {
+			log.warn(
+				"event=report_ai_result_apply_failed stage=result_apply reportId={} attemptId={} workerId={} attempts={} failureType={} durationMs={}",
+				claimed.reportId(),
+				claimed.attemptId(),
+				properties.workerId(),
+				claimed.attempts(),
+				failure.getClass().getSimpleName(),
+				elapsedMs(startedAt)
+			);
+			throw failure;
+		}
+	}
+
 	private ReportReviewResponse requestAiReview(ClaimedReport claimed, ReportReviewRequest request) {
 		long startedAt = System.nanoTime();
 		log.info(
-			"event=report_ai_call_started reportId={} attemptId={} workerId={} attempts={}",
+			"event=report_ai_call_started stage=remote_review reportId={} attemptId={} workerId={} attempts={}",
 			claimed.reportId(), claimed.attemptId(), properties.workerId(), claimed.attempts()
 		);
 		try {
 			ReportReviewResponse response = aiServiceClient.review(request);
 			log.info(
-				"event=report_ai_call_succeeded reportId={} attemptId={} workerId={} attempts={} durationMs={}",
+				"event=report_ai_call_succeeded stage=remote_review reportId={} attemptId={} workerId={} attempts={} durationMs={}",
 				claimed.reportId(), claimed.attemptId(), properties.workerId(), claimed.attempts(), elapsedMs(startedAt)
 			);
 			return response;
 		} catch (RuntimeException failure) {
 			log.warn(
-				"event=report_ai_call_failed reportId={} attemptId={} workerId={} attempts={} failureType={} durationMs={}",
+				"event=report_ai_call_failed stage=remote_review reportId={} attemptId={} workerId={} attempts={} failureType={} durationMs={}",
 				claimed.reportId(), claimed.attemptId(), properties.workerId(), claimed.attempts(),
 				failure.getClass().getSimpleName(), elapsedMs(startedAt)
 			);

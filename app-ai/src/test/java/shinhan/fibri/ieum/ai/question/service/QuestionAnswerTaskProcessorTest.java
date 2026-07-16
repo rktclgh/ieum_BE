@@ -113,6 +113,33 @@ class QuestionAnswerTaskProcessorTest {
 	}
 
 	@Test
+	void logsTheSafeWebGroundingProviderMetadataForQuotaFailures() {
+		ClaimedQuestionTask claim = claim(1);
+		QuestionWebGroundingUnavailableException failure = new QuestionWebGroundingUnavailableException(
+			WebGroundingFailureCode.rate_limited
+		);
+		when(repository.claimByQuestionId(42L, "worker-1", Duration.ofMinutes(2), 5))
+			.thenReturn(Optional.of(claim));
+		doThrow(failure).when(orchestrator).process(claim);
+		when(repository.markRetry(
+			42L,
+			"worker-1",
+			claim.leaseToken(),
+			Duration.ofSeconds(10),
+			QuestionTaskFailure.WEB_GROUNDING_RATE_LIMITED
+		)).thenReturn(true);
+		ListAppender<ILoggingEvent> logs = captureLogs();
+
+		processor.process(42L);
+
+		assertThat(messages(logs))
+			.anyMatch(message -> message.contains(
+				"event=question_answer_provider_failure questionId=42 workerId=worker-1 attempts=1 stage=web_grounding provider=gemini_google_search httpStatus=429 failure=WEB_GROUNDING_RATE_LIMITED"
+			))
+			.noneMatch(message -> message.contains("raw provider response"));
+	}
+
+	@Test
 	void doesNothingWhenAnotherWorkerOwnsOrTheTicketIsNotDue() {
 		when(repository.claimByQuestionId(42L, "worker-1", Duration.ofMinutes(2), 5))
 			.thenReturn(Optional.empty());
@@ -358,7 +385,7 @@ class QuestionAnswerTaskProcessorTest {
 	@ParameterizedTest
 	@CsvSource({
 		"timeout, PROVIDER_TIMEOUT",
-		"rate_limited, PROVIDER_RATE_LIMITED",
+		"rate_limited, WEB_GROUNDING_RATE_LIMITED",
 		"provider_unavailable, PROVIDER_UNAVAILABLE",
 		"permanent_configuration, PERMANENT_CONFIGURATION"
 	})
@@ -375,7 +402,7 @@ class QuestionAnswerTaskProcessorTest {
 	@ParameterizedTest
 	@CsvSource({
 		"timeout, PROVIDER_TIMEOUT",
-		"rate_limited, PROVIDER_RATE_LIMITED",
+		"rate_limited, WEB_GROUNDING_RATE_LIMITED",
 		"provider_unavailable, PROVIDER_UNAVAILABLE",
 		"permanent_configuration, PERMANENT_CONFIGURATION"
 	})

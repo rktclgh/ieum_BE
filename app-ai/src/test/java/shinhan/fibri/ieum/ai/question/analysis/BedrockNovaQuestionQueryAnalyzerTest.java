@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.ai.question.analysis;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -8,7 +9,6 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
@@ -108,14 +108,34 @@ class BedrockNovaQuestionQueryAnalyzerTest {
 	}
 
 	@ParameterizedTest(name = "{0}")
-	@MethodSource("providerFailures")
-	void returnsNeutralForEmptyOrFailedProviderResponses(
+	@MethodSource("invalidProviderResponses")
+	void returnsNeutralForInvalidProviderResponses(
 		String description,
 		Function<Prompt, ChatResponse> provider
 	) {
 		QuestionQueryAnalyzer analyzer = analyzer(new CapturingChatModel(provider));
 
 		assertThat(analyzer.analyze(input())).isEqualTo(QueryAnalysis.neutral(ANALYSIS_VERSION));
+	}
+
+	@Test
+	void propagatesRuntimeProviderFailuresInsteadOfSilentlyRoutingToWebGrounding() {
+		IllegalStateException providerFailure = new IllegalStateException("provider failed with raw secret");
+		QuestionQueryAnalyzer analyzer = analyzer(new CapturingChatModel(prompt -> {
+			throw providerFailure;
+		}));
+
+		assertThatThrownBy(() -> analyzer.analyze(input())).isSameAs(providerFailure);
+	}
+
+	@Test
+	void propagatesIllegalArgumentProviderFailuresInsteadOfTreatingThemAsInvalidModelOutput() {
+		IllegalArgumentException providerFailure = new IllegalArgumentException("provider rejected the request");
+		QuestionQueryAnalyzer analyzer = analyzer(new CapturingChatModel(prompt -> {
+			throw providerFailure;
+		}));
+
+		assertThatThrownBy(() -> analyzer.analyze(input())).isSameAs(providerFailure);
 	}
 
 	private QuestionQueryAnalyzer analyzer(ChatModel chatModel) {
@@ -195,18 +215,12 @@ class BedrockNovaQuestionQueryAnalyzerTest {
 		);
 	}
 
-	private static Stream<Arguments> providerFailures() {
+	private static Stream<Arguments> invalidProviderResponses() {
 		return Stream.of(
 			Arguments.of("null response", (Function<Prompt, ChatResponse>) prompt -> null),
 			Arguments.of("empty generations", (Function<Prompt, ChatResponse>) prompt -> new ChatResponse(List.of())),
 			Arguments.of("null output", (Function<Prompt, ChatResponse>) prompt ->
-				new ChatResponse(List.of(new Generation(null)))),
-			Arguments.of("provider runtime", (Function<Prompt, ChatResponse>) prompt -> {
-				throw new IllegalStateException("provider failed with raw secret");
-			}),
-			Arguments.of("provider timeout", (Function<Prompt, ChatResponse>) prompt -> {
-				throw new IllegalStateException(new TimeoutException("timed out"));
-			})
+				new ChatResponse(List.of(new Generation(null))))
 		);
 	}
 

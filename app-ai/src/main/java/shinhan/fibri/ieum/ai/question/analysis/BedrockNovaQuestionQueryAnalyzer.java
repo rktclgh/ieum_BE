@@ -72,17 +72,29 @@ public class BedrockNovaQuestionQueryAnalyzer implements QuestionQueryAnalyzer {
 	@Override
 	public QueryAnalysis analyze(ModelQuestionAnalysisInput input) {
 		Objects.requireNonNull(input, "input must not be null");
+		String userPayload;
 		try {
-			String userPayload = objectMapper.writeValueAsString(userPayload(input));
-			ChatResponse response = chatModel.call(prompt(userPayload));
-			return parse(rawOutput(response));
-		} catch (JsonProcessingException | RuntimeException exception) {
-			log.warn(
-				"Question query analyzer used the fail-safe result after {}",
-				exception.getClass().getSimpleName()
-			);
-			return QueryAnalysis.neutral(properties.analysisVersion());
+			userPayload = objectMapper.writeValueAsString(userPayload(input));
 		}
+		catch (JsonProcessingException exception) {
+			return neutralAfterInvalidOutput(exception);
+		}
+
+		ChatResponse response = chatModel.call(prompt(userPayload));
+		try {
+			return parse(rawOutput(response));
+		}
+		catch (JsonProcessingException | IllegalArgumentException exception) {
+			return neutralAfterInvalidOutput(exception);
+		}
+	}
+
+	private QueryAnalysis neutralAfterInvalidOutput(Exception exception) {
+		log.warn(
+			"Question query analyzer used the fail-safe result after {}",
+			exception.getClass().getSimpleName()
+		);
+		return QueryAnalysis.neutral(properties.analysisVersion());
 	}
 
 	private ObjectNode userPayload(ModelQuestionAnalysisInput input) {

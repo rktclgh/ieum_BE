@@ -16,6 +16,7 @@ import shinhan.fibri.ieum.ai.question.grounding.QuestionGroundingUnavailableExce
 import shinhan.fibri.ieum.ai.question.repository.ClaimedQuestionTask;
 import shinhan.fibri.ieum.ai.question.repository.QuestionTaskWorkRepository;
 import shinhan.fibri.ieum.ai.question.webgrounding.QuestionWebGroundingUnavailableException;
+import shinhan.fibri.ieum.ai.question.webgrounding.WebGroundingFailureCode;
 import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.core.exception.SdkServiceException;
 
@@ -63,6 +64,7 @@ public class QuestionAnswerTaskProcessor {
 		}
 		catch (RuntimeException exception) {
 			QuestionTaskFailure failure = classify(exception);
+			logProviderFailure(claim, exception, failure);
 			if (failure.disposition() == QuestionTaskFailureDisposition.DISCARD) {
 				log.warn(
 					"event=question_answer_stale_discarded questionId={} workerId={} attempts={} failure={} durationMs={}",
@@ -91,6 +93,40 @@ public class QuestionAnswerTaskProcessor {
 			);
 			logFailureTransition(claim, failure, transitioned, false, retryDelay, startedAt);
 		}
+	}
+
+	private void logProviderFailure(
+		ClaimedQuestionTask claim,
+		RuntimeException exception,
+		QuestionTaskFailure failure
+	) {
+		QuestionWebGroundingUnavailableException webGroundingFailure = findWebGroundingFailure(exception);
+		if (webGroundingFailure == null) {
+			return;
+		}
+		Object httpStatus = webGroundingFailure.failureCode() == WebGroundingFailureCode.rate_limited
+			? 429
+			: "unknown";
+		log.warn(
+			"event=question_answer_provider_failure questionId={} workerId={} attempts={} stage=web_grounding provider=gemini_google_search httpStatus={} failure={}",
+			claim.questionId(),
+			claim.workerId(),
+			claim.attempts(),
+			httpStatus,
+			failure
+		);
+	}
+
+	private QuestionWebGroundingUnavailableException findWebGroundingFailure(RuntimeException exception) {
+		Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+		Throwable current = exception;
+		while (current != null && visited.add(current)) {
+			if (current instanceof QuestionWebGroundingUnavailableException webGroundingFailure) {
+				return webGroundingFailure;
+			}
+			current = current.getCause();
+		}
+		return null;
 	}
 
 	private void logFailureTransition(
@@ -216,7 +252,7 @@ public class QuestionAnswerTaskProcessor {
 	) {
 		return switch (exception.failureCode()) {
 			case timeout -> QuestionTaskFailure.PROVIDER_TIMEOUT;
-			case rate_limited -> QuestionTaskFailure.PROVIDER_RATE_LIMITED;
+			case rate_limited -> QuestionTaskFailure.WEB_GROUNDING_RATE_LIMITED;
 			case provider_unavailable -> QuestionTaskFailure.PROVIDER_UNAVAILABLE;
 			case permanent_configuration -> QuestionTaskFailure.PERMANENT_CONFIGURATION;
 		};
@@ -235,6 +271,7 @@ public class QuestionAnswerTaskProcessor {
 	private int providerFailurePriority(QuestionTaskFailure failure) {
 		return switch (failure) {
 			case PROVIDER_RATE_LIMITED -> 4;
+			case WEB_GROUNDING_RATE_LIMITED -> 4;
 			case PROVIDER_TIMEOUT -> 3;
 			case PROVIDER_UNAVAILABLE -> 2;
 			case GENERATION_INVALID_OUTPUT -> 1;

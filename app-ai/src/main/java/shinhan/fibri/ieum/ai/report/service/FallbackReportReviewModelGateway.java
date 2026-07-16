@@ -45,7 +45,7 @@ public class FallbackReportReviewModelGateway implements ReportReviewModelGatewa
 		if (fallbackResult != null) {
 			return inference(fallbackResult, true, attempts);
 		}
-		throw new ReportReviewModelGatewayException();
+		throw new ReportReviewModelGatewayException(attempts);
 	}
 
 	private ProviderResult invoke(
