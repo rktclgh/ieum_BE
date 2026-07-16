@@ -817,7 +817,7 @@ class MeetingServiceTest {
 		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
 		allowActiveSchedule(3L);
 		when(meetingRepository.findGroupRoomIdByMeetingId(3L)).thenReturn(Optional.of(9L));
-		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L)).thenReturn(Optional.empty());
+		when(participantRepository.findByIdMeetingIdAndIdUserIdForUpdate(3L, 42L)).thenReturn(Optional.empty());
 		when(participantRepository.countByIdMeetingIdAndStatus(3L, ParticipantStatus.joined)).thenReturn(1L);
 
 		JoinMeetingResponse response = service.join(principal(42L), 3L);
@@ -838,7 +838,7 @@ class MeetingServiceTest {
 		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
 		allowActiveSchedule(3L);
 		when(meetingRepository.findGroupRoomIdByMeetingId(3L)).thenReturn(Optional.of(9L));
-		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L)).thenReturn(Optional.of(participant));
+		when(participantRepository.findByIdMeetingIdAndIdUserIdForUpdate(3L, 42L)).thenReturn(Optional.of(participant));
 
 		JoinMeetingResponse response = service.join(principal(42L), 3L);
 
@@ -856,7 +856,7 @@ class MeetingServiceTest {
 		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
 		allowActiveSchedule(3L);
 		when(meetingRepository.findGroupRoomIdByMeetingId(3L)).thenReturn(Optional.of(9L));
-		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L)).thenReturn(Optional.of(participant));
+		when(participantRepository.findByIdMeetingIdAndIdUserIdForUpdate(3L, 42L)).thenReturn(Optional.of(participant));
 		when(participantRepository.countByIdMeetingIdAndStatus(3L, ParticipantStatus.joined)).thenReturn(1L);
 
 		JoinMeetingResponse response = service.join(principal(42L), 3L);
@@ -894,7 +894,7 @@ class MeetingServiceTest {
 		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
 		allowActiveSchedule(3L);
 		when(meetingRepository.findGroupRoomIdByMeetingId(3L)).thenReturn(Optional.of(9L));
-		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L)).thenReturn(Optional.empty());
+		when(participantRepository.findByIdMeetingIdAndIdUserIdForUpdate(3L, 42L)).thenReturn(Optional.empty());
 		when(participantRepository.countByIdMeetingIdAndStatus(3L, ParticipantStatus.joined)).thenReturn(2L);
 
 		assertThatThrownBy(() -> service.join(principal(42L), 3L))
@@ -909,10 +909,11 @@ class MeetingServiceTest {
 		MeetingParticipant participant = MeetingParticipant.join(3L, 42L, OffsetDateTime.parse("2026-07-09T10:00:00+09:00"));
 		participant.kick();
 		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
-		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L)).thenReturn(Optional.of(participant));
+		when(participantRepository.findByIdMeetingIdAndIdUserIdForUpdate(3L, 42L)).thenReturn(Optional.of(participant));
 
 		assertThatThrownBy(() -> service.join(principal(42L), 3L))
 			.isInstanceOf(KickedMemberException.class);
+		verify(participantRepository).findByIdMeetingIdAndIdUserIdForUpdate(3L, 42L);
 		verify(chatRoomLifecycle, never()).addMember(any(), any());
 	}
 

@@ -248,7 +248,7 @@ public class MeetingService {
 		Meeting meeting = meetingRepository.findActiveByIdForUpdate(meetingId)
 			.orElseThrow(MeetingNotFoundException::new);
 		OffsetDateTime now = OffsetDateTime.now();
-		Optional<MeetingParticipant> participant = participantRepository.findByIdMeetingIdAndIdUserId(
+		Optional<MeetingParticipant> participant = participantRepository.findByIdMeetingIdAndIdUserIdForUpdate(
 			meetingId,
 			principal.userId()
 		);
