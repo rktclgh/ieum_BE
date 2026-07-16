@@ -47,8 +47,9 @@ public class ReportReviewInternalController {
 		@RequestBody ReportReviewRequest request,
 		HttpServletRequest servletRequest
 	) {
-		observationLogger.started(servletRequest, reportId, request);
+		observationLogger.received(servletRequest, reportId, request);
 		PreparedReportReview preparedReview = preparationService.prepare(reportId, request);
+		observationLogger.processingStarted(servletRequest, reportId, request);
 		ReportReviewResponse response = inferenceOrchestrator.review(preparedReview);
 		byte[] responseBody = serialize(response);
 		observationLogger.completed(servletRequest, reportId, request, response);

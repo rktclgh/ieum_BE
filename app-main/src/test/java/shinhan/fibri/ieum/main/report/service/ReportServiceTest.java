@@ -9,6 +9,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -16,6 +19,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Pageable;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import shinhan.fibri.ieum.common.auth.domain.GenderType;
@@ -119,6 +123,36 @@ class ReportServiceTest {
 		assertThat(saved.getContextSnapshot()).isEqualTo(contextSnapshot.json());
 		assertThat(saved.getContextHash()).isEqualTo(contextSnapshot.hash());
 		verify(snapshotFactory).create(100L, List.of(before), reportedMessage, List.of(after));
+	}
+
+	@Test
+	void createMessageReportLogsSafeReceiptAfterPersistence() throws Exception {
+		User reporter = user(42L, "reporter@example.com", "reporter");
+		User reported = user(77L, "reported@example.com", "reported");
+		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
+		Message reportedMessage = message(500L, room, reported, "reported-message", "2026-07-09T10:00:00+09:00");
+		when(messageRepository.findById(500L)).thenReturn(Optional.of(reportedMessage));
+		when(chatMemberRepository.existsByRoom_IdAndUser_IdAndLeftAtIsNull(100L, 42L)).thenReturn(true);
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(reporter));
+		when(messageRepository.findContextBeforeMessage(100L, reportedMessage.getCreatedAt(), 500L, Pageable.ofSize(20)))
+			.thenReturn(List.of());
+		when(messageRepository.findContextAfterMessage(100L, reportedMessage.getCreatedAt(), 500L, Pageable.ofSize(20)))
+			.thenReturn(List.of());
+		stubSavedReportId(900L);
+		Logger logger = (Logger) LoggerFactory.getLogger(ReportService.class);
+		ListAppender<ILoggingEvent> logs = new ListAppender<>();
+		logs.start();
+		logger.addAppender(logs);
+		try {
+			service.create(principal(42L), new CreateReportRequest(500L, ReportReason.abuse, "private detail"));
+
+			assertThat(messages(logs))
+				.contains("event=report_received reportId=900 targetType=message aiReviewState=pending")
+				.noneMatch(message -> message.contains("private detail") || message.contains("reported-message"));
+		} finally {
+			logger.detachAppender(logs);
+			logs.stop();
+		}
 	}
 
 	@Test
@@ -336,6 +370,10 @@ class ReportServiceTest {
 			setField(report, "id", id);
 			return report;
 		});
+	}
+
+	private List<String> messages(ListAppender<ILoggingEvent> appender) {
+		return appender.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
 	}
 
 	private void setField(Object target, String fieldName, Object value) {

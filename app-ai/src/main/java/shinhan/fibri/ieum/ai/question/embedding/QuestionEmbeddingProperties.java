@@ -11,7 +11,7 @@ public record QuestionEmbeddingProperties(
 	@DefaultValue("1") int totalAttempts
 ) {
 
-	public static final String API_KEY_ENVIRONMENT_VARIABLE = "APP_AI_QUESTION_EMBEDDING_GEMINI_API_KEY";
+	public static final String API_KEY_ENVIRONMENT_VARIABLE = "APP_AI_GEMINI_API_KEY";
 	static final Duration REQUIRED_MODEL_TIMEOUT = Duration.ofSeconds(10);
 	static final int REQUIRED_TOTAL_ATTEMPTS = 1;
 

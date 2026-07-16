@@ -13,8 +13,7 @@ public record WebGroundingProperties(
 	@DefaultValue("45s") Duration modelTimeout
 ) {
 
-	public static final String API_KEY_ENVIRONMENT_VARIABLE =
-		"APP_AI_QUESTION_WEB_GROUNDING_GEMINI_API_KEY";
+	public static final String API_KEY_ENVIRONMENT_VARIABLE = "APP_AI_GEMINI_API_KEY";
 
 	private static final int MAX_MODEL_LENGTH = 120;
 	private static final Duration REQUIRED_MODEL_TIMEOUT = Duration.ofSeconds(45);
