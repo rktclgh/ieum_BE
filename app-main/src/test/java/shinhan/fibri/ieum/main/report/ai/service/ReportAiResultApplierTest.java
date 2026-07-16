@@ -1,6 +1,8 @@
 package shinhan.fibri.ieum.main.report.ai.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -21,6 +23,7 @@ import org.mockito.ArgumentCaptor;
 import shinhan.fibri.ieum.common.ai.report.dto.ReportReviewResponse;
 import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
+import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
 import shinhan.fibri.ieum.main.admin.user.domain.SanctionType;
 import shinhan.fibri.ieum.main.admin.user.domain.UserSanction;
@@ -29,6 +32,7 @@ import shinhan.fibri.ieum.main.report.domain.ReportReason;
 import shinhan.fibri.ieum.main.report.repository.ClaimedReport;
 import shinhan.fibri.ieum.main.report.repository.ReportAiReviewResult;
 import shinhan.fibri.ieum.main.report.repository.ReportAiWorkRepository;
+import shinhan.fibri.ieum.main.mail.UserSuspensionEventPublisher;
 
 class ReportAiResultApplierTest {
 
@@ -38,13 +42,20 @@ class ReportAiResultApplierTest {
 	private final UserSanctionRepository sanctionRepository = mock(UserSanctionRepository.class);
 	private final ReportAiReviewResultMapper mapper = mock(ReportAiReviewResultMapper.class);
 	private final ReportAiPostCommitActions postCommitActions = mock(ReportAiPostCommitActions.class);
+	private final UserSuspensionEventPublisher suspensionEventPublisher = mock(UserSuspensionEventPublisher.class);
 	private final Clock clock = Clock.fixed(NOW.toInstant(), ZoneOffset.ofHours(9));
 	private ReportAiResultApplierImpl applier;
 
 	@BeforeEach
 	void setUp() {
 		applier = new ReportAiResultApplierImpl(
-			workRepository, userRepository, sanctionRepository, mapper, postCommitActions, clock
+			workRepository,
+			userRepository,
+			sanctionRepository,
+			mapper,
+			postCommitActions,
+			suspensionEventPublisher,
+			clock
 		);
 	}
 
@@ -56,6 +67,7 @@ class ReportAiResultApplierTest {
 		when(mapper.map(response, NOW)).thenReturn(new MappedReportAiReview(result, Duration.ofHours(72)));
 		User target = mock(User.class);
 		when(target.getRole()).thenReturn(UserRole.user);
+		when(target.getStatus()).thenReturn(UserStatus.active);
 		when(userRepository.findByIdForUpdate(30L)).thenReturn(Optional.of(target));
 		UserSanction current = mock(UserSanction.class);
 		when(current.getType()).thenReturn(SanctionType.temporary);
@@ -72,11 +84,32 @@ class ReportAiResultApplierTest {
 		assertThat(sanction.getValue().getStartsAt()).isEqualTo(NOW.plusHours(24));
 		assertThat(sanction.getValue().getEndsAt()).isEqualTo(NOW.plusHours(96));
 		verify(target).suspend();
+		verify(suspensionEventPublisher).publish(eq(target), any(UserSanction.class));
 		verify(postCommitActions).schedule(30L);
 		var order = inOrder(userRepository, sanctionRepository, workRepository);
 		order.verify(userRepository).findByIdForUpdate(30L);
 		order.verify(sanctionRepository).findEffectiveSanctionsForUpdate(30L, NOW);
 		order.verify(workRepository).markCompleted(900L, claimed.attemptId(), result);
+	}
+
+	@Test
+	void doesNotPublishAnotherSuspensionMailWhenTheTargetIsAlreadySuspended() {
+		ClaimedReport claimed = claimed();
+		ReportReviewResponse response = mock(ReportReviewResponse.class);
+		ReportAiReviewResult result = result("suspend");
+		when(mapper.map(response, NOW)).thenReturn(new MappedReportAiReview(result, Duration.ofHours(24)));
+		User target = mock(User.class);
+		when(target.getRole()).thenReturn(UserRole.user);
+		when(target.getStatus()).thenReturn(UserStatus.suspended);
+		when(userRepository.findByIdForUpdate(30L)).thenReturn(Optional.of(target));
+		when(sanctionRepository.findEffectiveSanctionsForUpdate(30L, NOW)).thenReturn(List.of());
+		when(workRepository.markCompleted(900L, claimed.attemptId(), result)).thenReturn(true);
+
+		assertThat(applier.apply(claimed, response)).isEqualTo(ReportAiApplyOutcome.completed("suspend", true));
+
+		verify(sanctionRepository).saveAndFlush(any(UserSanction.class));
+		verify(target).suspend();
+		verify(suspensionEventPublisher, never()).publish(any(User.class), any(UserSanction.class));
 	}
 
 	@Test

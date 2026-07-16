@@ -31,6 +31,7 @@ import shinhan.fibri.ieum.main.admin.user.repository.UserSanctionRepository;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
 import shinhan.fibri.ieum.main.notification.push.WebPushSubscriptionCleanup;
 import shinhan.fibri.ieum.main.notification.sse.SseConnectionRegistry;
+import shinhan.fibri.ieum.main.mail.UserSuspensionEventPublisher;
 
 @Service
 @RequiredArgsConstructor
@@ -44,6 +45,7 @@ public class AdminSanctionService {
 	private final WebPushSubscriptionCleanup webPushSubscriptionCleanup;
 	private final SseConnectionRegistry sseConnectionRegistry;
 	private final AdminAuditLogWriter auditLogWriter;
+	private final UserSuspensionEventPublisher suspensionEventPublisher;
 
 	@Transactional
 	public CreateSanctionResponse sanction(AuthenticatedUser principal, Long userId, CreateSanctionRequest request) {
@@ -53,6 +55,7 @@ public class AdminSanctionService {
 			throw new CannotSanctionAdminException();
 		}
 		validateRequest(request);
+		boolean newlySuspended = target.getStatus() != UserStatus.suspended;
 		target.suspend();
 		UserSanction sanction = createSanction(principal, userId, request);
 		UserSanction saved = userSanctionRepository.save(sanction);
@@ -63,6 +66,9 @@ public class AdminSanctionService {
 			userId,
 			sanctionDetails(saved)
 		);
+		if (newlySuspended) {
+			suspensionEventPublisher.publish(target, sanction);
+		}
 		revokeSessionsAfterCommit(userId);
 		return new CreateSanctionResponse(saved.getId());
 	}

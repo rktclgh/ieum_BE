@@ -11,12 +11,14 @@ import org.springframework.transaction.annotation.Transactional;
 import shinhan.fibri.ieum.common.ai.report.dto.ReportReviewResponse;
 import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
+import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
 import shinhan.fibri.ieum.main.admin.user.domain.SanctionType;
 import shinhan.fibri.ieum.main.admin.user.domain.UserSanction;
 import shinhan.fibri.ieum.main.admin.user.repository.UserSanctionRepository;
 import shinhan.fibri.ieum.main.report.repository.ClaimedReport;
 import shinhan.fibri.ieum.main.report.repository.ReportAiWorkRepository;
+import shinhan.fibri.ieum.main.mail.UserSuspensionEventPublisher;
 
 @Service
 @ConditionalOnProperty(prefix = "app.ai.report", name = "enabled", havingValue = "true")
@@ -27,6 +29,7 @@ public class ReportAiResultApplierImpl implements ReportAiResultApplier {
 	private final UserSanctionRepository sanctionRepository;
 	private final ReportAiReviewResultMapper mapper;
 	private final ReportAiPostCommitActions postCommitActions;
+	private final UserSuspensionEventPublisher suspensionEventPublisher;
 	private final Clock clock;
 
 	public ReportAiResultApplierImpl(
@@ -35,6 +38,7 @@ public class ReportAiResultApplierImpl implements ReportAiResultApplier {
 		UserSanctionRepository sanctionRepository,
 		ReportAiReviewResultMapper mapper,
 		ReportAiPostCommitActions postCommitActions,
+		UserSuspensionEventPublisher suspensionEventPublisher,
 		Clock clock
 	) {
 		this.workRepository = Objects.requireNonNull(workRepository, "workRepository must not be null");
@@ -42,6 +46,10 @@ public class ReportAiResultApplierImpl implements ReportAiResultApplier {
 		this.sanctionRepository = Objects.requireNonNull(sanctionRepository, "sanctionRepository must not be null");
 		this.mapper = Objects.requireNonNull(mapper, "mapper must not be null");
 		this.postCommitActions = Objects.requireNonNull(postCommitActions, "postCommitActions must not be null");
+		this.suspensionEventPublisher = Objects.requireNonNull(
+			suspensionEventPublisher,
+			"suspensionEventPublisher must not be null"
+		);
 		this.clock = Objects.requireNonNull(clock, "clock must not be null");
 	}
 
@@ -78,10 +86,15 @@ public class ReportAiResultApplierImpl implements ReportAiResultApplier {
 			.filter(end -> end.isAfter(now))
 			.orElse(now);
 		OffsetDateTime endsAt = startsAt.plus(mapped.automaticSanctionDuration());
-		sanctionRepository.saveAndFlush(UserSanction.aiTemporary(
+		UserSanction sanction = UserSanction.aiTemporary(
 			claimed.reportedUserId(), claimed.reportId(), mapped.result().reason(), now, startsAt, endsAt
-		));
+		);
+		boolean newlySuspended = target.getStatus() != UserStatus.suspended;
+		sanctionRepository.saveAndFlush(sanction);
 		target.suspend();
+		if (newlySuspended) {
+			suspensionEventPublisher.publish(target, sanction);
+		}
 		postCommitActions.schedule(claimed.reportedUserId());
 		return ReportAiApplyOutcome.completed(mapped.result().decision(), true);
 	}

@@ -1,0 +1,82 @@
+package shinhan.fibri.ieum.main.mail;
+
+import java.util.Locale;
+import org.springframework.context.MessageSource;
+import org.springframework.stereotype.Component;
+import org.springframework.web.util.HtmlUtils;
+
+@Component
+public class EmailTemplateRenderer {
+
+	private static final String FONT_FAMILY = "'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', Arial, sans-serif";
+
+	private final MessageSource messageSource;
+
+	public EmailTemplateRenderer(MessageSource messageSource) {
+		this.messageSource = messageSource;
+	}
+
+	public RenderedEmail render(EmailTemplate template, Locale locale) {
+		Locale resolvedLocale = locale == null ? Locale.KOREAN : locale;
+		String footer = messageSource.getMessage("mail.template.footer", null, resolvedLocale);
+		return new RenderedEmail(
+			template.subject(),
+			renderPlainText(template, footer),
+			renderHtml(template, footer, resolvedLocale)
+		);
+	}
+
+	private String renderPlainText(EmailTemplate template, String footer) {
+		StringBuilder body = new StringBuilder();
+		body.append("IEUM | ").append(template.category()).append("\n\n");
+		body.append(template.headline()).append("\n\n");
+		body.append(template.intro()).append("\n\n");
+		for (EmailTemplate.Detail detail : template.details()) {
+			body.append(detail.label()).append(": ").append(detail.value()).append("\n\n");
+		}
+		body.append(template.notice()).append("\n\n");
+		body.append("--\n").append(footer);
+		return body.toString();
+	}
+
+	private String renderHtml(EmailTemplate template, String footer, Locale locale) {
+		StringBuilder details = new StringBuilder();
+		for (EmailTemplate.Detail detail : template.details()) {
+			String background = detail.highlight() ? "#EAF4EF" : "#FFFFFF";
+			details.append("<tr><td style=\"padding:16px 0;border-top:1px solid #D9E4DF;\">")
+				.append("<div style=\"font-size:12px;line-height:18px;color:#667085;margin-bottom:6px;\">")
+				.append(escape(detail.label()))
+				.append("</div><div style=\"background:").append(background)
+				.append(";border-radius:4px;padding:12px 14px;font-size:15px;line-height:24px;color:#1F2933;white-space:normal;\">")
+				.append(escapeMultiline(detail.value()))
+				.append("</div></td></tr>");
+		}
+		String language = locale.getLanguage().isBlank() ? "ko" : locale.getLanguage();
+		return "<!doctype html><html lang=\"" + escape(language) + "\"><head>"
+			+ "<meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">"
+			+ "</head><body style=\"margin:0;padding:0;background:#F5F7F6;font-family:" + FONT_FAMILY + ";color:#1F2933;\">"
+			+ "<div style=\"display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;\">"
+			+ escape(template.headline()) + "</div>"
+			+ "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"background:#F5F7F6;\"><tr><td align=\"center\" style=\"padding:32px 16px;\">"
+			+ "<table role=\"presentation\" width=\"600\" cellspacing=\"0\" cellpadding=\"0\" style=\"width:100%;max-width:600px;background:#FFFFFF;\">"
+			+ "<tr><td style=\"padding:24px 28px;background:#123D35;color:#FFFFFF;\"><div style=\"font-size:20px;font-weight:700;line-height:28px;letter-spacing:0;\">IEUM</div>"
+			+ "<div style=\"font-size:12px;line-height:18px;opacity:.8;margin-top:4px;\">" + escape(template.category()) + "</div></td></tr>"
+			+ "<tr><td style=\"padding:32px 28px 12px;\"><h1 style=\"font-size:22px;line-height:30px;margin:0;color:#123D35;font-weight:700;letter-spacing:0;\">"
+			+ escape(template.headline()) + "</h1><p style=\"font-size:15px;line-height:24px;margin:14px 0 0;color:#1F2933;\">"
+			+ escapeMultiline(template.intro()) + "</p></td></tr>"
+			+ "<tr><td style=\"padding:12px 28px 0;\"><table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">"
+			+ details + "</table></td></tr>"
+			+ "<tr><td style=\"padding:20px 28px 28px;\"><p style=\"font-size:13px;line-height:21px;margin:0;color:#667085;\">"
+			+ escapeMultiline(template.notice()) + "</p></td></tr>"
+			+ "<tr><td style=\"padding:18px 28px;background:#F5F7F6;border-top:1px solid #D9E4DF;\"><p style=\"font-size:12px;line-height:18px;margin:0;color:#667085;\">"
+			+ escape(footer) + "</p></td></tr></table></td></tr></table></body></html>";
+	}
+
+	private String escapeMultiline(String value) {
+		return escape(value).replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br>");
+	}
+
+	private String escape(String value) {
+		return HtmlUtils.htmlEscape(value);
+	}
+}
