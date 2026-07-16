@@ -12,6 +12,8 @@ import org.springframework.stereotype.Component;
 @Component
 public class SmtpUserSuspensionMailSender implements UserSuspensionMailSender {
 
+	private static final long SECONDS_PER_DAY = 86_400L;
+
 	private static final Logger log = LoggerFactory.getLogger(SmtpUserSuspensionMailSender.class);
 
 	private final SmtpMailSender mailSender;
@@ -29,8 +31,8 @@ public class SmtpUserSuspensionMailSender implements UserSuspensionMailSender {
 	}
 
 	@Override
-	public void send(UserSuspensionEvent event, Locale locale) {
-		Locale resolvedLocale = locale == null ? Locale.KOREAN : locale;
+	public void send(UserSuspensionEvent event) {
+		Locale resolvedLocale = event.locale();
 		String duration = suspensionDuration(event.startsAt(), event.endsAt(), resolvedLocale);
 		EmailTemplate template = new EmailTemplate(
 			message("user.suspension.subject", null, resolvedLocale),
@@ -52,7 +54,7 @@ public class SmtpUserSuspensionMailSender implements UserSuspensionMailSender {
 			return message("user.suspension.duration.permanent", null, locale);
 		}
 		long seconds = Duration.between(startsAt, endsAt).getSeconds();
-		long days = seconds <= 0 ? 1L : Math.max(1L, Math.ceilDiv(seconds, 86_400L));
+		long days = seconds <= 0 ? 1L : ((seconds - 1L) / SECONDS_PER_DAY) + 1L;
 		return message("user.suspension.duration.days", new Object[]{days}, locale);
 	}
 

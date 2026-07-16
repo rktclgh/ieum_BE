@@ -2,9 +2,11 @@ package shinhan.fibri.ieum.main.mail;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentCaptor.forClass;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.LocalDate;
@@ -49,21 +51,22 @@ class AfterCommitUserSuspensionEventPublisherTest {
 		TransactionSynchronizationManager.initSynchronization();
 		try {
 			publisher.publish(user, sanction);
+			verify(localeResolver).resolve(10L);
+			clearInvocations(localeResolver);
 
-			verify(mailSender, never()).send(
-				org.mockito.ArgumentMatchers.any(UserSuspensionEvent.class),
-				org.mockito.ArgumentMatchers.any(Locale.class)
-			);
+			verify(mailSender, never()).send(org.mockito.ArgumentMatchers.any(UserSuspensionEvent.class));
 			TransactionSynchronizationManager.getSynchronizations().forEach(TransactionSynchronization::afterCommit);
 
 			var eventCaptor = forClass(UserSuspensionEvent.class);
-			verify(mailSender).send(eventCaptor.capture(), org.mockito.ArgumentMatchers.eq(Locale.JAPANESE));
+			verify(mailSender).send(eventCaptor.capture());
+			verifyNoInteractions(localeResolver);
 			UserSuspensionEvent event = eventCaptor.getValue();
 			assertThat(event.userId()).isEqualTo(10L);
 			assertThat(event.email()).isEqualTo("user@example.com");
 			assertThat(event.reason()).isEqualTo("abusive messages");
 			assertThat(event.startsAt()).isEqualTo(sanction.getStartsAt());
 			assertThat(event.endsAt()).isEqualTo(sanction.getEndsAt());
+			assertThat(event.locale()).isEqualTo(Locale.JAPANESE);
 		} finally {
 			TransactionSynchronizationManager.clearSynchronization();
 		}

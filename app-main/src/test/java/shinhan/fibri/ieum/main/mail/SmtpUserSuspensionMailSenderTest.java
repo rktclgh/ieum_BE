@@ -28,10 +28,11 @@ class SmtpUserSuspensionMailSenderTest {
 			"user@example.com",
 			"Repeated abusive messages",
 			startsAt,
-			startsAt.plusHours(25)
+			startsAt.plusHours(25),
+			Locale.ENGLISH
 		);
 
-		mailSender.send(event, Locale.ENGLISH);
+		mailSender.send(event);
 
 		var emailCaptor = forClass(RenderedEmail.class);
 		verify(smtpMailSender).send(eq("user@example.com"), isNull(), emailCaptor.capture());
@@ -55,10 +56,11 @@ class SmtpUserSuspensionMailSenderTest {
 			"user@example.com",
 			"운영 정책 위반",
 			OffsetDateTime.parse("2026-07-16T15:00:00+09:00"),
-			null
+			null,
+			Locale.KOREAN
 		);
 
-		mailSender.send(event, Locale.KOREAN);
+		mailSender.send(event);
 
 		var emailCaptor = forClass(RenderedEmail.class);
 		verify(smtpMailSender).send(eq("user@example.com"), isNull(), emailCaptor.capture());

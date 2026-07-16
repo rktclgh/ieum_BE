@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.main.mail;
 
 import java.time.OffsetDateTime;
+import java.util.Locale;
 import java.util.Objects;
 
 public record UserSuspensionEvent(
@@ -8,7 +9,8 @@ public record UserSuspensionEvent(
 	String email,
 	String reason,
 	OffsetDateTime startsAt,
-	OffsetDateTime endsAt
+	OffsetDateTime endsAt,
+	Locale locale
 ) {
 
 	public UserSuspensionEvent {
@@ -16,5 +18,6 @@ public record UserSuspensionEvent(
 		email = Objects.requireNonNull(email, "email must not be null");
 		reason = Objects.requireNonNull(reason, "reason must not be null");
 		startsAt = Objects.requireNonNull(startsAt, "startsAt must not be null");
+		locale = Objects.requireNonNull(locale, "locale must not be null");
 	}
 }

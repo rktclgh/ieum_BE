@@ -1,5 +1,6 @@
 package shinhan.fibri.ieum.main.mail;
 
+import java.util.Locale;
 import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,19 +31,21 @@ public class AfterCommitUserSuspensionEventPublisher implements UserSuspensionEv
 	public void publish(User user, UserSanction sanction) {
 		User sourceUser = Objects.requireNonNull(user, "user must not be null");
 		UserSanction sourceSanction = Objects.requireNonNull(sanction, "sanction must not be null");
+		Locale locale = userMailLocaleResolver.resolve(sourceUser.getId());
 		UserSuspensionEvent event = new UserSuspensionEvent(
 			sourceUser.getId(),
 			sourceUser.getEmail(),
 			sourceSanction.getReason(),
 			sourceSanction.getStartsAt(),
-			sourceSanction.getEndsAt()
+			sourceSanction.getEndsAt(),
+			locale
 		);
 		mailTaskScheduler.executeAfterCommit("user_suspension_email", event.userId(), () -> send(event));
 	}
 
 	private void send(UserSuspensionEvent event) {
 		try {
-			mailSender.send(event, userMailLocaleResolver.resolve(event.userId()));
+			mailSender.send(event);
 		} catch (RuntimeException exception) {
 			log.error(
 				"event=user_suspension_email_failed userId={} failureType={}",

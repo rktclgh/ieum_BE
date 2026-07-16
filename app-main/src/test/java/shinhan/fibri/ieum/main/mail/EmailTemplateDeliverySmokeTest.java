@@ -49,9 +49,9 @@ class EmailTemplateDeliverySmokeTest {
 				recipient,
 				"SMTP smoke test - no account action was performed",
 				OffsetDateTime.now(),
-				OffsetDateTime.now().plusDays(2)
-			),
-			Locale.ENGLISH
+				OffsetDateTime.now().plusDays(2),
+				Locale.ENGLISH
+			)
 		);
 	}
 
