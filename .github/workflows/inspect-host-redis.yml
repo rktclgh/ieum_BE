@@ -2,7 +2,7 @@ name: Inspect app-main host Redis
 
 on:
   push:
-    branches: ["chore/inspect-host-redis"]
+    branches: ["chore/locate-host-redis-config"]
     paths: [".github/workflows/inspect-host-redis.yml"]
   workflow_dispatch:
 
@@ -33,8 +33,6 @@ jobs:
           ssh_opts=(-i "$HOME/.ssh/deploy_key" -p "$SSH_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts")
           ssh "${ssh_opts[@]}" "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
           set -euo pipefail
-          config=/etc/redis/redis.conf
-
           printf 'redis_service='
           systemctl is-active redis-server 2>/dev/null || true
           printf 'redis_local_ping='
@@ -43,19 +41,10 @@ jobs:
           sudo docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || true
           printf 'redis_listener_count='
           sudo ss -ltn 'sport = :6379' | awk 'NR > 1 { count += 1 } END { print count + 0 }'
-
-          if sudo test -r "$config"; then
-            printf 'redis_bind='
-            sudo awk '$1 == "bind" { print $2; exit }' "$config"
-            printf 'redis_protected_mode='
-            sudo awk '$1 == "protected-mode" { print $2; exit }' "$config"
-            printf 'redis_requirepass='
-            if sudo awk '$1 == "requirepass" { found = 1 } END { exit !found }' "$config"; then
-              printf 'configured\n'
-            else
-              printf 'not_configured\n'
-            fi
-          else
-            printf 'redis_config=unreadable\n'
-          fi
+          printf 'redis_unit_fragment='
+          systemctl show redis-server --property=FragmentPath --value
+          printf 'redis_exec_start='
+          systemctl show redis-server --property=ExecStart --value | sed -E 's/.*path=([^ ;}]+).*/\1/'
+          printf 'redis_config_candidates='
+          sudo find /etc -maxdepth 3 -type f \( -name 'redis.conf' -o -name 'redis-server.conf' \) -printf '%p,' 2>/dev/null | sed 's/,$//' || true
           REMOTE
