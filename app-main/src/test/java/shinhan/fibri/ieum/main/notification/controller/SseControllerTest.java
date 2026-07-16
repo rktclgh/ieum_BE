@@ -1,16 +1,16 @@
 package shinhan.fibri.ieum.main.notification.controller;
 
-import static org.hamcrest.Matchers.is;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import jakarta.servlet.http.Cookie;
+import java.sql.SQLException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,6 +22,7 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import org.springframework.jdbc.CannotGetJdbcConnectionException;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
 import shinhan.fibri.ieum.main.notification.sse.SseAuthenticationRequiredException;
 import shinhan.fibri.ieum.main.notification.sse.SseSubscriptionService;
@@ -54,12 +55,32 @@ class SseControllerTest {
 	}
 
 	@Test
-	void returnsJsonUnauthorizedWhenSessionCannotBeValidated() throws Exception {
+	void returnsEmptyUnauthorizedWhenSessionCannotBeValidated() throws Exception {
 		when(subscriptionService.subscribe(null)).thenThrow(new SseAuthenticationRequiredException());
 
 		mockMvc.perform(get("/api/v1/sse/subscribe"))
 			.andExpect(status().isUnauthorized())
-			.andExpect(jsonPath("$.code", is("AUTHENTICATION_REQUIRED")));
+			.andExpect(content().string(""));
+	}
+
+	@Test
+	void returnsUnauthorizedWithoutNegotiatingJsonForEventStreamRequests() throws Exception {
+		when(subscriptionService.subscribe(null)).thenThrow(new SseAuthenticationRequiredException());
+
+		mockMvc.perform(get("/api/v1/sse/subscribe").accept(MediaType.TEXT_EVENT_STREAM))
+			.andExpect(status().isUnauthorized())
+			.andExpect(content().string(""));
+	}
+
+	@Test
+	void returnsServiceUnavailableWithoutNegotiatingJsonWhenSubscriptionCannotReachDatabase() throws Exception {
+		when(subscriptionService.subscribe(null)).thenThrow(
+			new CannotGetJdbcConnectionException("database unavailable", new SQLException("pool exhausted"))
+		);
+
+		mockMvc.perform(get("/api/v1/sse/subscribe").accept(MediaType.TEXT_EVENT_STREAM))
+			.andExpect(status().isServiceUnavailable())
+			.andExpect(content().string(""));
 	}
 
 	@TestConfiguration
