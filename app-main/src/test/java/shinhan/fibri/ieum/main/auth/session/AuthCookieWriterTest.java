@@ -38,6 +38,7 @@ class AuthCookieWriterTest {
 			.anySatisfy(cookie -> assertThat(cookie)
 				.contains("csrf_token=csrf-token")
 				.contains("Path=/")
+				.contains("Max-Age=1209600")
 				.contains("Secure")
 				.contains("SameSite=Lax")
 				.doesNotContain("HttpOnly"));
