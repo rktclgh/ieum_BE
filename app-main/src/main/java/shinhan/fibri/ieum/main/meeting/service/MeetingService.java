@@ -227,13 +227,17 @@ public class MeetingService {
 		OffsetDateTime resolvedTo = resolveRangeTo(resolvedFrom, to);
 		Optional<MeetingParticipant> participant = participantRepository
 			.findByIdMeetingIdAndIdUserId(meetingId, principal.userId());
-		List<MeetingScheduleItem> items = meetingScheduleRepository
-			.findSchedulesInRange(meetingId, resolvedFrom, resolvedTo, SCHEDULE_QUERY_LIMIT)
+		List<MeetingSchedule> schedules = meetingScheduleRepository
+			.findSchedulesInRange(meetingId, resolvedFrom, resolvedTo, SCHEDULE_QUERY_LIMIT);
+		String fallbackLocationName = schedules.stream().anyMatch(schedule -> schedule.getLocationName() == null)
+			? meetingRepository.findDetailById(meetingId).map(this::meetingPinLocationName).orElse(null)
+			: null;
+		List<MeetingScheduleItem> items = schedules
 			.stream()
 			.map(schedule -> toScheduleItem(
 				schedule,
 				meeting.getTitle(),
-				null,
+				fallbackLocationName,
 				scheduleCapabilities(
 					principal,
 					meeting.getHostId(),
@@ -245,6 +249,12 @@ public class MeetingService {
 			))
 			.toList();
 		return new MeetingSchedulesResponse(items);
+	}
+
+	private String meetingPinLocationName(MeetingDetailProjection detail) {
+		return detail.getLabel() == null || detail.getLabel().isBlank()
+			? detail.getAddress()
+			: detail.getLabel();
 	}
 
 	@Transactional(readOnly = true)

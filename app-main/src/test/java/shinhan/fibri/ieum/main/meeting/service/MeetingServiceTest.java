@@ -664,6 +664,55 @@ class MeetingServiceTest {
 	}
 
 	@Test
+	void getSchedulesFallsBackLegacyScheduleFieldsToMeetingPinLabel() {
+		Meeting meeting = meeting(3L, 42L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
+		MeetingSchedule legacySchedule = MeetingSchedule.create(
+			3L,
+			42L,
+			OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
+			null,
+			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"),
+			1
+		);
+		MeetingDetailProjection pinLocation = mock(MeetingDetailProjection.class);
+		when(pinLocation.getLabel()).thenReturn("용산역 1번 출구");
+		when(pinLocation.getAddress()).thenReturn("서울특별시 용산구 한강대로");
+		when(meetingRepository.findByIdAndDeletedAtIsNull(3L)).thenReturn(Optional.of(meeting));
+		when(meetingRepository.findDetailById(3L)).thenReturn(Optional.of(pinLocation));
+		when(meetingScheduleRepository.findSchedulesInRange(eq(3L), any(), any(), eq(1000)))
+			.thenReturn(List.of(legacySchedule));
+
+		MeetingSchedulesResponse response = service.getSchedules(principal(42L), 3L, null, null);
+
+		assertThat(response.items().getFirst().title()).isEqualTo("저녁 모임");
+		assertThat(response.items().getFirst().locationName()).isEqualTo("용산역 1번 출구");
+	}
+
+	@Test
+	void getSchedulesFallsBackLegacyScheduleLocationToMeetingPinAddressWhenLabelIsBlank() {
+		Meeting meeting = meeting(3L, 42L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
+		MeetingSchedule legacySchedule = MeetingSchedule.create(
+			3L,
+			42L,
+			OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
+			null,
+			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"),
+			1
+		);
+		MeetingDetailProjection pinLocation = mock(MeetingDetailProjection.class);
+		when(pinLocation.getLabel()).thenReturn("  ");
+		when(pinLocation.getAddress()).thenReturn("서울특별시 용산구 한강대로");
+		when(meetingRepository.findByIdAndDeletedAtIsNull(3L)).thenReturn(Optional.of(meeting));
+		when(meetingRepository.findDetailById(3L)).thenReturn(Optional.of(pinLocation));
+		when(meetingScheduleRepository.findSchedulesInRange(eq(3L), any(), any(), eq(1000)))
+			.thenReturn(List.of(legacySchedule));
+
+		MeetingSchedulesResponse response = service.getSchedules(principal(42L), 3L, null, null);
+
+		assertThat(response.items().getFirst().locationName()).isEqualTo("서울특별시 용산구 한강대로");
+	}
+
+	@Test
 	void getSchedulesMarksAnotherMembersScheduleAsNotDeletable() {
 		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
 		MeetingSchedule schedule = MeetingSchedule.create(
