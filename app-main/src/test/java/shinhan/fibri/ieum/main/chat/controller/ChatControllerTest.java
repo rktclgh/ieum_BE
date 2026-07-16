@@ -37,6 +37,7 @@ import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.chat.domain.RoomType;
+import shinhan.fibri.ieum.common.chat.domain.MessageType;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
 import shinhan.fibri.ieum.main.chat.dto.ChatCursorPage;
 import shinhan.fibri.ieum.main.chat.dto.ChatMessageResponse;
@@ -171,6 +172,7 @@ class ChatControllerTest {
 					77L,
 					"friend",
 					null,
+					MessageType.user,
 					"hello",
 					null,
 					OffsetDateTime.parse("2026-07-08T12:00:00+09:00")
@@ -185,7 +187,8 @@ class ChatControllerTest {
 			.andExpect(jsonPath("$[0].roomType", is("direct")))
 			.andExpect(jsonPath("$[0].pinned", is(true)))
 			.andExpect(jsonPath("$[0].unreadCount", is(3)))
-			.andExpect(jsonPath("$[0].lastMessage.content", is("hello")));
+			.andExpect(jsonPath("$[0].lastMessage.content", is("hello")))
+			.andExpect(jsonPath("$[0].lastMessage.messageType", is("user")));
 	}
 
 	@Test
@@ -223,6 +226,7 @@ class ChatControllerTest {
 					77L,
 					"friend",
 					"/api/v1/files/11111111-1111-1111-1111-111111111111",
+					MessageType.user,
 					"hello",
 					null,
 					OffsetDateTime.parse("2026-07-08T12:00:00+09:00")
@@ -237,7 +241,8 @@ class ChatControllerTest {
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.items[0].messageId", is(501)))
 				.andExpect(jsonPath("$.items[0].senderProfileImageUrl", is("/api/v1/files/11111111-1111-1111-1111-111111111111")))
-				.andExpect(jsonPath("$.nextCursor", is("next")));
+			.andExpect(jsonPath("$.items[0].messageType", is("user")))
+			.andExpect(jsonPath("$.nextCursor", is("next")));
 	}
 
 	@Test

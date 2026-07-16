@@ -59,6 +59,22 @@ sql "
   CREATE SCHEMA trap;
   CREATE TABLE public.users (user_id bigint PRIMARY KEY);
   CREATE TABLE trap.users (user_id bigint PRIMARY KEY);
+  CREATE TABLE public.messages (
+    message_id bigint PRIMARY KEY,
+    room_id bigint NOT NULL,
+    sender_id bigint NOT NULL,
+    content text,
+    image_file_id uuid,
+    CHECK (content IS NOT NULL OR image_file_id IS NOT NULL)
+  );
+  CREATE TABLE trap.messages (
+    message_id bigint PRIMARY KEY,
+    room_id bigint NOT NULL,
+    sender_id bigint NOT NULL,
+    content text,
+    image_file_id uuid,
+    CHECK (content IS NOT NULL OR image_file_id IS NOT NULL)
+  );
   CREATE FUNCTION trap.hashtextextended(text, bigint) RETURNS bigint
     LANGUAGE sql AS 'SELECT 0::bigint';
   CREATE FUNCTION trap.pg_advisory_lock(bigint) RETURNS void
@@ -107,10 +123,24 @@ schema_state="$(sql "
       WHERE index_row.indrelid = 'public.web_push_subscriptions'::regclass
         AND index_class.relname = 'uidx_web_push_subscriptions_session'
         AND index_row.indisunique
+    ),
+    EXISTS (
+      SELECT 1 FROM pg_attribute
+      WHERE attrelid = 'public.messages'::regclass
+        AND attname = 'message_type'
+        AND attnum > 0
+        AND NOT attisdropped
+    ),
+    NOT EXISTS (
+      SELECT 1 FROM pg_attribute
+      WHERE attrelid = 'trap.messages'::regclass
+        AND attname = 'message_type'
+        AND attnum > 0
+        AND NOT attisdropped
     )
   );
 ")"
-[[ "$schema_state" == "t:t:t:t:t:t:t" ]] \
+[[ "$schema_state" == "t:t:t:t:t:t:t:t:t" ]] \
   || fail "DDL escaped public under a hostile search_path: $schema_state"
 
 constraint_oid_before="$(sql "
@@ -128,6 +158,39 @@ constraint_oid_after="$(sql "
 ")"
 [[ -n "$constraint_oid_before" && "$constraint_oid_before" == "$constraint_oid_after" ]] \
   || fail "an exact v25 rerun replaced the users constraint"
+
+message_type_constraint_oids_before="$(sql "
+  SELECT string_agg(oid::text, ':' ORDER BY conname)
+  FROM pg_constraint
+  WHERE conrelid = 'public.messages'::regclass
+    AND conname IN ('ck_messages_message_type', 'ck_messages_system_text_only');
+")"
+run_helper >/dev/null
+message_type_constraint_oids_after="$(sql "
+  SELECT string_agg(oid::text, ':' ORDER BY conname)
+  FROM pg_constraint
+  WHERE conrelid = 'public.messages'::regclass
+    AND conname IN ('ck_messages_message_type', 'ck_messages_system_text_only');
+")"
+[[ "$message_type_constraint_oids_before" =~ ^[0-9]+:[0-9]+$ \
+  && "$message_type_constraint_oids_before" == "$message_type_constraint_oids_after" ]] \
+  || fail "an exact v28 rerun replaced the messages constraints"
+
+sql "
+  ALTER TABLE public.messages DROP CONSTRAINT ck_messages_message_type;
+  ALTER TABLE public.messages
+    ADD CONSTRAINT ck_messages_message_type
+    CHECK (message_type IN ('user', 'system', 'unexpected'));
+" >/dev/null
+if run_helper >/dev/null 2>&1; then
+  fail "helper accepted an incompatible message type check"
+fi
+sql "
+  ALTER TABLE public.messages DROP CONSTRAINT ck_messages_message_type;
+  ALTER TABLE public.messages
+    ADD CONSTRAINT ck_messages_message_type
+    CHECK (message_type IN ('user', 'system'));
+" >/dev/null
 
 sql "ALTER SEQUENCE public.admin_audit_logs_audit_id_seq MAXVALUE 100 CYCLE CACHE 2;" >/dev/null
 if run_helper >/dev/null 2>&1; then

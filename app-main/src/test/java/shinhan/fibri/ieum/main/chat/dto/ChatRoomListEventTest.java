@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.time.OffsetDateTime;
 import org.junit.jupiter.api.Test;
+import shinhan.fibri.ieum.common.chat.domain.MessageType;
 import shinhan.fibri.ieum.common.chat.domain.RoomType;
 
 class ChatRoomListEventTest {
@@ -23,6 +24,7 @@ class ChatRoomListEventTest {
 		assertThat(json.get("type").asText()).isEqualTo("upsert");
 		assertThat(json.has("room")).isTrue();
 		assertThat(json.get("room").get("roomId").asLong()).isEqualTo(100L);
+		assertThat(json.get("room").get("lastMessage").get("messageType").asText()).isEqualTo("user");
 		assertThat(json.has("roomId")).isFalse();
 	}
 
@@ -51,6 +53,7 @@ class ChatRoomListEventTest {
 				42L,
 				"sender",
 				null,
+				MessageType.user,
 				"hello",
 				null,
 				OffsetDateTime.parse("2026-07-08T12:00:00+09:00")

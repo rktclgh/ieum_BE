@@ -95,14 +95,20 @@ grep -Fq "auth_version_contract_state" "$stdin_file" \
   || fail "auth_version preflight/final verification is missing"
 grep -Fq "admin_audit_contract_state" "$stdin_file" \
   || fail "audit schema preflight/final verification is missing"
+grep -Fq "message_type_contract_state" "$stdin_file" \
+  || fail "message type preflight/final verification is missing"
 grep -Fq "partial or incompatible users.auth_version schema" "$stdin_file" \
   || fail "partial auth schema must fail explicitly"
 grep -Fq "partial or incompatible admin_audit_logs schema" "$stdin_file" \
   || fail "partial audit schema must fail explicitly"
+grep -Fq "partial or incompatible messages.message_type schema" "$stdin_file" \
+  || fail "partial message type schema must fail explicitly"
 grep -Fq "apply_admin_audit_migration" "$stdin_file" \
   || fail "an exact existing audit schema must skip the non-idempotent v26 file"
 grep -Fq "apply_auth_version_migration" "$stdin_file" \
   || fail "an exact existing auth schema must skip the locking v25 file"
+grep -Fq "apply_message_type_migration" "$stdin_file" \
+  || fail "an exact existing message type schema must skip the non-idempotent v28 file"
 grep -Fq "SET search_path = pg_catalog, public" "$stdin_file" \
   || fail "migration session must pin trusted catalog resolution before running qualified DDL"
 search_path_line="$(grep -n -m1 -F 'SET search_path = pg_catalog, public' "$stdin_file" | cut -d: -f1)"
@@ -145,6 +151,19 @@ for token in "${required_exact_catalog_tokens[@]}"; do
   grep -Fq "$token" "$stdin_file" \
     || fail "exact catalog verification is missing: $token"
 done
+required_message_type_catalog_tokens=(
+  "'public.messages'::regclass"
+  "attribute.atttypid = 'character varying'::regtype"
+  "attribute.atttypmod = 20"
+  "ck_messages_message_type"
+  "ck_messages_system_text_only"
+  "constraint_row.conkey"
+  "constraint_row.convalidated"
+)
+for token in "${required_message_type_catalog_tokens[@]}"; do
+  grep -Fq "$token" "$stdin_file" \
+    || fail "message type exact catalog verification is missing: $token"
+done
 if grep -Fq "indexdef LIKE" "$stdin_file"; then
   fail "index verification must not rely on permissive text matching"
 fi
@@ -156,16 +175,28 @@ v24_line="$(grep -n -m1 -F '\i db/migrations/v24_seed_report_policy_rules.sql' "
 v25_line="$(grep -n -m1 -F '\i db/migrations/v25_user_auth_version.sql' "$stdin_file" | cut -d: -f1 || true)"
 v26_line="$(grep -n -m1 -F '\i db/migrations/v26_admin_audit_logs.sql' "$stdin_file" | cut -d: -f1 || true)"
 v27_line="$(grep -n -m1 -F '\i db/migrations/v27_report_policy_sanction_durations.sql' "$stdin_file" | cut -d: -f1 || true)"
-test -n "$v24_line" && test -n "$v25_line" && test -n "$v26_line" && test -n "$v27_line" \
-	|| fail "all v24-v27 migrations must be applied"
+v28_line="$(grep -n -m1 -F '\i db/migrations/v28_chat_system_messages.sql' "$stdin_file" | cut -d: -f1 || true)"
+test -n "$v24_line" && test -n "$v25_line" && test -n "$v26_line" && test -n "$v27_line" && test -n "$v28_line" \
+	|| fail "all v24-v28 migrations must be applied"
 (( v24_line < v27_line )) || fail "v24 must run before v27"
 (( v25_line < v26_line )) || fail "v25 must run before v26"
+(( v26_line < v28_line )) || fail "v26 must run before v28"
 report_policy_guard_line="$(grep -n -m1 -F '\if :apply_report_policy_migrations' "$stdin_file" | cut -d: -f1 || true)"
 test -n "$report_policy_guard_line" && (( report_policy_guard_line < v24_line )) \
 	|| fail "report policy migrations must be guarded by table presence"
 auth_guard_line="$(grep -n -m1 -F '\if :apply_auth_version_migration' "$stdin_file" | cut -d: -f1 || true)"
 test -n "$auth_guard_line" && (( auth_guard_line < v25_line )) \
   || fail "v25 must be guarded by the auth absent-state flag"
+message_type_guard_line="$(grep -n -m1 -F '\if :apply_message_type_migration' "$stdin_file" | cut -d: -f1 || true)"
+test -n "$message_type_guard_line" && (( message_type_guard_line < v28_line )) \
+  || fail "v28 must be guarded by the message type absent-state flag"
+
+for workflow in "$root/.github/workflows/deploy-app-main.yml" "$root/.github/workflows/deploy-app-ai.yml"; do
+  scp_line="$(grep -n -F 'db/migrations/v28_chat_system_messages.sql' "$workflow" | grep -F 'scp ' | cut -d: -f1 || true)"
+  chmod_line="$(grep -n -F 'v28_chat_system_messages.sql' "$workflow" | grep -F 'chmod 600' | cut -d: -f1 || true)"
+  test -n "$scp_line" || fail "workflow must copy v28: $workflow"
+  test -n "$chmod_line" || fail "workflow must chmod v28: $workflow"
+done
 
 for migration in \
   db/migrations/v25_web_push_subscriptions.sql \

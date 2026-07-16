@@ -42,7 +42,7 @@ public class ChatMessageService {
 		Message message = messageRepository.save(toMessage(member, request));
 		List<Long> activeUserIds = chatMemberRepository.findActiveUserIdsByRoomId(roomId);
 		chatRoomListChangeEmitter.upsert(roomId, activeUserIds);
-		WsMessageEvent event = toEvent(message);
+		WsMessageEvent event = WsMessageEvent.from(message);
 		ChatPushTrigger pushTrigger = new ChatPushTrigger(
 			message.getId(),
 			message.getRoom().getId(),
@@ -81,20 +81,6 @@ public class ChatMessageService {
 			return Message.image(member.getRoom(), member.getUser(), request.imageFileId());
 		}
 		return Message.text(member.getRoom(), member.getUser(), request.content());
-	}
-
-	private WsMessageEvent toEvent(Message message) {
-		ChatMessageResponse response = ChatMessageResponse.from(message);
-		return new WsMessageEvent(
-			response.messageId(),
-			response.roomId(),
-			response.senderId(),
-			response.senderNickname(),
-			response.senderProfileImageUrl(),
-			response.content(),
-			response.imageUrl(),
-			response.createdAt()
-		);
 	}
 
 	private void publishAfterCommit(WsMessageEvent event, ChatPushTrigger pushTrigger) {

@@ -1,10 +1,12 @@
 package shinhan.fibri.ieum.main.chat.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
 
 import java.time.OffsetDateTime;
 import org.junit.jupiter.api.Test;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import shinhan.fibri.ieum.common.chat.domain.MessageType;
 
 class SimpRoomEventPublisherTest {
 
@@ -19,6 +21,7 @@ class SimpRoomEventPublisherTest {
 			42L,
 			"sender",
 			null,
+			MessageType.user,
 			"hello",
 			null,
 			OffsetDateTime.parse("2026-07-08T12:00:00+09:00")
@@ -26,6 +29,7 @@ class SimpRoomEventPublisherTest {
 
 		publisher.publish(event);
 
+		assertThat(event.messageType()).isEqualTo(MessageType.user);
 		verify(messagingTemplate).convertAndSend("/topic/rooms/100", event);
 	}
 }

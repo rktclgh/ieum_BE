@@ -805,9 +805,15 @@ CREATE TABLE messages (
     sender_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     content TEXT,
     image_file_id UUID REFERENCES files(file_id) ON DELETE SET NULL,
+    message_type VARCHAR(16) NOT NULL DEFAULT 'user',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     deleted_at TIMESTAMPTZ,
-    CHECK (content IS NOT NULL OR image_file_id IS NOT NULL)
+    CHECK (content IS NOT NULL OR image_file_id IS NOT NULL),
+    CONSTRAINT ck_messages_message_type CHECK (message_type IN ('user', 'system')),
+    CONSTRAINT ck_messages_system_text_only CHECK (
+        message_type <> 'system'
+        OR (content IS NOT NULL AND image_file_id IS NULL)
+    )
 );
 CREATE INDEX idx_messages_room ON messages(room_id, created_at DESC);
 

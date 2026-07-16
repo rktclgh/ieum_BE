@@ -2,6 +2,8 @@ package shinhan.fibri.ieum.common.chat.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -37,6 +39,10 @@ public class Message {
 	@Column(name = "image_file_id")
 	private UUID imageFileId;
 
+	@Enumerated(EnumType.STRING)
+	@Column(name = "message_type", nullable = false, length = 16)
+	private MessageType messageType;
+
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private OffsetDateTime createdAt;
 
@@ -46,7 +52,14 @@ public class Message {
 	protected Message() {
 	}
 
-	private Message(ChatRoom room, User sender, String content, UUID imageFileId, OffsetDateTime createdAt) {
+	private Message(
+		ChatRoom room,
+		User sender,
+		String content,
+		UUID imageFileId,
+		MessageType messageType,
+		OffsetDateTime createdAt
+	) {
 		if (content == null && imageFileId == null) {
 			throw new IllegalArgumentException("content or imageFileId is required");
 		}
@@ -54,6 +67,7 @@ public class Message {
 		this.sender = Objects.requireNonNull(sender, "sender must not be null");
 		this.content = content;
 		this.imageFileId = imageFileId;
+		this.messageType = Objects.requireNonNull(messageType, "messageType must not be null");
 		this.createdAt = Objects.requireNonNull(createdAt, "createdAt must not be null");
 	}
 
@@ -67,6 +81,7 @@ public class Message {
 			sender,
 			Objects.requireNonNull(content, "content must not be null"),
 			null,
+			MessageType.user,
 			createdAt
 		);
 	}
@@ -81,8 +96,21 @@ public class Message {
 			sender,
 			null,
 			Objects.requireNonNull(imageFileId, "imageFileId must not be null"),
+			MessageType.user,
 			createdAt
 		);
+	}
+
+	public static Message system(
+		ChatRoom room,
+		User sender,
+		String content,
+		OffsetDateTime createdAt
+	) {
+		if (content == null || content.isBlank()) {
+			throw new IllegalArgumentException("system content must not be blank");
+		}
+		return new Message(room, sender, content, null, MessageType.system, createdAt);
 	}
 
 	public void markDeleted(OffsetDateTime deletedAt) {
@@ -107,6 +135,10 @@ public class Message {
 
 	public UUID getImageFileId() {
 		return imageFileId;
+	}
+
+	public MessageType getMessageType() {
+		return messageType;
 	}
 
 	public OffsetDateTime getCreatedAt() {

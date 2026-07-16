@@ -647,14 +647,14 @@ public class MeetingService {
 			throw new HostCannotLeaveException();
 		}
 		MeetingParticipant participant = participantRepository
-			.findByIdMeetingIdAndIdUserId(meetingId, principal.userId())
+			.findByIdMeetingIdAndIdUserIdForUpdate(meetingId, principal.userId())
 			.filter(row -> row.getStatus() == ParticipantStatus.joined)
 			.orElseThrow(ParticipantNotFoundException::new);
 		Long roomId = meetingRepository.findGroupRoomIdByMeetingId(meetingId)
 			.orElseThrow(MeetingNotFoundException::new);
 		participant.leave();
 		try {
-			chatRoomLifecycle.removeMember(roomId, principal.userId());
+			chatRoomLifecycle.removeGroupMemberWithDepartureMessage(roomId, principal.userId());
 		} catch (NotRoomMemberException ignored) {
 			// meeting_participants is the source of truth; tolerate older chat-only leave history.
 		}
@@ -671,14 +671,14 @@ public class MeetingService {
 			throw new InvalidMeetingRequestException("VALIDATION_FAILED", "userId", "Host cannot be kicked");
 		}
 		MeetingParticipant participant = participantRepository
-			.findByIdMeetingIdAndIdUserId(meetingId, request.userId())
+			.findByIdMeetingIdAndIdUserIdForUpdate(meetingId, request.userId())
 			.filter(row -> row.getStatus() == ParticipantStatus.joined)
 			.orElseThrow(ParticipantNotFoundException::new);
 		Long roomId = meetingRepository.findGroupRoomIdByMeetingId(meetingId)
 			.orElseThrow(MeetingNotFoundException::new);
 		participant.kick();
 		try {
-			chatRoomLifecycle.removeMember(roomId, request.userId());
+			chatRoomLifecycle.removeGroupMemberWithDepartureMessage(roomId, request.userId());
 		} catch (NotRoomMemberException ignored) {
 			// meeting_participants is the source of truth; tolerate older chat-only leave history.
 		}

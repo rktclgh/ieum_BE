@@ -42,6 +42,16 @@ class AdminDashboardMigrationHelperIntegrationTest {
 		dataSource = CanonicalPostgresContainer.dataSource(DATABASE);
 		jdbc = JdbcClient.create(dataSource);
 		jdbc.sql("CREATE TABLE users (user_id BIGSERIAL PRIMARY KEY)").update();
+		jdbc.sql("""
+			CREATE TABLE messages (
+				message_id BIGSERIAL PRIMARY KEY,
+				room_id BIGINT NOT NULL,
+				sender_id BIGINT NOT NULL,
+				content TEXT,
+				image_file_id UUID,
+				CHECK (content IS NOT NULL OR image_file_id IS NOT NULL)
+			)
+			""").update();
 		copyMigrationFiles();
 	}
 
@@ -483,6 +493,11 @@ class AdminDashboardMigrationHelperIntegrationTest {
 		copyToContainer(
 			"db/migrations/v26_admin_audit_logs.sql",
 			CONTAINER_ROOT + "/db/migrations/v26_admin_audit_logs.sql",
+			0644
+		);
+		copyToContainer(
+			"db/migrations/v28_chat_system_messages.sql",
+			CONTAINER_ROOT + "/db/migrations/v28_chat_system_messages.sql",
 			0644
 		);
 		String pgPass = "127.0.0.1:5432:%s:%s:%s%n".formatted(

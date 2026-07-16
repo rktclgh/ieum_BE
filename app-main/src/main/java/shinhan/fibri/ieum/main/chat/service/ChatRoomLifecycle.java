@@ -10,5 +10,7 @@ public interface ChatRoomLifecycle {
 
 	void removeMember(Long roomId, Long userId);
 
+	void removeGroupMemberWithDepartureMessage(Long roomId, Long userId);
+
 	void disbandGroupRoom(Long meetingId);
 }

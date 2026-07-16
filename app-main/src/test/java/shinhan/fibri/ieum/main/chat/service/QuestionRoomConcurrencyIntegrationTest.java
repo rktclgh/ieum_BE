@@ -83,6 +83,9 @@ class QuestionRoomConcurrencyIntegrationTest {
 	@MockitoBean
 	private ChatRoomListChangeEmitter chatRoomListChangeEmitter;
 
+	@MockitoBean
+	private ChatSystemMessageService chatSystemMessageService;
+
 	private long ownerId;
 	private long answererId;
 	private long questionId;

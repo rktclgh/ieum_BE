@@ -162,6 +162,176 @@ BEGIN
 END
 $function$;
 
+CREATE OR REPLACE FUNCTION pg_temp.message_type_contract_state()
+RETURNS text
+LANGUAGE plpgsql
+AS $function$
+DECLARE
+  column_count integer;
+  message_type_constraint_count integer;
+  system_text_only_constraint_count integer;
+  message_type_attnum smallint;
+  content_attnum smallint;
+  image_file_id_attnum smallint;
+  column_exact boolean;
+  message_type_constraint_exact boolean;
+  system_text_only_constraint_exact boolean;
+BEGIN
+  IF to_regclass('public.messages') IS NULL THEN
+    RETURN 'mismatch';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_class table_class
+    JOIN pg_namespace table_namespace ON table_namespace.oid = table_class.relnamespace
+    WHERE table_class.oid = 'public.messages'::regclass
+      AND table_namespace.nspname = 'public'
+      AND table_class.relkind = 'r'
+      AND table_class.relpersistence = 'p'
+      AND NOT table_class.relispartition
+  ) THEN
+    RETURN 'mismatch';
+  END IF;
+
+  SELECT count(*)
+  INTO column_count
+  FROM pg_attribute
+  WHERE attrelid = 'public.messages'::regclass
+    AND attname = 'message_type'
+    AND attnum > 0
+    AND NOT attisdropped;
+
+  SELECT count(*)
+  INTO message_type_constraint_count
+  FROM pg_constraint
+  WHERE conrelid = 'public.messages'::regclass
+    AND conname = 'ck_messages_message_type';
+
+  SELECT count(*)
+  INTO system_text_only_constraint_count
+  FROM pg_constraint
+  WHERE conrelid = 'public.messages'::regclass
+    AND conname = 'ck_messages_system_text_only';
+
+  IF column_count = 0 THEN
+    RETURN CASE
+      WHEN message_type_constraint_count = 0 AND system_text_only_constraint_count = 0 THEN 'absent'
+      ELSE 'mismatch'
+    END;
+  END IF;
+
+  IF message_type_constraint_count <> 1 OR system_text_only_constraint_count <> 1 THEN
+    RETURN 'mismatch';
+  END IF;
+
+  SELECT attnum
+  INTO message_type_attnum
+  FROM pg_attribute
+  WHERE attrelid = 'public.messages'::regclass
+    AND attname = 'message_type'
+    AND attnum > 0
+    AND NOT attisdropped;
+
+  SELECT attnum
+  INTO content_attnum
+  FROM pg_attribute
+  WHERE attrelid = 'public.messages'::regclass
+    AND attname = 'content'
+    AND attnum > 0
+    AND NOT attisdropped;
+
+  SELECT attnum
+  INTO image_file_id_attnum
+  FROM pg_attribute
+  WHERE attrelid = 'public.messages'::regclass
+    AND attname = 'image_file_id'
+    AND attnum > 0
+    AND NOT attisdropped;
+
+  SELECT count(*) = 1
+    AND bool_and(
+      attribute.atttypid = 'character varying'::regtype
+      AND attribute.atttypmod = 20
+      AND attribute.attnotnull
+      AND attribute.attgenerated = ''
+      AND attribute.attidentity = ''
+      AND attribute.atthasdef
+      AND default_value.oid IS NOT NULL
+      AND regexp_replace(
+        pg_get_expr(default_value.adbin, default_value.adrelid),
+        '([[:space:]()]|::character varying)',
+        '',
+        'g'
+      ) = '''user'''
+    )
+  INTO column_exact
+  FROM pg_attribute attribute
+  LEFT JOIN pg_attrdef default_value
+    ON default_value.adrelid = attribute.attrelid
+   AND default_value.adnum = attribute.attnum
+  WHERE attribute.attrelid = 'public.messages'::regclass
+    AND attribute.attname = 'message_type'
+    AND attribute.attnum > 0
+    AND NOT attribute.attisdropped;
+
+  SELECT count(*) = 1
+    AND bool_and(
+      constraint_row.contype = 'c'
+      AND constraint_row.convalidated
+      AND NOT constraint_row.connoinherit
+      AND NOT constraint_row.condeferrable
+      AND NOT constraint_row.condeferred
+      AND constraint_row.conkey = ARRAY[message_type_attnum]
+      AND regexp_replace(
+        regexp_replace(
+          pg_get_expr(constraint_row.conbin, constraint_row.conrelid),
+          '::(character varying|text)(\[\])?',
+          '',
+          'g'
+        ),
+        '[[:space:]()]',
+        '',
+        'g'
+      ) = 'message_type=ANYARRAY[''user'',''system'']'
+    )
+  INTO message_type_constraint_exact
+  FROM pg_constraint constraint_row
+  WHERE constraint_row.conrelid = 'public.messages'::regclass
+    AND constraint_row.conname = 'ck_messages_message_type';
+
+  SELECT count(*) = 1
+    AND bool_and(
+      constraint_row.contype = 'c'
+      AND constraint_row.convalidated
+      AND NOT constraint_row.connoinherit
+      AND NOT constraint_row.condeferrable
+      AND NOT constraint_row.condeferred
+      AND constraint_row.conkey = ARRAY[message_type_attnum, content_attnum, image_file_id_attnum]
+      AND regexp_replace(
+        regexp_replace(
+          pg_get_expr(constraint_row.conbin, constraint_row.conrelid),
+          '::(character varying|text)(\[\])?',
+          '',
+          'g'
+        ),
+        '[[:space:]()]',
+        '',
+        'g'
+      ) = 'message_type<>''system''ORcontentISNOTNULLANDimage_file_idISNULL'
+    )
+  INTO system_text_only_constraint_exact
+  FROM pg_constraint constraint_row
+  WHERE constraint_row.conrelid = 'public.messages'::regclass
+    AND constraint_row.conname = 'ck_messages_system_text_only';
+
+  RETURN CASE
+    WHEN column_exact AND message_type_constraint_exact AND system_text_only_constraint_exact THEN 'exact'
+    ELSE 'mismatch'
+  END;
+END
+$function$;
+
 CREATE OR REPLACE FUNCTION pg_temp.admin_audit_contract_state()
 RETURNS text
 LANGUAGE plpgsql
@@ -800,6 +970,9 @@ BEGIN
   IF pg_temp.auth_version_contract_state() = 'mismatch' THEN
     RAISE EXCEPTION 'partial or incompatible users.auth_version schema';
   END IF;
+  IF pg_temp.message_type_contract_state() = 'mismatch' THEN
+    RAISE EXCEPTION 'partial or incompatible messages.message_type schema';
+  END IF;
   IF pg_temp.admin_audit_contract_state() = 'mismatch' THEN
     RAISE EXCEPTION 'partial or incompatible admin_audit_logs schema';
   END IF;
@@ -813,6 +986,7 @@ SELECT to_regclass('public.ai_report_policy_rules') IS NOT NULL AS apply_report_
 SELECT pg_temp.auth_version_contract_state() = 'absent' AS apply_auth_version_migration \gset
 SELECT pg_temp.admin_audit_contract_state() = 'absent' AS apply_admin_audit_migration \gset
 SELECT pg_temp.web_push_subscription_contract_state() = 'absent' AS apply_web_push_subscription_base_migration \gset
+SELECT pg_temp.message_type_contract_state() = 'absent' AS apply_message_type_migration \gset
 
 \if :apply_report_policy_migrations
 \i db/migrations/v24_seed_report_policy_rules.sql
@@ -832,11 +1006,17 @@ SELECT pg_temp.web_push_subscription_contract_state() = 'base' AS apply_web_push
 \if :apply_web_push_session_cardinality_migration
 \i db/migrations/v26_web_push_session_cardinality.sql
 \endif
+\if :apply_message_type_migration
+\i db/migrations/v28_chat_system_messages.sql
+\endif
 
 DO $verify$
 BEGIN
   IF pg_temp.auth_version_contract_state() <> 'exact' THEN
     RAISE EXCEPTION 'users.auth_version schema verification failed';
+  END IF;
+  IF pg_temp.message_type_contract_state() <> 'exact' THEN
+    RAISE EXCEPTION 'messages.message_type schema verification failed';
   END IF;
   IF pg_temp.admin_audit_contract_state() <> 'exact' THEN
     RAISE EXCEPTION 'admin_audit_logs schema verification failed';

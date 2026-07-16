@@ -23,6 +23,7 @@ public class ChatRoomLifecycleService implements ChatRoomLifecycle {
 	private final ChatRoomRepository chatRoomRepository;
 	private final ChatMemberRepository chatMemberRepository;
 	private final ChatRoomListChangeEmitter chatRoomListChangeEmitter;
+	private final ChatSystemMessageService chatSystemMessageService;
 
 	@Override
 	@Transactional
@@ -65,6 +66,17 @@ public class ChatRoomLifecycleService implements ChatRoomLifecycle {
 		ChatMember member = chatMemberRepository.findActiveByRoomIdAndUserId(roomId, userId)
 			.orElseThrow(NotRoomMemberException::new);
 		member.leave(OffsetDateTime.now());
+		chatRoomListChangeEmitter.remove(roomId, List.of(userId));
+	}
+
+	@Override
+	@Transactional(noRollbackFor = NotRoomMemberException.class)
+	public void removeGroupMemberWithDepartureMessage(Long roomId, Long userId) {
+		ChatMember member = chatMemberRepository.findActiveByRoomIdAndUserId(roomId, userId)
+			.orElseThrow(NotRoomMemberException::new);
+		OffsetDateTime leftAt = OffsetDateTime.now();
+		member.leave(leftAt);
+		chatSystemMessageService.recordMeetingDeparture(member.getRoom(), member.getUser(), leftAt);
 		chatRoomListChangeEmitter.remove(roomId, List.of(userId));
 	}
 

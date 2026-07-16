@@ -1316,12 +1316,14 @@ class MeetingServiceTest {
 		MeetingParticipant participant = MeetingParticipant.join(3L, 42L, OffsetDateTime.parse("2026-07-09T10:00:00+09:00"));
 		when(meetingRepository.findById(3L)).thenReturn(Optional.of(meeting));
 		when(meetingRepository.findGroupRoomIdByMeetingId(3L)).thenReturn(Optional.of(9L));
-		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L)).thenReturn(Optional.of(participant));
+		when(participantRepository.findByIdMeetingIdAndIdUserIdForUpdate(3L, 42L)).thenReturn(Optional.of(participant));
 
 		service.leave(principal(42L), 3L);
 
 		assertThat(participant.getStatus()).isEqualTo(ParticipantStatus.left);
-		verify(chatRoomLifecycle).removeMember(9L, 42L);
+		verify(participantRepository).findByIdMeetingIdAndIdUserIdForUpdate(3L, 42L);
+		verify(chatRoomLifecycle).removeGroupMemberWithDepartureMessage(9L, 42L);
+		verify(chatRoomLifecycle, never()).removeMember(any(), any());
 	}
 
 	@Test
@@ -1331,7 +1333,7 @@ class MeetingServiceTest {
 
 		assertThatThrownBy(() -> service.leave(principal(1L), 3L))
 			.isInstanceOf(HostCannotLeaveException.class);
-		verify(chatRoomLifecycle, never()).removeMember(any(), any());
+		verify(chatRoomLifecycle, never()).removeGroupMemberWithDepartureMessage(any(), any());
 	}
 
 	@Test
@@ -1340,11 +1342,11 @@ class MeetingServiceTest {
 		MeetingParticipant participant = MeetingParticipant.join(3L, 42L, OffsetDateTime.parse("2026-07-09T10:00:00+09:00"));
 		participant.leave();
 		when(meetingRepository.findById(3L)).thenReturn(Optional.of(meeting));
-		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L)).thenReturn(Optional.of(participant));
+		when(participantRepository.findByIdMeetingIdAndIdUserIdForUpdate(3L, 42L)).thenReturn(Optional.of(participant));
 
 		assertThatThrownBy(() -> service.leave(principal(42L), 3L))
 			.isInstanceOf(ParticipantNotFoundException.class);
-		verify(chatRoomLifecycle, never()).removeMember(any(), any());
+		verify(chatRoomLifecycle, never()).removeGroupMemberWithDepartureMessage(any(), any());
 	}
 
 	@Test
@@ -1353,12 +1355,13 @@ class MeetingServiceTest {
 		MeetingParticipant participant = MeetingParticipant.join(3L, 42L, OffsetDateTime.parse("2026-07-09T10:00:00+09:00"));
 		when(meetingRepository.findById(3L)).thenReturn(Optional.of(meeting));
 		when(meetingRepository.findGroupRoomIdByMeetingId(3L)).thenReturn(Optional.of(9L));
-		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L)).thenReturn(Optional.of(participant));
-		doThrow(new NotRoomMemberException()).when(chatRoomLifecycle).removeMember(9L, 42L);
+		when(participantRepository.findByIdMeetingIdAndIdUserIdForUpdate(3L, 42L)).thenReturn(Optional.of(participant));
+		doThrow(new NotRoomMemberException()).when(chatRoomLifecycle).removeGroupMemberWithDepartureMessage(9L, 42L);
 
 		service.leave(principal(42L), 3L);
 
 		assertThat(participant.getStatus()).isEqualTo(ParticipantStatus.left);
+		verify(chatRoomLifecycle).removeGroupMemberWithDepartureMessage(9L, 42L);
 	}
 
 	@Test
@@ -1367,12 +1370,14 @@ class MeetingServiceTest {
 		MeetingParticipant participant = MeetingParticipant.join(3L, 42L, OffsetDateTime.parse("2026-07-09T10:00:00+09:00"));
 		when(meetingRepository.findById(3L)).thenReturn(Optional.of(meeting));
 		when(meetingRepository.findGroupRoomIdByMeetingId(3L)).thenReturn(Optional.of(9L));
-		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L)).thenReturn(Optional.of(participant));
+		when(participantRepository.findByIdMeetingIdAndIdUserIdForUpdate(3L, 42L)).thenReturn(Optional.of(participant));
 
 		service.kick(principal(1L), 3L, new KickMeetingRequest(42L));
 
 		assertThat(participant.getStatus()).isEqualTo(ParticipantStatus.kicked);
-		verify(chatRoomLifecycle).removeMember(9L, 42L);
+		verify(participantRepository).findByIdMeetingIdAndIdUserIdForUpdate(3L, 42L);
+		verify(chatRoomLifecycle).removeGroupMemberWithDepartureMessage(9L, 42L);
+		verify(chatRoomLifecycle, never()).removeMember(any(), any());
 	}
 
 	@Test
@@ -1382,7 +1387,7 @@ class MeetingServiceTest {
 
 		assertThatThrownBy(() -> service.kick(principal(42L), 3L, new KickMeetingRequest(99L)))
 			.isInstanceOf(NotHostException.class);
-		verify(chatRoomLifecycle, never()).removeMember(any(), any());
+		verify(chatRoomLifecycle, never()).removeGroupMemberWithDepartureMessage(any(), any());
 	}
 
 	@Test
@@ -1393,7 +1398,7 @@ class MeetingServiceTest {
 		assertThatThrownBy(() -> service.kick(principal(1L), 3L, new KickMeetingRequest(1L)))
 			.isInstanceOf(InvalidMeetingRequestException.class)
 			.hasMessage("Host cannot be kicked");
-		verify(chatRoomLifecycle, never()).removeMember(any(), any());
+		verify(chatRoomLifecycle, never()).removeGroupMemberWithDepartureMessage(any(), any());
 	}
 
 	@Test
@@ -1402,11 +1407,11 @@ class MeetingServiceTest {
 		MeetingParticipant participant = MeetingParticipant.join(3L, 42L, OffsetDateTime.parse("2026-07-09T10:00:00+09:00"));
 		participant.leave();
 		when(meetingRepository.findById(3L)).thenReturn(Optional.of(meeting));
-		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L)).thenReturn(Optional.of(participant));
+		when(participantRepository.findByIdMeetingIdAndIdUserIdForUpdate(3L, 42L)).thenReturn(Optional.of(participant));
 
 		assertThatThrownBy(() -> service.kick(principal(1L), 3L, new KickMeetingRequest(42L)))
 			.isInstanceOf(ParticipantNotFoundException.class);
-		verify(chatRoomLifecycle, never()).removeMember(any(), any());
+		verify(chatRoomLifecycle, never()).removeGroupMemberWithDepartureMessage(any(), any());
 	}
 
 	@Test
@@ -1415,12 +1420,13 @@ class MeetingServiceTest {
 		MeetingParticipant participant = MeetingParticipant.join(3L, 42L, OffsetDateTime.parse("2026-07-09T10:00:00+09:00"));
 		when(meetingRepository.findById(3L)).thenReturn(Optional.of(meeting));
 		when(meetingRepository.findGroupRoomIdByMeetingId(3L)).thenReturn(Optional.of(9L));
-		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L)).thenReturn(Optional.of(participant));
-		doThrow(new NotRoomMemberException()).when(chatRoomLifecycle).removeMember(9L, 42L);
+		when(participantRepository.findByIdMeetingIdAndIdUserIdForUpdate(3L, 42L)).thenReturn(Optional.of(participant));
+		doThrow(new NotRoomMemberException()).when(chatRoomLifecycle).removeGroupMemberWithDepartureMessage(9L, 42L);
 
 		service.kick(principal(1L), 3L, new KickMeetingRequest(42L));
 
 		assertThat(participant.getStatus()).isEqualTo(ParticipantStatus.kicked);
+		verify(chatRoomLifecycle).removeGroupMemberWithDepartureMessage(9L, 42L);
 	}
 
 	@Test

@@ -11,6 +11,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -27,9 +28,11 @@ import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.chat.domain.ChatMember;
 import shinhan.fibri.ieum.common.chat.domain.ChatRoom;
 import shinhan.fibri.ieum.common.chat.domain.Message;
+import shinhan.fibri.ieum.common.chat.domain.MessageType;
 import shinhan.fibri.ieum.common.chat.domain.RoomType;
 import shinhan.fibri.ieum.common.chat.repository.ChatMemberRepository;
 import shinhan.fibri.ieum.common.chat.repository.MessageRepository;
+import shinhan.fibri.ieum.main.chat.dto.ChatMessageResponse;
 import shinhan.fibri.ieum.main.chat.dto.SendChatMessageRequest;
 import shinhan.fibri.ieum.main.chat.exception.InvalidChatMessageException;
 import shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException;
@@ -48,6 +51,19 @@ class ChatMessageServiceTest {
 		chatNotificationPublisher,
 		chatRoomListChangeEmitter
 	);
+
+	@Test
+	void responseAndWebSocketEventExposeMessageTypeForUserAndSystemMessages() {
+		User sender = user(42L, "sender@example.com", "sender");
+		ChatRoom room = room(ChatRoom.group(7L), 100L);
+		OffsetDateTime createdAt = OffsetDateTime.parse("2026-07-08T12:00:00+09:00");
+		Message userMessage = Message.text(room, sender, "hello", createdAt);
+		Message systemMessage = Message.system(room, sender, "sender left", createdAt);
+
+		assertThat(ChatMessageResponse.from(userMessage).messageType()).isEqualTo(MessageType.user);
+		assertThat(ChatMessageResponse.from(systemMessage).messageType()).isEqualTo(MessageType.system);
+		assertThat(WsMessageEvent.from(systemMessage).messageType()).isEqualTo(MessageType.system);
+	}
 
 	@Test
 	void sendSavesMessageAndPublishesEventWhenNoTransactionSynchronization() {
@@ -72,6 +88,7 @@ class ChatMessageServiceTest {
 		verify(roomEventPublisher).publish(eventCaptor.capture());
 		assertThat(eventCaptor.getValue().content()).isEqualTo("hello");
 		assertThat(eventCaptor.getValue().senderProfileImageUrl()).isEqualTo("/api/v1/files/" + profileFileId);
+		assertThat(eventCaptor.getValue().messageType()).isEqualTo(MessageType.user);
 		ArgumentCaptor<ChatPushTrigger> triggerCaptor = ArgumentCaptor.forClass(ChatPushTrigger.class);
 		verify(chatNotificationPublisher).messageCreated(triggerCaptor.capture());
 		assertThat(triggerCaptor.getValue()).isEqualTo(new ChatPushTrigger(501L, 100L, 42L));
