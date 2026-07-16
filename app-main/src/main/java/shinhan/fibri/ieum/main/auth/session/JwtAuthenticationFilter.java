@@ -29,6 +29,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 		return InternalAiCallbackEndpoint.matches(request) || isSafeFrontendRead(request);
 	}
 
+	@Override
+	protected boolean shouldNotFilterAsyncDispatch() {
+		return false;
+	}
+
 	private boolean isSafeFrontendRead(HttpServletRequest request) {
 		String method = request.getMethod();
 		if (!("GET".equals(method) || "HEAD".equals(method))) {
