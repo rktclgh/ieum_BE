@@ -24,14 +24,6 @@ public interface PinRepository extends JpaRepository<Pin, Long> {
 			LEFT JOIN meetings  m ON m.pin_id = p.pin_id
 			                    AND m.deleted_at IS NULL
 			                    AND m.status = 'open'
-			                    AND EXISTS (
-			                       SELECT 1
-			                         FROM meeting_schedules ms
-			                        WHERE ms.meeting_id = m.meeting_id
-			                          AND ms.status = 'scheduled'
-			                          AND ms.visible_until >= now()
-			                          AND ms.deleted_at IS NULL
-			                    )
 			                    AND NOT EXISTS (
 			                       SELECT 1
 			                         FROM meeting_participants mp
@@ -83,14 +75,6 @@ public interface PinRepository extends JpaRepository<Pin, Long> {
 			LEFT JOIN meetings  m ON m.pin_id = p.pin_id
 			                    AND m.deleted_at IS NULL
 			                    AND m.status = 'open'
-			                    AND EXISTS (
-			                       SELECT 1
-			                         FROM meeting_schedules ms
-			                        WHERE ms.meeting_id = m.meeting_id
-			                          AND ms.status = 'scheduled'
-			                          AND ms.visible_until >= now()
-			                          AND ms.deleted_at IS NULL
-			                    )
 			                    AND NOT EXISTS (
 			                       SELECT 1
 			                         FROM meeting_participants mp
