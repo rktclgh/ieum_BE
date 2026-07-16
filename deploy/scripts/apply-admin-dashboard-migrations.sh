@@ -966,6 +966,15 @@ END
 $function$;
 
 DO $preflight$
+DECLARE
+  schedule_title_exists boolean;
+  schedule_location_exists boolean;
+  schedule_target_enum_exists boolean;
+  report_schedule_id_exists boolean;
+  report_schedule_fk_exists boolean;
+  report_schedule_constraints_exist boolean;
+  report_schedule_index_exists boolean;
+  report_schedule_trigger_exists boolean;
 BEGIN
   IF pg_temp.auth_version_contract_state() = 'mismatch' THEN
     RAISE EXCEPTION 'partial or incompatible users.auth_version schema';
@@ -979,6 +988,108 @@ BEGIN
   IF pg_temp.web_push_subscription_contract_state() = 'mismatch' THEN
     RAISE EXCEPTION 'partial or incompatible web_push_subscriptions schema';
   END IF;
+
+  IF to_regclass('public.meeting_schedules') IS NOT NULL THEN
+    SELECT
+      EXISTS (
+        SELECT 1
+        FROM pg_attribute
+        WHERE attrelid = to_regclass('public.meeting_schedules')
+          AND attname = 'title'
+          AND attnum > 0
+          AND NOT attisdropped
+      ),
+      EXISTS (
+        SELECT 1
+        FROM pg_attribute
+        WHERE attrelid = to_regclass('public.meeting_schedules')
+          AND attname = 'location_name'
+          AND attnum > 0
+          AND NOT attisdropped
+      )
+    INTO schedule_title_exists, schedule_location_exists;
+
+    IF schedule_title_exists <> schedule_location_exists THEN
+      RAISE EXCEPTION 'partial or incompatible meeting_schedules detail schema';
+    END IF;
+  END IF;
+
+  SELECT EXISTS (
+    SELECT 1
+    FROM pg_enum
+    WHERE enumtypid = to_regtype('public.report_target_type')
+      AND enumlabel = 'schedule'
+  )
+  INTO schedule_target_enum_exists;
+
+  SELECT EXISTS (
+    SELECT 1
+    FROM pg_attribute
+    WHERE attrelid = to_regclass('public.reports')
+      AND attname = 'schedule_id'
+      AND attnum > 0
+      AND NOT attisdropped
+  )
+  INTO report_schedule_id_exists;
+
+  IF NOT schedule_target_enum_exists AND report_schedule_id_exists THEN
+    RAISE EXCEPTION 'partial or incompatible reports schedule target schema';
+  END IF;
+
+  IF schedule_target_enum_exists AND report_schedule_id_exists THEN
+    SELECT EXISTS (
+      SELECT 1
+      FROM pg_constraint
+      WHERE conrelid = to_regclass('public.reports')
+        AND conname = 'fk_reports_schedule'
+        AND contype = 'f'
+        AND convalidated
+        AND confrelid = to_regclass('public.meeting_schedules')
+        AND confdeltype = 'n'
+    )
+    INTO report_schedule_fk_exists;
+
+    SELECT count(*) = 3
+      AND bool_and(convalidated)
+    INTO report_schedule_constraints_exist
+    FROM pg_constraint
+    WHERE conrelid = to_regclass('public.reports')
+      AND conname IN (
+        'ck_reports_target_xor',
+        'ck_reports_schedule_manual_only',
+        'ck_reports_schedule_reported_user'
+      );
+
+    SELECT EXISTS (
+      SELECT 1
+      FROM pg_index index_row
+      JOIN pg_class index_class ON index_class.oid = index_row.indexrelid
+      WHERE index_row.indrelid = to_regclass('public.reports')
+        AND index_class.relname = 'idx_reports_schedule'
+        AND index_row.indisvalid
+    )
+    INTO report_schedule_index_exists;
+
+    SELECT EXISTS (
+      SELECT 1
+      FROM pg_trigger trigger_row
+      JOIN pg_proc function_row ON function_row.oid = trigger_row.tgfoid
+      WHERE trigger_row.tgrelid = to_regclass('public.reports')
+        AND trigger_row.tgname = 'trg_reports_target_integrity'
+        AND NOT trigger_row.tgisinternal
+        AND position('schedule_id' IN pg_get_functiondef(function_row.oid)) > 0
+    )
+    INTO report_schedule_trigger_exists;
+
+    IF NOT (
+      report_schedule_fk_exists
+      AND report_schedule_constraints_exist
+      AND report_schedule_index_exists
+      AND report_schedule_trigger_exists
+    ) THEN
+      RAISE EXCEPTION 'partial or incompatible reports schedule target schema';
+    END IF;
+  END IF;
 END
 $preflight$;
 
@@ -987,6 +1098,36 @@ SELECT pg_temp.auth_version_contract_state() = 'absent' AS apply_auth_version_mi
 SELECT pg_temp.admin_audit_contract_state() = 'absent' AS apply_admin_audit_migration \gset
 SELECT pg_temp.web_push_subscription_contract_state() = 'absent' AS apply_web_push_subscription_base_migration \gset
 SELECT pg_temp.message_type_contract_state() = 'absent' AS apply_message_type_migration \gset
+SELECT (
+  to_regclass('public.meeting_schedules') IS NOT NULL
+  AND (
+    NOT EXISTS (
+      SELECT 1
+      FROM pg_attribute
+      WHERE attrelid = to_regclass('public.meeting_schedules')
+        AND attname = 'title'
+        AND attnum > 0
+        AND NOT attisdropped
+    )
+    OR NOT EXISTS (
+      SELECT 1
+      FROM pg_attribute
+      WHERE attrelid = to_regclass('public.meeting_schedules')
+        AND attname = 'location_name'
+        AND attnum > 0
+        AND NOT attisdropped
+    )
+  )
+) AS apply_meeting_schedule_details_migration \gset
+SELECT (
+  to_regtype('public.report_target_type') IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1
+    FROM pg_enum
+    WHERE enumtypid = to_regtype('public.report_target_type')
+      AND enumlabel = 'schedule'
+  )
+) AS apply_schedule_report_target_enum_migration \gset
 
 \if :apply_report_policy_migrations
 \i db/migrations/v24_seed_report_policy_rules.sql
@@ -1008,6 +1149,33 @@ SELECT pg_temp.web_push_subscription_contract_state() = 'base' AS apply_web_push
 \endif
 \if :apply_message_type_migration
 \i db/migrations/v28_chat_system_messages.sql
+\endif
+\if :apply_meeting_schedule_details_migration
+\i db/migrations/v29_meeting_schedule_details.sql
+\endif
+\if :apply_schedule_report_target_enum_migration
+\i db/migrations/v30_report_schedule_target_enum.sql
+\endif
+SELECT (
+  to_regclass('public.reports') IS NOT NULL
+  AND to_regclass('public.meeting_schedules') IS NOT NULL
+  AND EXISTS (
+    SELECT 1
+    FROM pg_enum
+    WHERE enumtypid = to_regtype('public.report_target_type')
+      AND enumlabel = 'schedule'
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM pg_attribute
+    WHERE attrelid = to_regclass('public.reports')
+      AND attname = 'schedule_id'
+      AND attnum > 0
+      AND NOT attisdropped
+  )
+) AS apply_schedule_report_target_migration \gset
+\if :apply_schedule_report_target_migration
+\i db/migrations/v31_report_schedule_target.sql
 \endif
 
 DO $verify$

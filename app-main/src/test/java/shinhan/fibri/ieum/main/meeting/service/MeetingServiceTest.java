@@ -45,6 +45,8 @@ import shinhan.fibri.ieum.main.meeting.dto.KickMeetingRequest;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingCalendarResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingDetailResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingParticipantsResponse;
+import shinhan.fibri.ieum.main.meeting.dto.ManageMeetingScheduleRequest;
+import shinhan.fibri.ieum.main.meeting.dto.MeetingScheduleItem;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingSchedulesResponse;
 import shinhan.fibri.ieum.main.meeting.exception.HostCannotLeaveException;
 import shinhan.fibri.ieum.main.meeting.exception.KickedMemberException;
@@ -481,7 +483,7 @@ class MeetingServiceTest {
 		assertThat(response.active()).isTrue();
 		assertThat(response.nextSchedule().scheduleId()).isEqualTo(32L);
 		assertThat(response.nextSchedule().createdByUserId()).isEqualTo(42L);
-		assertThat(response.nextSchedule().canDelete()).isTrue();
+		assertThat(response.nextSchedule().canDelete()).isFalse();
 		assertThat(response.nextSchedule().startsAt()).isEqualTo(OffsetDateTime.parse("2026-07-14T19:00:00+09:00"));
 		assertThat(response.nextSchedule().status()).isEqualTo("scheduled");
 		assertThat(response.recurrenceRule().frequency()).isEqualTo("weekly");
@@ -683,6 +685,35 @@ class MeetingServiceTest {
 
 		assertThat(response.items().getFirst().createdByUserId()).isEqualTo(77L);
 		assertThat(response.items().getFirst().canDelete()).isFalse();
+	}
+
+	@Test
+	void getSchedulesDoesNotAdvertiseEditForRecurringMeetingSchedules() {
+		Meeting meeting = meeting(
+			3L,
+			42L,
+			MeetingType.recurring,
+			OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
+			7
+		);
+		MeetingSchedule schedule = MeetingSchedule.create(
+			3L,
+			42L,
+			OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
+			null,
+			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"),
+			1
+		);
+		setField(schedule, "id", 31L);
+		when(meetingRepository.findByIdAndDeletedAtIsNull(3L)).thenReturn(Optional.of(meeting));
+		when(meetingScheduleRepository.findSchedulesInRange(eq(3L), any(), any(), eq(1000)))
+			.thenReturn(List.of(schedule));
+
+		MeetingSchedulesResponse response = service.getSchedules(principal(42L), 3L, null, null);
+
+		assertThat(response.items().getFirst().canEdit()).isFalse();
+		assertThat(response.items().getFirst().canDelete()).isTrue();
+		assertThat(response.items().getFirst().canReport()).isFalse();
 	}
 
 	@Test
@@ -920,6 +951,85 @@ class MeetingServiceTest {
 			.isInstanceOf(KickedMemberException.class);
 		verify(participantRepository).findByIdMeetingIdAndIdUserIdForUpdate(3L, 42L);
 		verify(chatRoomLifecycle, never()).addMember(any(), any());
+	}
+
+	@Test
+	void addManagedScheduleAllowsAnotherFutureScheduleAndRefreshesTheLegacyCache() {
+		Meeting meeting = meeting(3L, 42L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
+		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 99L))
+			.thenReturn(Optional.of(MeetingParticipant.join(3L, 99L, OffsetDateTime.now())));
+		when(meetingScheduleRepository.findMaxSequenceNoByMeetingId(3L)).thenReturn(1);
+		when(meetingScheduleRepository.save(any(MeetingSchedule.class))).thenAnswer(invocation -> {
+			MeetingSchedule schedule = invocation.getArgument(0);
+			setField(schedule, "id", 32L);
+			return schedule;
+		});
+		when(meetingScheduleRepository.findNextActiveStartsAt(eq(3L), any(OffsetDateTime.class)))
+			.thenReturn(Optional.of(OffsetDateTime.parse("2099-07-10T19:00:00+09:00")));
+
+		CreateMeetingScheduleResponse response = service.addManagedSchedule(
+			principal(99L),
+			3L,
+			new ManageMeetingScheduleRequest(
+				"용산 와인바에서 봅시다",
+				"용산역 1번 출구",
+				OffsetDateTime.parse("2099-07-20T19:00:00+09:00"),
+				OffsetDateTime.parse("2099-07-20T21:00:00+09:00")
+			)
+		);
+
+		assertThat(response.scheduleId()).isEqualTo(32L);
+		assertThat(meeting.getMeetingAt()).isEqualTo(OffsetDateTime.parse("2099-07-10T19:00:00+09:00"));
+		ArgumentCaptor<MeetingSchedule> scheduleCaptor = ArgumentCaptor.forClass(MeetingSchedule.class);
+		verify(meetingScheduleRepository).save(scheduleCaptor.capture());
+		assertThat(scheduleCaptor.getValue().getTitle()).isEqualTo("용산 와인바에서 봅시다");
+		assertThat(scheduleCaptor.getValue().getLocationName()).isEqualTo("용산역 1번 출구");
+		assertThat(scheduleCaptor.getValue().getCreatedBy()).isEqualTo(99L);
+		assertThat(scheduleCaptor.getValue().getSequenceNo()).isEqualTo(2);
+		verify(meetingScheduleRepository, never()).existsActiveSchedule(eq(3L), any(OffsetDateTime.class));
+	}
+
+	@Test
+	void updateManagedScheduleAllowsCreatorAndReturnsCurrentCapabilities() {
+		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
+		MeetingSchedule schedule = MeetingSchedule.createManaged(
+			3L,
+			42L,
+			"기존 일정",
+			"기존 장소",
+			OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
+			null,
+			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"),
+			1
+		);
+		setField(schedule, "id", 31L);
+		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L))
+			.thenReturn(Optional.of(MeetingParticipant.join(3L, 42L, OffsetDateTime.now())));
+		when(meetingScheduleRepository.findByIdAndMeetingIdAndDeletedAtIsNull(31L, 3L))
+			.thenReturn(Optional.of(schedule));
+		when(meetingScheduleRepository.findNextActiveStartsAt(eq(3L), any(OffsetDateTime.class)))
+			.thenReturn(Optional.of(OffsetDateTime.parse("2099-07-11T19:00:00+09:00")));
+
+		MeetingScheduleItem response = service.updateManagedSchedule(
+			principal(42L),
+			3L,
+			31L,
+			new ManageMeetingScheduleRequest(
+				"수정 일정",
+				"수정 장소",
+				OffsetDateTime.parse("2099-07-11T19:00:00+09:00"),
+				null
+			)
+		);
+
+		assertThat(schedule.getTitle()).isEqualTo("수정 일정");
+		assertThat(schedule.getLocationName()).isEqualTo("수정 장소");
+		assertThat(meeting.getMeetingAt()).isEqualTo(OffsetDateTime.parse("2099-07-11T19:00:00+09:00"));
+		assertThat(response.canEdit()).isTrue();
+		assertThat(response.canDelete()).isTrue();
+		assertThat(response.canReport()).isFalse();
 	}
 
 	@Test

@@ -52,6 +52,27 @@ class AdminReportJsonSanitizerTest {
 	}
 
 	@Test
+	void keepsOnlySafeScheduleSnapshotFields() {
+		var result = sanitizer.sanitizeContextSnapshot(
+			ReportTargetType.schedule,
+			"""
+				{"schemaVersion":1,"targetType":"schedule",
+				 "reported":{"scheduleId":31,"meetingId":3,"createdByUserId":77,
+				 "title":"용산 와인바에서 봅시다","locationName":"용산역 1번 출구",
+				 "startsAt":"2099-07-20T19:00:00+09:00","endsAt":null,"status":"scheduled",
+				 "privateNote":"remove"},"providerPayload":{"token":"remove"}}
+				"""
+		);
+
+		assertThat(result.path("targetType").asString()).isEqualTo("schedule");
+		assertThat(result.at("/reported/scheduleId").asLong()).isEqualTo(31L);
+		assertThat(result.at("/reported/locationName").asString()).isEqualTo("용산역 1번 출구");
+		assertThat(result.at("/reported/endsAt").isNull()).isTrue();
+		assertThat(result.at("/reported/privateNote").isMissingNode()).isTrue();
+		assertThat(result.path("providerPayload").isMissingNode()).isTrue();
+	}
+
+	@Test
 	void allowlistsAiResultAndDropsProviderPayloadAndChainOfThought() {
 		var result = sanitizer.sanitizeAiResult("""
 			{"category":"abuse","severity":"high","evidence":["message"],"matchedRules":["R-1"],

@@ -176,11 +176,18 @@ v25_line="$(grep -n -m1 -F '\i db/migrations/v25_user_auth_version.sql' "$stdin_
 v26_line="$(grep -n -m1 -F '\i db/migrations/v26_admin_audit_logs.sql' "$stdin_file" | cut -d: -f1 || true)"
 v27_line="$(grep -n -m1 -F '\i db/migrations/v27_report_policy_sanction_durations.sql' "$stdin_file" | cut -d: -f1 || true)"
 v28_line="$(grep -n -m1 -F '\i db/migrations/v28_chat_system_messages.sql' "$stdin_file" | cut -d: -f1 || true)"
+v29_line="$(grep -n -m1 -F '\i db/migrations/v29_meeting_schedule_details.sql' "$stdin_file" | cut -d: -f1 || true)"
+v30_line="$(grep -n -m1 -F '\i db/migrations/v30_report_schedule_target_enum.sql' "$stdin_file" | cut -d: -f1 || true)"
+v31_line="$(grep -n -m1 -F '\i db/migrations/v31_report_schedule_target.sql' "$stdin_file" | cut -d: -f1 || true)"
 test -n "$v24_line" && test -n "$v25_line" && test -n "$v26_line" && test -n "$v27_line" && test -n "$v28_line" \
-	|| fail "all v24-v28 migrations must be applied"
+  && test -n "$v29_line" && test -n "$v30_line" && test -n "$v31_line" \
+	|| fail "all v24-v31 migrations must be applied"
 (( v24_line < v27_line )) || fail "v24 must run before v27"
 (( v25_line < v26_line )) || fail "v25 must run before v26"
 (( v26_line < v28_line )) || fail "v26 must run before v28"
+(( v28_line < v29_line )) || fail "v28 must run before v29"
+(( v29_line < v30_line )) || fail "v29 must run before v30"
+(( v30_line < v31_line )) || fail "v30 must run before v31"
 report_policy_guard_line="$(grep -n -m1 -F '\if :apply_report_policy_migrations' "$stdin_file" | cut -d: -f1 || true)"
 test -n "$report_policy_guard_line" && (( report_policy_guard_line < v24_line )) \
 	|| fail "report policy migrations must be guarded by table presence"
@@ -190,12 +197,23 @@ test -n "$auth_guard_line" && (( auth_guard_line < v25_line )) \
 message_type_guard_line="$(grep -n -m1 -F '\if :apply_message_type_migration' "$stdin_file" | cut -d: -f1 || true)"
 test -n "$message_type_guard_line" && (( message_type_guard_line < v28_line )) \
   || fail "v28 must be guarded by the message type absent-state flag"
+schedule_details_guard_line="$(grep -n -m1 -F '\if :apply_meeting_schedule_details_migration' "$stdin_file" | cut -d: -f1 || true)"
+test -n "$schedule_details_guard_line" && (( schedule_details_guard_line < v29_line )) \
+  || fail "v29 must be guarded by missing meeting schedule detail columns"
+schedule_target_enum_guard_line="$(grep -n -m1 -F '\if :apply_schedule_report_target_enum_migration' "$stdin_file" | cut -d: -f1 || true)"
+test -n "$schedule_target_enum_guard_line" && (( schedule_target_enum_guard_line < v30_line )) \
+  || fail "v30 must be guarded by a missing schedule report target enum"
+schedule_target_guard_line="$(grep -n -m1 -F '\if :apply_schedule_report_target_migration' "$stdin_file" | cut -d: -f1 || true)"
+test -n "$schedule_target_guard_line" && (( schedule_target_guard_line < v31_line )) \
+  || fail "v31 must be guarded by a missing reports.schedule_id column"
 
 for workflow in "$root/.github/workflows/deploy-app-main.yml" "$root/.github/workflows/deploy-app-ai.yml"; do
-  scp_line="$(grep -n -F 'db/migrations/v28_chat_system_messages.sql' "$workflow" | grep -F 'scp ' | cut -d: -f1 || true)"
-  chmod_line="$(grep -n -F 'v28_chat_system_messages.sql' "$workflow" | grep -F 'chmod 600' | cut -d: -f1 || true)"
-  test -n "$scp_line" || fail "workflow must copy v28: $workflow"
-  test -n "$chmod_line" || fail "workflow must chmod v28: $workflow"
+  for migration in v29_meeting_schedule_details v30_report_schedule_target_enum v31_report_schedule_target; do
+    scp_line="$(grep -n -F "db/migrations/${migration}.sql" "$workflow" | grep -F 'scp ' | cut -d: -f1 || true)"
+    chmod_line="$(grep -n -F "${migration}.sql" "$workflow" | grep -F 'chmod 600' | cut -d: -f1 || true)"
+    test -n "$scp_line" || fail "workflow must copy ${migration}: $workflow"
+    test -n "$chmod_line" || fail "workflow must chmod ${migration}: $workflow"
+  done
 done
 
 for migration in \

@@ -22,14 +22,19 @@ public class AdminReportRepository {
 		               r.message_id,
 		               CAST(NULLIF(r.context_snapshot #>> '{reported,messageId}', '') AS bigint)
 		           )
-		           ELSE COALESCE(
+		           WHEN r.target_type = 'answer' THEN COALESCE(
 		               r.answer_id,
 		               CAST(NULLIF(r.context_snapshot #>> '{reported,answerId}', '') AS bigint)
+		           )
+		           ELSE COALESCE(
+		               r.schedule_id,
+		               CAST(NULLIF(r.context_snapshot #>> '{reported,scheduleId}', '') AS bigint)
 		           )
 		       END AS target_id,
 		       CASE
 		           WHEN r.target_type = 'message' THEN r.message_id IS NULL
-		           ELSE r.answer_id IS NULL
+		           WHEN r.target_type = 'answer' THEN r.answer_id IS NULL
+		           ELSE r.schedule_id IS NULL
 		       END AS target_deleted,
 		       r.reporter_id,
 		       reporter.nickname AS reporter_nickname,
@@ -116,12 +121,20 @@ public class AdminReportRepository {
 			               r.message_id,
 			               CAST(NULLIF(r.context_snapshot #>> '{reported,messageId}', '') AS bigint)
 			           )
-			           ELSE COALESCE(
+			           WHEN r.target_type = 'answer' THEN COALESCE(
 			               r.answer_id,
 			               CAST(NULLIF(r.context_snapshot #>> '{reported,answerId}', '') AS bigint)
 			           )
+			           ELSE COALESCE(
+			               r.schedule_id,
+			               CAST(NULLIF(r.context_snapshot #>> '{reported,scheduleId}', '') AS bigint)
+			           )
 			       END AS target_id,
-			       CASE WHEN r.target_type = 'message' THEN r.message_id IS NULL ELSE r.answer_id IS NULL END
+			       CASE
+			           WHEN r.target_type = 'message' THEN r.message_id IS NULL
+			           WHEN r.target_type = 'answer' THEN r.answer_id IS NULL
+			           ELSE r.schedule_id IS NULL
+			       END
 			           AS target_deleted,
 			       r.reporter_id, reporter.nickname AS reporter_nickname,
 			       r.reported_user_id, reported.nickname AS reported_user_nickname,
