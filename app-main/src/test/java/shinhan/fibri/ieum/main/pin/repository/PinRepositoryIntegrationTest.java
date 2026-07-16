@@ -121,10 +121,9 @@ class PinRepositoryIntegrationTest {
 
 		insertPin(44L, "meeting", 127.7, 37.98);
 		jdbcTemplate.update(
-			"INSERT INTO meetings (pin_id, title, status, deleted_at) VALUES (10, 'deleted meeting', 'cancelled'::meeting_status, now())"
+			"INSERT INTO meetings (pin_id, title, status, deleted_at) VALUES (10, 'deleted meeting', 'open'::meeting_status, now())"
 		);
 		insertSchedule(8L, "2099-07-15T19:00:00+09:00", "2099-07-15T23:59:59+09:00");
-		jdbcTemplate.update("UPDATE pins SET deleted_at = now() WHERE pin_id = 10");
 	}
 
 	@Test

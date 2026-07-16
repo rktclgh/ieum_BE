@@ -867,8 +867,9 @@ class MeetingServiceTest {
 	}
 
 	@Test
-	void joinRejectsPastOrClosedMeeting() {
-		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2026-07-01T19:00:00+09:00"), 7);
+	void joinRejectsClosedMeeting() {
+		Meeting meeting = meeting(3L, 1L, null, 7);
+		meeting.close();
 		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
 
 		assertThatThrownBy(() -> service.join(principal(42L), 3L))
@@ -877,15 +878,19 @@ class MeetingServiceTest {
 	}
 
 	@Test
-	void joinRejectsUnscheduledMeetingUntilScheduleIsAdded() {
+	void joinAddsNewParticipantToUnscheduledOpenMeetingAndGroupRoom() {
 		Meeting meeting = meeting(3L, 1L, null, 7);
 		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
-		when(meetingScheduleRepository.existsActiveSchedule(eq(3L), any(OffsetDateTime.class))).thenReturn(false);
+		when(meetingRepository.findGroupRoomIdByMeetingId(3L)).thenReturn(Optional.of(9L));
+		when(participantRepository.findByIdMeetingIdAndIdUserIdForUpdate(3L, 42L)).thenReturn(Optional.empty());
+		when(participantRepository.countByIdMeetingIdAndStatus(3L, ParticipantStatus.joined)).thenReturn(1L);
 
-		assertThatThrownBy(() -> service.join(principal(42L), 3L))
-			.isInstanceOf(MeetingNotOpenException.class);
-		verify(participantRepository, never()).save(any(MeetingParticipant.class));
-		verify(chatRoomLifecycle, never()).addMember(any(), any());
+		JoinMeetingResponse response = service.join(principal(42L), 3L);
+
+		assertThat(response.roomId()).isEqualTo(9L);
+		verify(meetingScheduleRepository, never()).existsActiveSchedule(any(), any());
+		verify(participantRepository).save(any(MeetingParticipant.class));
+		verify(chatRoomLifecycle).addMember(9L, 42L);
 	}
 
 	@Test

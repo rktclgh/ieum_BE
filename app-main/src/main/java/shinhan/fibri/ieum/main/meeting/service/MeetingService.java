@@ -247,7 +247,6 @@ public class MeetingService {
 	public JoinMeetingResponse join(AuthenticatedUser principal, Long meetingId) {
 		Meeting meeting = meetingRepository.findActiveByIdForUpdate(meetingId)
 			.orElseThrow(MeetingNotFoundException::new);
-		OffsetDateTime now = OffsetDateTime.now();
 		Optional<MeetingParticipant> participant = participantRepository.findByIdMeetingIdAndIdUserIdForUpdate(
 			meetingId,
 			principal.userId()
@@ -255,7 +254,7 @@ public class MeetingService {
 		if (participant.map(row -> row.getStatus() == ParticipantStatus.kicked).orElse(false)) {
 			throw new KickedMemberException();
 		}
-		if (meeting.getStatus() != MeetingStatus.open || !meetingScheduleRepository.existsActiveSchedule(meetingId, now)) {
+		if (meeting.getStatus() != MeetingStatus.open) {
 			throw new MeetingNotOpenException();
 		}
 		Long roomId = meetingRepository.findGroupRoomIdByMeetingId(meetingId)
