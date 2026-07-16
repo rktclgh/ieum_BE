@@ -43,7 +43,7 @@ class AcceptedAnswerKnowledgeConfigurationTest {
 			.withBean(PlatformTransactionManager.class, () -> mock(PlatformTransactionManager.class))
 			.withPropertyValues(
 				"app.ai.features.accepted-answer-ingestion-enabled=true",
-				"app.ai.question-answer.embedding.gemini-api-key=test-only-not-a-real-key"
+				"app.ai.gemini-api-key=test-only-not-a-real-key"
 			)
 			.run(context -> {
 				assertThat(context).hasNotFailed();

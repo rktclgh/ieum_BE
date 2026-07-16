@@ -1,6 +1,8 @@
 package shinhan.fibri.ieum.main.report.service;
 
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +32,7 @@ import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
 public class ReportService {
 
 	private static final int CONTEXT_LIMIT = 20;
+	private static final Logger log = LoggerFactory.getLogger(ReportService.class);
 
 	private final MessageRepository messageRepository;
 	private final ChatMemberRepository chatMemberRepository;
@@ -93,6 +96,7 @@ public class ReportService {
 			request.detail(),
 			contextSnapshot
 		));
+		logReportReceived(report);
 		return new CreateReportResponse(report.getId());
 	}
 
@@ -120,7 +124,15 @@ public class ReportService {
 			detail,
 			contextSnapshot
 		));
+		logReportReceived(report);
 		return new CreateReportResponse(report.getId());
+	}
+
+	private void logReportReceived(Report report) {
+		log.info(
+			"event=report_received reportId={} targetType={} aiReviewState={}",
+			report.getId(), report.getTargetType(), report.getAiReviewState()
+		);
 	}
 
 }

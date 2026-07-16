@@ -5,7 +5,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "app.ai.report")
 public record ReportModelProperties(
-	String geminiApiKey,
 	String geminiModel,
 	String novaModel,
 	String bedrockRegion,
@@ -16,7 +15,6 @@ public record ReportModelProperties(
 	private static final String BEDROCK_NOVA_REGION = "ap-southeast-2";
 
 	public ReportModelProperties {
-		geminiApiKey = required(geminiApiKey, "geminiApiKey");
 		geminiModel = required(geminiModel, "geminiModel");
 		novaModel = required(novaModel, "novaModel");
 		bedrockRegion = required(bedrockRegion, "bedrockRegion");

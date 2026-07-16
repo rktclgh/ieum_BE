@@ -7,14 +7,10 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 @ConfigurationProperties(prefix = "app.ai.question-answer.web-grounding")
 public record WebGroundingProperties(
 	String model,
-	String geminiApiKey,
 	String promptVersion,
 	@DefaultValue("1024") int maxTokens,
 	@DefaultValue("45s") Duration modelTimeout
 ) {
-
-	public static final String API_KEY_ENVIRONMENT_VARIABLE =
-		"APP_AI_QUESTION_WEB_GROUNDING_GEMINI_API_KEY";
 
 	private static final int MAX_MODEL_LENGTH = 120;
 	private static final Duration REQUIRED_MODEL_TIMEOUT = Duration.ofSeconds(45);
@@ -23,7 +19,6 @@ public record WebGroundingProperties(
 
 	public WebGroundingProperties {
 		model = required(model, "model", MAX_MODEL_LENGTH);
-		geminiApiKey = required(geminiApiKey, "geminiApiKey", Integer.MAX_VALUE);
 		promptVersion = required(promptVersion, "promptVersion", 80);
 		if (maxTokens < MIN_MAX_TOKENS || maxTokens > MAX_MAX_TOKENS) {
 			throw new IllegalArgumentException("maxTokens must be between 128 and 8192");

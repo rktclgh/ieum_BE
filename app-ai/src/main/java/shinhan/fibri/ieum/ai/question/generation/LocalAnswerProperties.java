@@ -8,7 +8,6 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 public record LocalAnswerProperties(
 	String primaryModel,
 	String fallbackModel,
-	String geminiApiKey,
 	String promptVersion,
 	@DefaultValue("1024") int maxTokens,
 	@DefaultValue("30s") Duration modelTimeout
@@ -21,7 +20,6 @@ public record LocalAnswerProperties(
 	public LocalAnswerProperties {
 		primaryModel = required(primaryModel, "primaryModel", 120);
 		fallbackModel = required(fallbackModel, "fallbackModel", 120);
-		geminiApiKey = required(geminiApiKey, "geminiApiKey", Integer.MAX_VALUE);
 		promptVersion = required(promptVersion, "promptVersion", 80);
 		if (maxTokens < MIN_MAX_TOKENS || maxTokens > MAX_MAX_TOKENS) {
 			throw new IllegalArgumentException("maxTokens must be between 128 and 8192");

@@ -568,7 +568,6 @@ class GeminiWebGroundingResponseParserTest {
 	private WebGroundingProperties properties() {
 		return new WebGroundingProperties(
 			MODEL,
-			"test-only-api-key",
 			"question-web-grounding-v1",
 			1024,
 			Duration.ofSeconds(45)

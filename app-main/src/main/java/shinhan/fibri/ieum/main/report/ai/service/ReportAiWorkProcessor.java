@@ -61,7 +61,7 @@ public class ReportAiWorkProcessor {
 
 		try {
 			ReportReviewRequest request = requestFactory.create(claimed);
-			ReportReviewResponse response = aiServiceClient.review(request);
+			ReportReviewResponse response = requestAiReview(claimed, request);
 			ReportAiApplyOutcome outcome = resultApplier.apply(claimed, response);
 			if (!outcome.transitioned()) {
 				log.warn(
@@ -79,6 +79,29 @@ public class ReportAiWorkProcessor {
 			handleFailure(claimed, failure, startedAt);
 		}
 		return true;
+	}
+
+	private ReportReviewResponse requestAiReview(ClaimedReport claimed, ReportReviewRequest request) {
+		long startedAt = System.nanoTime();
+		log.info(
+			"event=report_ai_call_started reportId={} attemptId={} workerId={} attempts={}",
+			claimed.reportId(), claimed.attemptId(), properties.workerId(), claimed.attempts()
+		);
+		try {
+			ReportReviewResponse response = aiServiceClient.review(request);
+			log.info(
+				"event=report_ai_call_succeeded reportId={} attemptId={} workerId={} attempts={} durationMs={}",
+				claimed.reportId(), claimed.attemptId(), properties.workerId(), claimed.attempts(), elapsedMs(startedAt)
+			);
+			return response;
+		} catch (RuntimeException failure) {
+			log.warn(
+				"event=report_ai_call_failed reportId={} attemptId={} workerId={} attempts={} failureType={} durationMs={}",
+				claimed.reportId(), claimed.attemptId(), properties.workerId(), claimed.attempts(),
+				failure.getClass().getSimpleName(), elapsedMs(startedAt)
+			);
+			throw failure;
+		}
 	}
 
 	private void handleFailure(ClaimedReport claimed, RuntimeException failure, long startedAt) {

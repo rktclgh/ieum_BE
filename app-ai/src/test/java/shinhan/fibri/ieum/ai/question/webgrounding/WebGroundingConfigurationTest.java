@@ -82,7 +82,7 @@ class WebGroundingConfigurationTest {
 		contextRunner
 			.withPropertyValues(validProperties())
 			.withPropertyValues(
-				"app.ai.question-answer.web-grounding.gemini-api-key="
+				"app.ai.gemini-api-key="
 			)
 			.run(context -> assertThat(context).hasFailed());
 
@@ -135,7 +135,7 @@ class WebGroundingConfigurationTest {
 			"app.ai.features.question-answer-enabled=true",
 			"app.ai.features.web-grounding-enabled=true",
 			"app.ai.question-answer.web-grounding.model=gemini-3.1-flash-lite",
-			"app.ai.question-answer.web-grounding.gemini-api-key=test-only-web-key",
+			"app.ai.gemini-api-key=test-only-web-key",
 			"app.ai.question-answer.web-grounding.prompt-version=question-web-grounding-v1",
 			"app.ai.question-answer.web-grounding.max-tokens=1024",
 			"app.ai.question-answer.web-grounding.model-timeout=45s"
@@ -145,7 +145,6 @@ class WebGroundingConfigurationTest {
 	private WebGroundingProperties properties(Duration timeout) {
 		return new WebGroundingProperties(
 			"gemini-3.1-flash-lite",
-			"test-only-web-key",
 			"question-web-grounding-v1",
 			1024,
 			timeout

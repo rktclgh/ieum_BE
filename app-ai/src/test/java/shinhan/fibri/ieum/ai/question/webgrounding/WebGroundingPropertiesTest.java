@@ -19,7 +19,6 @@ class WebGroundingPropertiesTest {
 	void bindsTrimmedValuesWithDocumentedDefaults() {
 		MapConfigurationPropertySource source = new MapConfigurationPropertySource(Map.of(
 			"app.ai.question-answer.web-grounding.model", "  " + REQUIRED_MODEL + "  ",
-			"app.ai.question-answer.web-grounding.gemini-api-key", "  test-only-api-key  ",
 			"app.ai.question-answer.web-grounding.prompt-version", "  question-web-grounding-v1  "
 		));
 
@@ -31,12 +30,9 @@ class WebGroundingPropertiesTest {
 			.orElseThrow(() -> new AssertionError("web grounding properties were not bound"));
 
 		assertThat(properties.model()).isEqualTo(REQUIRED_MODEL);
-		assertThat(properties.geminiApiKey()).isEqualTo("test-only-api-key");
 		assertThat(properties.promptVersion()).isEqualTo("question-web-grounding-v1");
 		assertThat(properties.maxTokens()).isEqualTo(1024);
 		assertThat(properties.modelTimeout()).isEqualTo(Duration.ofSeconds(45));
-		assertThat(WebGroundingProperties.API_KEY_ENVIRONMENT_VARIABLE)
-			.isEqualTo("APP_AI_QUESTION_WEB_GROUNDING_GEMINI_API_KEY");
 
 		ConfigurationProperties annotation = WebGroundingProperties.class
 			.getAnnotation(ConfigurationProperties.class);
@@ -54,7 +50,6 @@ class WebGroundingPropertiesTest {
 	void acceptsAConfiguredGroundingCapableGeminiModel() {
 		WebGroundingProperties properties = new WebGroundingProperties(
 			"  gemini-2.5-flash-lite  ",
-			"api-key",
 			"prompt-v1",
 			1024,
 			Duration.ofSeconds(45)
@@ -67,7 +62,6 @@ class WebGroundingPropertiesTest {
 	void rejectsBlankOrMissingModel() {
 		assertThatThrownBy(() -> new WebGroundingProperties(
 			"  ",
-			"api-key",
 			"prompt-v1",
 			1024,
 			Duration.ofSeconds(45)
@@ -75,7 +69,6 @@ class WebGroundingPropertiesTest {
 			.hasMessageContaining("model");
 		assertThatThrownBy(() -> new WebGroundingProperties(
 			null,
-			"api-key",
 			"prompt-v1",
 			1024,
 			Duration.ofSeconds(45)
@@ -84,18 +77,9 @@ class WebGroundingPropertiesTest {
 	}
 
 	@Test
-	void rejectsBlankSecretsAndInvalidPromptVersions() {
+	void rejectsInvalidPromptVersions() {
 		assertThatThrownBy(() -> new WebGroundingProperties(
 			REQUIRED_MODEL,
-			"  ",
-			"prompt-v1",
-			1024,
-			Duration.ofSeconds(45)
-		)).isInstanceOf(IllegalArgumentException.class)
-			.hasMessageContaining("geminiApiKey");
-		assertThatThrownBy(() -> new WebGroundingProperties(
-			REQUIRED_MODEL,
-			"api-key",
 			"  ",
 			1024,
 			Duration.ofSeconds(45)
@@ -103,7 +87,6 @@ class WebGroundingPropertiesTest {
 			.hasMessageContaining("promptVersion");
 		assertThatThrownBy(() -> new WebGroundingProperties(
 			REQUIRED_MODEL,
-			"api-key",
 			"v".repeat(81),
 			1024,
 			Duration.ofSeconds(45)
@@ -130,7 +113,6 @@ class WebGroundingPropertiesTest {
 	private WebGroundingProperties properties(int maxTokens, Duration timeout) {
 		return new WebGroundingProperties(
 			REQUIRED_MODEL,
-			"api-key",
 			"prompt-v1",
 			maxTokens,
 			timeout

@@ -26,7 +26,7 @@ class KnowledgeImportApplicationConfigurationTest {
 			"app.ai.mode=knowledge-import",
 			"app.ai.features.question-answer-enabled=true",
 			"app.ai.features.report-review-enabled=true",
-			"app.ai.question-answer.embedding.gemini-api-key=test-only-not-a-real-key",
+			"app.ai.gemini-api-key=test-only-not-a-real-key",
 			"app.ai.database.embedding-dimensions=768",
 			"app.ai.database.required-extensions=vector,postgis,pgcrypto"
 		);

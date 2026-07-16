@@ -11,7 +11,6 @@ class ReportModelPropertiesTest {
 	@Test
 	void acceptsTheConfiguredGeminiAndSydneyBedrockModels() {
 		ReportModelProperties properties = new ReportModelProperties(
-			"test-gemini-key",
 			"gemini-3.1-flash-lite",
 			"amazon.nova-lite-v1:0",
 			"ap-southeast-2",
@@ -25,14 +24,9 @@ class ReportModelPropertiesTest {
 	}
 
 	@Test
-	void rejectsAMissingGeminiKeyOrNonSydneyBedrockRegion() {
+	void rejectsANonSydneyBedrockRegion() {
 		assertThatThrownBy(() -> new ReportModelProperties(
-			" ", "gemini-3.1-flash-lite", "amazon.nova-lite-v1:0", "ap-southeast-2", Duration.ofSeconds(30), "report-review-v1"
-		))
-			.isInstanceOf(IllegalArgumentException.class)
-			.hasMessageContaining("geminiApiKey");
-		assertThatThrownBy(() -> new ReportModelProperties(
-			"test-gemini-key", "gemini-3.1-flash-lite", "amazon.nova-lite-v1:0", "ap-northeast-2", Duration.ofSeconds(30), "report-review-v1"
+			"gemini-3.1-flash-lite", "amazon.nova-lite-v1:0", "ap-northeast-2", Duration.ofSeconds(30), "report-review-v1"
 		))
 			.isInstanceOf(IllegalArgumentException.class)
 			.hasMessageContaining("bedrockRegion");
@@ -41,12 +35,12 @@ class ReportModelPropertiesTest {
 	@Test
 	void rejectsBlankModelConfigurationAndNonPositiveTimeout() {
 		assertThatThrownBy(() -> new ReportModelProperties(
-			"test-gemini-key", " ", "amazon.nova-lite-v1:0", "ap-southeast-2", Duration.ofSeconds(30), "report-review-v1"
+			" ", "amazon.nova-lite-v1:0", "ap-southeast-2", Duration.ofSeconds(30), "report-review-v1"
 		))
 			.isInstanceOf(IllegalArgumentException.class)
 			.hasMessageContaining("geminiModel");
 		assertThatThrownBy(() -> new ReportModelProperties(
-			"test-gemini-key", "gemini-3.1-flash-lite", "amazon.nova-lite-v1:0", "ap-southeast-2", Duration.ZERO, "report-review-v1"
+			"gemini-3.1-flash-lite", "amazon.nova-lite-v1:0", "ap-southeast-2", Duration.ZERO, "report-review-v1"
 		))
 			.isInstanceOf(IllegalArgumentException.class)
 			.hasMessageContaining("modelTimeout");

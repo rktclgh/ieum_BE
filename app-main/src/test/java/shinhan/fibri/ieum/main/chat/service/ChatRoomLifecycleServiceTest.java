@@ -169,6 +169,18 @@ class ChatRoomLifecycleServiceTest {
 		verify(chatRoomListChangeEmitter, never()).remove(any(), any());
 	}
 
+	@Test
+	void disbandGroupRoomDeletesRoomAndNotifiesAllActiveMembers() {
+		ChatRoom room = room(ChatRoom.group(7L), 100L);
+		when(chatRoomRepository.findByMeetingId(7L)).thenReturn(Optional.of(room));
+		when(chatMemberRepository.findActiveUserIdsByRoomId(100L)).thenReturn(List.of(42L, 77L));
+
+		service.disbandGroupRoom(7L);
+
+		verify(chatRoomRepository).delete(room);
+		verify(chatRoomListChangeEmitter).remove(100L, List.of(42L, 77L));
+	}
+
 	private User user(Long id, String email, String nickname) {
 		User user = User.createEmailUser(
 			email,

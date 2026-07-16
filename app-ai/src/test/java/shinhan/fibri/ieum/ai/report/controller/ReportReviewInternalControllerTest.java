@@ -194,9 +194,10 @@ class ReportReviewInternalControllerTest {
 
 	private void assertSafeSuccessLogs(CapturedOutput output) {
 		assertThat(output)
-			.contains("event=report_review_start")
+			.contains("event=report_review_received")
 			.contains("reportId=900")
 			.contains("reviewAttemptId=123e4567-e89b-12d3-a456-426614174000")
+			.contains("event=report_review_processing_started")
 			.contains("event=report_review_complete")
 			.contains("decision=hold")
 			.contains("fallbackUsed=false")

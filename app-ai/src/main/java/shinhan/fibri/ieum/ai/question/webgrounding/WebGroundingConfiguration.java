@@ -12,6 +12,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import shinhan.fibri.ieum.ai.config.GeminiApiKeyProperties;
 
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty(
@@ -24,13 +25,19 @@ import org.springframework.context.annotation.Configuration;
 	name = "web-grounding-enabled",
 	havingValue = "true"
 )
-@EnableConfigurationProperties(WebGroundingProperties.class)
+@EnableConfigurationProperties({
+	WebGroundingProperties.class,
+	GeminiApiKeyProperties.class
+})
 public class WebGroundingConfiguration {
 
 	@Bean(destroyMethod = "close")
-	Client webGroundingGeminiClient(WebGroundingProperties properties) {
+	Client webGroundingGeminiClient(
+		WebGroundingProperties properties,
+		GeminiApiKeyProperties geminiApiKeyProperties
+	) {
 		return Client.builder()
-			.apiKey(properties.geminiApiKey())
+			.apiKey(geminiApiKeyProperties.geminiApiKey())
 			.httpOptions(geminiHttpOptions(properties))
 			.build();
 	}

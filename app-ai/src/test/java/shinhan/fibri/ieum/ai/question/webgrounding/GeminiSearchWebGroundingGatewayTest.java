@@ -61,7 +61,6 @@ class GeminiSearchWebGroundingGatewayTest {
 		RecordingClient client = new RecordingClient(validResponse("서울 버스입니다."));
 		WebGroundingProperties properties = new WebGroundingProperties(
 			"gemini-2.5-flash-lite",
-			"test-only-api-key",
 			"question-web-grounding-v1",
 			1024,
 			TIMEOUT
@@ -161,7 +160,6 @@ class GeminiSearchWebGroundingGatewayTest {
 	private WebGroundingProperties properties() {
 		return new WebGroundingProperties(
 			"gemini-3.1-flash-lite",
-			"test-only-api-key",
 			"question-web-grounding-v1",
 			1024,
 			TIMEOUT

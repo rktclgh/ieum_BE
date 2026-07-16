@@ -30,7 +30,7 @@ class GeminiEmbeddingConfigurationTest {
 		contextRunner
 			.withPropertyValues(
 				"app.ai.mode=knowledge-import",
-				"app.ai.question-answer.embedding.gemini-api-key=test-only-not-a-real-key"
+				"app.ai.gemini-api-key=test-only-not-a-real-key"
 			)
 			.run(context -> {
 				assertThat(context).hasNotFailed();
@@ -57,7 +57,7 @@ class GeminiEmbeddingConfigurationTest {
 		contextRunner
 			.withPropertyValues(
 				"app.ai.features.question-answer-enabled=true",
-				"app.ai.question-answer.embedding.gemini-api-key=test-only-not-a-real-key"
+				"app.ai.gemini-api-key=test-only-not-a-real-key"
 			)
 			.run(context -> {
 				assertThat(context).hasNotFailed();
@@ -70,7 +70,7 @@ class GeminiEmbeddingConfigurationTest {
 		contextRunner
 			.withPropertyValues(
 				"app.ai.features.accepted-answer-ingestion-enabled=true",
-				"app.ai.question-answer.embedding.gemini-api-key=test-only-not-a-real-key"
+				"app.ai.gemini-api-key=test-only-not-a-real-key"
 			)
 			.run(context -> {
 				assertThat(context).hasNotFailed();
@@ -83,7 +83,7 @@ class GeminiEmbeddingConfigurationTest {
 		contextRunner
 			.withPropertyValues(
 				"app.ai.mode=knowledge-import",
-				"app.ai.question-answer.embedding.gemini-api-key="
+				"app.ai.gemini-api-key="
 			)
 			.run(context -> assertThat(context).hasFailed());
 	}

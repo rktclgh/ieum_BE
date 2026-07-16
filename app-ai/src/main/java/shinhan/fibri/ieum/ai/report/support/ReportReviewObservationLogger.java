@@ -19,13 +19,21 @@ public class ReportReviewObservationLogger {
 	private static final String ATTEMPT_ID_ATTRIBUTE = ReportReviewObservationLogger.class.getName() + ".attemptId";
 	private static final Pattern REPORT_REVIEW_PATH = Pattern.compile("/reports/(\\d+)/review(?:$|[/?#])");
 
-	public void started(HttpServletRequest servletRequest, long reportId, ReportReviewRequest request) {
+	public void received(HttpServletRequest servletRequest, long reportId, ReportReviewRequest request) {
 		servletRequest.setAttribute(START_NANOS_ATTRIBUTE, System.nanoTime());
 		servletRequest.setAttribute(REPORT_ID_ATTRIBUTE, reportId);
 		servletRequest.setAttribute(ATTEMPT_ID_ATTRIBUTE, reviewAttemptId(request));
 
 		log.info(
-			"event=report_review_start reportId={} reviewAttemptId={}",
+			"event=report_review_received reportId={} reviewAttemptId={}",
+			reportId,
+			reviewAttemptId(request)
+		);
+	}
+
+	public void processingStarted(HttpServletRequest servletRequest, long reportId, ReportReviewRequest request) {
+		log.info(
+			"event=report_review_processing_started reportId={} reviewAttemptId={}",
 			reportId,
 			reviewAttemptId(request)
 		);

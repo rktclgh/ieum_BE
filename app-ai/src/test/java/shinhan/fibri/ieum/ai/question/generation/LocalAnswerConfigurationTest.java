@@ -61,7 +61,7 @@ class LocalAnswerConfigurationTest {
 				"app.ai.features.question-answer-enabled=true",
 				"app.ai.question-answer.generation.primary-model=amazon.nova-micro-v1:0",
 				"app.ai.question-answer.generation.fallback-model=gemini-3.1-flash-lite",
-				"app.ai.question-answer.generation.gemini-api-key=",
+				"app.ai.gemini-api-key=",
 				"app.ai.question-answer.generation.prompt-version=question-local-answer-v1",
 				"app.ai.question-answer.generation.model-timeout=30s"
 			)
@@ -78,7 +78,7 @@ class LocalAnswerConfigurationTest {
 			"app.ai.features.question-answer-enabled=true",
 			"app.ai.question-answer.generation.primary-model=amazon.nova-micro-v1:0",
 			"app.ai.question-answer.generation.fallback-model=gemini-3.1-flash-lite",
-			"app.ai.question-answer.generation.gemini-api-key=test-key",
+			"app.ai.gemini-api-key=test-key",
 			"app.ai.question-answer.generation.prompt-version=question-local-answer-v1",
 			"app.ai.question-answer.generation.model-timeout=30s"
 		};

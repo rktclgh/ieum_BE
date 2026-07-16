@@ -1466,6 +1466,16 @@ class MeetingServiceTest {
 	}
 
 	@Test
+	void cancelDisbandsTheConnectedGroupRoom() {
+		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
+		when(meetingRepository.findByIdAndDeletedAtIsNull(3L)).thenReturn(Optional.of(meeting));
+
+		service.cancel(principal(1L), 3L);
+
+		verify(chatRoomLifecycle).disbandGroupRoom(3L);
+	}
+
+	@Test
 	void cancelRejectsNonHost() {
 		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
 		when(meetingRepository.findByIdAndDeletedAtIsNull(3L)).thenReturn(Optional.of(meeting));

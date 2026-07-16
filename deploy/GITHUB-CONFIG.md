@@ -129,6 +129,7 @@ The workflow validates the runtime configuration and remote `psql` command
 before running the helper. Credentials stay on EC2: they are never
 interpolated as GitHub secrets and never appear in SSH arguments or workflow
 logs. An unavailable `psql`, invalid datasource URL, schema mismatch, or
+
 migration error stops the workflow before Gradle, image build, or SSH application
 deployment.
 

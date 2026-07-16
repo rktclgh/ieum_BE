@@ -57,7 +57,7 @@ class ReportAiWorkProcessorTest {
 	}
 
 	@Test
-	void completesOneClaimedReportAndWritesSafeLifecycleLogs() {
+	void completesOneClaimedReportAndWritesSafeLifecycleAndAppAiCallLogs() {
 		ClaimedReport claimed = claimed(1);
 		ReportReviewRequest request = mock(ReportReviewRequest.class);
 		ReportReviewResponse response = mock(ReportReviewResponse.class);
@@ -74,6 +74,9 @@ class ReportAiWorkProcessorTest {
 		verify(resultApplier).apply(claimed, response);
 		assertThat(messages(logs))
 			.contains("event=report_ai_claimed reportId=900 attemptId=22222222-2222-2222-2222-222222222222 workerId=worker-a attempts=1")
+			.contains("event=report_ai_call_started reportId=900 attemptId=22222222-2222-2222-2222-222222222222 workerId=worker-a attempts=1")
+			.anyMatch(message -> message.contains("event=report_ai_call_succeeded reportId=900")
+				&& message.contains("durationMs="))
 			.anyMatch(message -> message.contains("event=report_ai_completed reportId=900")
 				&& message.contains("decision=suspend") && message.contains("sanctioned=true")
 				&& message.contains("durationMs="));
@@ -104,6 +107,8 @@ class ReportAiWorkProcessorTest {
 		);
 		assertThat(messages(logs)).anyMatch(message -> message.contains("event=report_ai_retry_scheduled")
 			&& message.contains("errorCode=REPORT_AI_TRANSPORT_FAILURE"));
+		assertThat(messages(logs)).anyMatch(message -> message.contains("event=report_ai_call_failed reportId=900")
+			&& message.contains("failureType=ResourceAccessException") && message.contains("durationMs="));
 		assertThat(messages(logs)).noneMatch(message -> message.contains("secret internal URL"));
 	}
 

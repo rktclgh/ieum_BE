@@ -19,7 +19,10 @@ import shinhan.fibri.ieum.ai.report.service.ReportReviewModelProvider;
 
 @Configuration
 @ConditionalOnProperty(prefix = "app.ai.features", name = "report-review-enabled", havingValue = "true")
-@EnableConfigurationProperties(ReportModelProperties.class)
+@EnableConfigurationProperties({
+	ReportModelProperties.class,
+	GeminiApiKeyProperties.class
+})
 public class ReportReviewModelConfiguration {
 
 	@Bean
@@ -33,9 +36,12 @@ public class ReportReviewModelConfiguration {
 	}
 
 	@Bean(destroyMethod = "close")
-	Client reportReviewGeminiClient(ReportModelProperties properties) {
+	Client reportReviewGeminiClient(
+		ReportModelProperties properties,
+		GeminiApiKeyProperties geminiApiKeyProperties
+	) {
 		return Client.builder()
-			.apiKey(properties.geminiApiKey())
+			.apiKey(geminiApiKeyProperties.geminiApiKey())
 			.httpOptions(HttpOptions.builder().timeout(timeoutMillis(properties)).build())
 			.build();
 	}

@@ -126,7 +126,6 @@ class GeminiLocalAnswerProviderTest {
 		return new LocalAnswerProperties(
 			"amazon.nova-micro-v1:0",
 			"gemini-3.1-flash-lite",
-			"test-api-key",
 			"question-local-answer-v1",
 			1024,
 			Duration.ofSeconds(30)

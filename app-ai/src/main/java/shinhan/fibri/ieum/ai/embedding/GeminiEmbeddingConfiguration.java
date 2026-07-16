@@ -13,17 +13,24 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.ConfigurationCondition.ConfigurationPhase;
+import shinhan.fibri.ieum.ai.config.GeminiApiKeyProperties;
 import shinhan.fibri.ieum.ai.question.embedding.QuestionEmbeddingProperties;
 
 @Configuration(proxyBeanMethods = false)
 @Conditional(GeminiEmbeddingConfiguration.AnyEmbeddingConsumerEnabledCondition.class)
-@EnableConfigurationProperties(QuestionEmbeddingProperties.class)
+@EnableConfigurationProperties({
+	QuestionEmbeddingProperties.class,
+	GeminiApiKeyProperties.class
+})
 public class GeminiEmbeddingConfiguration {
 
 	@Bean(destroyMethod = "close")
-	Client geminiEmbeddingClient(QuestionEmbeddingProperties properties) {
+	Client geminiEmbeddingClient(
+		QuestionEmbeddingProperties properties,
+		GeminiApiKeyProperties geminiApiKeyProperties
+	) {
 		return Client.builder()
-			.apiKey(properties.geminiApiKey())
+			.apiKey(geminiApiKeyProperties.geminiApiKey())
 			.httpOptions(geminiHttpOptions(properties))
 			.build();
 	}

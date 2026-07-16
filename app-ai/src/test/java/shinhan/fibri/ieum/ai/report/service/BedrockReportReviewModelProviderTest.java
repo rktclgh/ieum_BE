@@ -134,7 +134,6 @@ class BedrockReportReviewModelProviderTest {
 
 	private ReportModelProperties properties() {
 		return new ReportModelProperties(
-			"test-gemini-key",
 			"gemini-3.1-flash-lite",
 			"amazon.nova-lite-v1:0",
 			"ap-southeast-2",
