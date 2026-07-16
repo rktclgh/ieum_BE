@@ -32,7 +32,9 @@ class MeetingRepositoryContractTest {
 
 		assertThat(method.getReturnType().getTypeName()).isEqualTo("java.util.Optional");
 		assertThat(method.getGenericReturnType().getTypeName()).contains(MeetingParticipant.class.getSimpleName());
-		assertThat(method.getAnnotation(Lock.class).value()).isEqualTo(LockModeType.PESSIMISTIC_WRITE);
+		Lock lock = method.getAnnotation(Lock.class);
+		assertThat(lock).isNotNull();
+		assertThat(lock.value()).isEqualTo(LockModeType.PESSIMISTIC_WRITE);
 	}
 
 	@Test
