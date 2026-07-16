@@ -52,9 +52,11 @@ jobs:
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+          APP_AI_ENV_FILE: ${{ secrets.APP_AI_ENV_FILE }}
         run: |
           test -n "$SSH_PRIVATE_KEY"
           test -n "$SSH_KNOWN_HOSTS"
+          test -n "$APP_AI_ENV_FILE"
           [[ "$SSH_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
           [[ "$SSH_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
           [[ "$SSH_PORT" =~ ^[0-9]+$ ]]
@@ -70,7 +72,37 @@ jobs:
           scp_opts=(-i "$HOME/.ssh/deploy_key" -P "$SSH_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts")
           remote="$SSH_USER@$SSH_HOST"
 
+          ssh "${ssh_opts[@]}" "$remote" 'if ! command -v psql >/dev/null 2>&1; then sudo -n apt-get update && sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install --yes postgresql-client; fi; command -v psql'
           ssh "${ssh_opts[@]}" "$remote" "install -d -m 700 '$DEPLOY_PATH/deploy/scripts' '$DEPLOY_PATH/db/migrations'"
+          ssh "${ssh_opts[@]}" "$remote" bash -s -- "$DEPLOY_PATH" <<'REMOTE_DATASOURCE'
+          set -euo pipefail
+
+          deploy_path="$1"
+          datasource_env="$deploy_path/.datasource.env"
+          datasource_pattern='^SPRING_DATASOURCE_(URL|USERNAME|PASSWORD)='
+
+          valid_datasource_file() {
+            grep -E "$datasource_pattern" "$1" > "$datasource_env" || true
+            [[ "$(wc -l < "$datasource_env")" == "3" ]]
+            ! grep -Eq '^SPRING_DATASOURCE_URL=jdbc:postgresql://(localhost|127\.0\.0\.1)(:|/|$)' "$datasource_env"
+          }
+
+          if ! valid_datasource_file "$deploy_path/.env.runtime"; then
+            container_id="$(sudo docker ps --filter 'label=com.docker.compose.service=app-ai' --format '{{.ID}}' | head -n 1)"
+            test -n "$container_id"
+            sudo docker inspect "$container_id" --format '{{range .Config.Env}}{{println .}}{{end}}' \
+              | grep -E "$datasource_pattern" > "$datasource_env"
+            [[ "$(wc -l < "$datasource_env")" == "3" ]]
+            ! grep -Eq '^SPRING_DATASOURCE_URL=jdbc:postgresql://(localhost|127\.0\.0\.1)(:|/|$)' "$datasource_env"
+          fi
+          chmod 600 "$datasource_env"
+          REMOTE_DATASOURCE
+          runtime_env="$RUNNER_TEMP/app-ai.env.runtime"
+          umask 077
+          printf '%s' "$APP_AI_ENV_FILE" > "$runtime_env"
+          test -s "$runtime_env"
+          scp "${scp_opts[@]}" "$runtime_env" "$remote:$DEPLOY_PATH/.env.runtime.next"
+          ssh "${ssh_opts[@]}" "$remote" "grep -v -E '^SPRING_DATASOURCE_(URL|USERNAME|PASSWORD)=' '$DEPLOY_PATH/.env.runtime.next' > '$DEPLOY_PATH/.env.runtime.merged' && cat '$DEPLOY_PATH/.datasource.env' >> '$DEPLOY_PATH/.env.runtime.merged' && chmod 600 '$DEPLOY_PATH/.env.runtime.merged' && mv '$DEPLOY_PATH/.env.runtime.merged' '$DEPLOY_PATH/.env.runtime' && rm -f '$DEPLOY_PATH/.env.runtime.next' '$DEPLOY_PATH/.datasource.env'"
           scp "${scp_opts[@]}" deploy/scripts/apply-admin-dashboard-migrations.sh "$remote:$DEPLOY_PATH/deploy/scripts/apply-admin-dashboard-migrations.sh"
           scp "${scp_opts[@]}" db/migrations/v24_seed_report_policy_rules.sql db/migrations/v25_user_auth_version.sql db/migrations/v26_admin_audit_logs.sql db/migrations/v27_report_policy_sanction_durations.sql "$remote:$DEPLOY_PATH/db/migrations/"
           ssh "${ssh_opts[@]}" "$remote" \

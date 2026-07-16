@@ -49,8 +49,14 @@ if [[ "$service" == "app-main" ]]; then
   }
 
   redis_host="$(sed -n 's/^REDIS_HOST=//p' "$deploy_dir/.env.runtime" | tail -n 1)"
-  [[ "$redis_host" == "redis" ]] || {
-    echo "REDIS_HOST must be redis in .env.runtime." >&2
+  [[ "$redis_host" == "host.docker.internal" ]] || {
+    echo "REDIS_HOST must be host.docker.internal in .env.runtime." >&2
+    exit 1
+  }
+
+  redis_port="$(sed -n 's/^REDIS_PORT=//p' "$deploy_dir/.env.runtime" | tail -n 1)"
+  [[ "$redis_port" == "6379" ]] || {
+    echo "REDIS_PORT must be 6379 in .env.runtime." >&2
     exit 1
   }
 fi

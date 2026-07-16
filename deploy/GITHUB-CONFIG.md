@@ -77,7 +77,8 @@ Secrets:
 - `APP_MAIN_ENV_FILE`: completed `deploy/env/app-main.env.example`; its
   `SPRING_DATASOURCE_URL` must use the production database host, never
   `localhost`, `127.0.0.1`, or the example placeholder, and it must include
-  `INQUIRY_ADMIN_EMAIL`
+  `INQUIRY_ADMIN_EMAIL`. Each deployment atomically updates the server's
+  non-database runtime settings from this secret before running migrations.
 
 ### `app-ai-production`
 
@@ -93,7 +94,9 @@ Secrets:
 
 - `SSH_PRIVATE_KEY`: complete PEM contents
 - `SSH_KNOWN_HOSTS`: verified known_hosts line for `54.116.69.21`
-- `APP_AI_ENV_FILE`: completed `deploy/env/app-ai.env.example`
+- `APP_AI_ENV_FILE`: completed `deploy/env/app-ai.env.example`. Each deployment
+  atomically updates the server's non-database runtime settings from this
+  secret before running migrations.
 
 ### Remote database migration gate
 
@@ -108,6 +111,12 @@ runs the helper there after the app-main JAR is built but before its image is de
 The app-ai workflow continues to run migrations before its binary is built. The report
 policy files run only when the canonical `ai_report_policy_rules` table exists.
 
+The database connection settings are retained from the current valid runtime
+configuration. A `localhost` or `127.0.0.1` JDBC URL is rejected; when a stale
+runtime file contains one, the workflow recovers the production datasource
+settings from the running application container before updating the remaining
+runtime keys and feature flags.
+
 Before enabling either workflow, install the PostgreSQL client on both EC2
 hosts. The migration helper reads the existing `$DEPLOY_PATH/.env.runtime`
 file, which is also the runtime configuration consumed by the application. It
@@ -120,7 +129,8 @@ The workflow validates the runtime configuration and remote `psql` command
 before running the helper. Credentials stay on EC2: they are never
 interpolated as GitHub secrets and never appear in SSH arguments or workflow
 logs. An unavailable `psql`, invalid datasource URL, schema mismatch, or
-migration error stops the workflow before image build or SSH application
+
+migration error stops the workflow before Gradle, image build, or SSH application
 deployment.
 
 The deployment validator also runs the helper against an ephemeral PostgreSQL
