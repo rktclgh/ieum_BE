@@ -72,6 +72,8 @@ class ChatMessageServiceTest {
 		User friend = user(77L, "friend@example.com", "friend");
 		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
 		ChatMember member = ChatMember.join(room, me);
+		ChatMember otherMember = ChatMember.join(room, friend);
+		List<ChatMember> activeMembers = List.of(member, otherMember);
 		Message target = message(400L, room, friend, "original message");
 		ChatReplyPreview expectedPreview = new ChatReplyPreview(
 			400L,
@@ -81,6 +83,9 @@ class ChatMessageServiceTest {
 			null
 		);
 		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(member));
+		when(chatMemberRepository.findActiveUserIdsByRoomId(100L)).thenReturn(List.of(42L, 77L));
+		when(chatMemberRepository.findActiveByRoomIdAndUserIds(100L, List.of(42L, 77L)))
+			.thenReturn(activeMembers);
 		when(messageRepository.findReplyTargetById(400L)).thenReturn(Optional.of(target));
 		when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> {
 			Message message = invocation.getArgument(0);
@@ -99,7 +104,10 @@ class ChatMessageServiceTest {
 		verify(messageRepository).save(savedMessage.capture());
 		assertThat(savedMessage.getValue().getReplyTo()).isSameAs(target);
 		ArgumentCaptor<WsMessageEvent> eventCaptor = ArgumentCaptor.forClass(WsMessageEvent.class);
-		verify(roomEventPublisher).publish(eventCaptor.capture());
+		verify(roomEventPublisher).publishUserMessage(
+			eventCaptor.capture(),
+			org.mockito.ArgumentMatchers.same(activeMembers)
+		);
 		assertThat(eventCaptor.getValue().replyTo()).isEqualTo(expectedPreview);
 		InOrder inOrder = inOrder(chatMemberRepository, messageRepository);
 		inOrder.verify(chatMemberRepository).findActiveByRoomIdAndUserId(100L, 42L);
@@ -257,7 +265,7 @@ class ChatMessageServiceTest {
 		assertThat(response.replyTo()).isNull();
 		verify(chatMemberRepository).restoreLeftMembersByRoomIdExceptSender(100L, 42L);
 		ArgumentCaptor<WsMessageEvent> eventCaptor = ArgumentCaptor.forClass(WsMessageEvent.class);
-		verify(roomEventPublisher).publish(eventCaptor.capture());
+		verify(roomEventPublisher).publishUserMessage(eventCaptor.capture(), any());
 		assertThat(eventCaptor.getValue().content()).isEqualTo("hello");
 		assertThat(eventCaptor.getValue().senderProfileImageUrl()).isEqualTo("/api/v1/files/" + profileFileId);
 		assertThat(eventCaptor.getValue().messageType()).isEqualTo(MessageType.user);
@@ -364,14 +372,14 @@ class ChatMessageServiceTest {
 		TransactionSynchronizationManager.initSynchronization();
 		try {
 			service.send(principal(42L), 100L, new SendChatMessageRequest("hello", null));
-			verify(roomEventPublisher, never()).publish(any());
+			verify(roomEventPublisher, never()).publishUserMessage(any(), any());
 			verify(chatNotificationPublisher, never()).messageCreated(any());
 			TransactionSynchronizationManager.getSynchronizations().forEach(TransactionSynchronization::afterCommit);
 		} finally {
 			TransactionSynchronizationManager.clearSynchronization();
 		}
 
-		verify(roomEventPublisher).publish(any());
+		verify(roomEventPublisher).publishUserMessage(any(), any());
 		verify(chatNotificationPublisher).messageCreated(new ChatPushTrigger(501L, 100L, 42L));
 	}
 
@@ -388,14 +396,15 @@ class ChatMessageServiceTest {
 			TransactionSynchronizationManager.clearSynchronization();
 		}
 
-		verify(roomEventPublisher, never()).publish(any());
+		verify(roomEventPublisher, never()).publishUserMessage(any(), any());
 		verify(chatNotificationPublisher, never()).messageCreated(any());
 	}
 
 	@Test
 	void webSocketFailureAfterCommitStillAttemptsChatPushAndDoesNotEscape() {
 		prepareSuccessfulTextMessage();
-		doThrow(new IllegalStateException("secret websocket detail")).when(roomEventPublisher).publish(any());
+		doThrow(new IllegalStateException("secret websocket detail"))
+			.when(roomEventPublisher).publishUserMessage(any(), any());
 
 		TransactionSynchronizationManager.initSynchronization();
 		try {
@@ -423,7 +432,7 @@ class ChatMessageServiceTest {
 			TransactionSynchronizationManager.clearSynchronization();
 		}
 
-		verify(roomEventPublisher).publish(any());
+		verify(roomEventPublisher).publishUserMessage(any(), any());
 	}
 
 	@Test

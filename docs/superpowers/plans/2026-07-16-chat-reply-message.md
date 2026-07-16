@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 같은 채팅방에서 보이는 user message를 대상으로 한 단계 답장을 저장하고, REST history·room summary·STOMP event가 동일한 flat preview를 돌려준다.
+**Goal:** 같은 채팅방에서 보이는 user message를 대상으로 한 단계 답장을 저장하고, REST history·room summary·수신자별 STOMP event가 같은 flat preview shape를 돌려주되 재입장 이력 이전 parent는 redaction한다.
 
-**Architecture:** `messages.reply_to_message_id` nullable self-FK가 원문을 가리킨다. 응답은 재귀 엔티티를 노출하지 않고 `ChatReplyPreview`로 평탄화한다. send service는 active membership과 가시성 boundary를 확인한 뒤 기존 after-commit fanout을 그대로 사용한다.
+**Architecture:** `messages.reply_to_message_id` nullable self-FK가 원문을 가리킨다. 응답은 재귀 엔티티를 노출하지 않고 `ChatReplyPreview`로 평탄화한다. history/summary는 현재 member cutoff로 preview를 redaction하고, user message는 개인 `/user/queue/rooms/{roomId}` fanout으로 같은 경계를 유지한다. system message topic은 유지한다.
 
 **Tech Stack:** Spring Boot, STOMP/WebSocket, JPA/Hibernate, PostgreSQL, JUnit/Mockito.
 
@@ -40,7 +40,7 @@
 - [x] **Task 3 — Eliminate reply N+1 and unify event output.**
   - Update history and latest-summary queries to `LEFT JOIN FETCH` both `replyTo` and its sender while retaining parentless messages.
   - Centralize preview conversion so `ChatMessageResponse.from(...)`, summary mapping, and `WsMessageEvent` have identical nullable flat data.
-  - Keep the existing after-commit WS and push ordering; failures before persistence must not emit an event.
+  - Keep after-commit WS and push ordering; user messages fan out on the member-scoped queue while system messages retain the room topic, and failures before persistence must not emit an event.
 
 - [x] **Task 4 — Add the v32 migration and deploy contract.**
   - Add `v32_chat_message_reply.sql` with nullable `reply_to_message_id` and `ON DELETE SET NULL`, then align `schema.sql`.
@@ -58,3 +58,4 @@
 - [x] REST history, chat-list lastMessage, and WS event have the same non-recursive preview shape.
 - [x] Deleting a parent preserves the child and clears only its reply link.
 - [x] v32 is additive and has not been applied to production during this feature work.
+- [x] 재입장 사용자는 visible reply를 받아도 cutoff 이전 parent의 REST·summary·WS preview를 받지 않으며, 다른 active member는 preview를 유지한다.

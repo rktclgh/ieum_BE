@@ -502,6 +502,35 @@ class ChatServiceTest {
 	}
 
 	@Test
+	void listMessagesRedactsReplyPreviewWhoseParentPredatesRejoinBoundary() {
+		User me = user(42L, "me@example.com", "me");
+		User friend = user(77L, "friend@example.com", "friend");
+		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
+		ChatMember member = ChatMember.join(room, me);
+		member.hideHistoryThrough(400L);
+		Message hiddenParent = message(400L, room, friend, "hidden parent", "2026-07-08T10:00:00+09:00");
+		Message visibleReply = Message.text(
+			room,
+			friend,
+			"visible reply",
+			OffsetDateTime.parse("2026-07-08T11:00:00+09:00"),
+			hiddenParent
+		);
+		setField(visibleReply, "id", 501L);
+		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(member));
+		when(messageRepository.findLatestVisibleMessages(
+			org.mockito.Mockito.eq(100L), org.mockito.Mockito.eq(42L), any()
+		)).thenReturn(List.of(visibleReply));
+
+		var response = service.listMessages(principal(42L), 100L, null, 50);
+
+		assertThat(response.items()).singleElement().satisfies(message -> {
+			assertThat(message.messageId()).isEqualTo(501L);
+			assertThat(message.replyTo()).isNull();
+		});
+	}
+
+	@Test
 	void listMessagesUsesCursorSpecificQueryWhenCursorIsPresent() {
 		User me = user(42L, "me@example.com", "me");
 		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);

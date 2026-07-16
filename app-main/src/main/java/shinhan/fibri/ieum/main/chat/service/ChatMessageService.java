@@ -44,6 +44,7 @@ public class ChatMessageService {
 		restoreLeftMembersForReopenableRoom(member, principal.userId());
 		Message message = messageRepository.save(toMessage(member, request, replyTo));
 		List<Long> activeUserIds = chatMemberRepository.findActiveUserIdsByRoomId(roomId);
+		List<ChatMember> activeMembers = chatMemberRepository.findActiveByRoomIdAndUserIds(roomId, activeUserIds);
 		chatRoomListChangeEmitter.upsert(roomId, activeUserIds);
 		WsMessageEvent event = WsMessageEvent.from(message);
 		ChatPushTrigger pushTrigger = new ChatPushTrigger(
@@ -51,8 +52,8 @@ public class ChatMessageService {
 			message.getRoom().getId(),
 			message.getSender().getId()
 		);
-		publishAfterCommit(event, pushTrigger);
-		return ChatMessageResponse.from(message);
+		publishAfterCommit(event, activeMembers, pushTrigger);
+		return ChatMessageResponse.from(message, member.getVisibleAfterMessageId());
 	}
 
 	private void restoreLeftMembersForReopenableRoom(ChatMember senderMember, Long senderId) {
@@ -103,22 +104,26 @@ public class ChatMessageService {
 		return Message.text(member.getRoom(), member.getUser(), request.content(), replyTo);
 	}
 
-	private void publishAfterCommit(WsMessageEvent event, ChatPushTrigger pushTrigger) {
+	private void publishAfterCommit(
+		WsMessageEvent event,
+		List<ChatMember> recipients,
+		ChatPushTrigger pushTrigger
+	) {
 		if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-			publish(event, pushTrigger);
+			publish(event, recipients, pushTrigger);
 			return;
 		}
 		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
 			@Override
 			public void afterCommit() {
-				publish(event, pushTrigger);
+				publish(event, recipients, pushTrigger);
 			}
 		});
 	}
 
-	private void publish(WsMessageEvent event, ChatPushTrigger pushTrigger) {
+	private void publish(WsMessageEvent event, List<ChatMember> recipients, ChatPushTrigger pushTrigger) {
 		try {
-			roomEventPublisher.publish(event);
+			roomEventPublisher.publishUserMessage(event, recipients);
 		}
 		catch (RuntimeException exception) {
 			log.warn(

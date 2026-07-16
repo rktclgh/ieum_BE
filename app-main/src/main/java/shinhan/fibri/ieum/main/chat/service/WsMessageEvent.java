@@ -59,4 +59,22 @@ public record WsMessageEvent(
 			response.replyTo()
 		);
 	}
+
+	public WsMessageEvent withReplyToVisibleAfter(long visibleAfterMessageId) {
+		if (replyTo == null || replyTo.messageId() == null || replyTo.messageId() > visibleAfterMessageId) {
+			return this;
+		}
+		return new WsMessageEvent(
+			messageId,
+			roomId,
+			senderId,
+			senderNickname,
+			senderProfileImageUrl,
+			messageType,
+			content,
+			imageUrl,
+			createdAt,
+			null
+		);
+	}
 }

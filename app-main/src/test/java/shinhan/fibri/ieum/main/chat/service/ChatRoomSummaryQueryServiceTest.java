@@ -112,6 +112,34 @@ class ChatRoomSummaryQueryServiceTest {
 	}
 
 	@Test
+	void listForUserRedactsReplyPreviewWhoseParentPredatesRejoinBoundary() {
+		User me = user(42L, "me@example.com", "me");
+		User friend = user(77L, "friend@example.com", "friend");
+		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
+		ChatMember member = ChatMember.join(room, me);
+		member.hideHistoryThrough(400L);
+		Message hiddenParent = message(400L, room, friend, "original", "2026-07-08T10:00:00+09:00");
+		Message lastMessage = Message.text(
+			room,
+			friend,
+			"reply",
+			OffsetDateTime.parse("2026-07-08T11:00:00+09:00"),
+			hiddenParent
+		);
+		setField(lastMessage, "id", 501L);
+		when(chatRoomRepository.findActiveRoomsByUserId(42L)).thenReturn(List.of(room));
+		when(chatMemberRepository.findActiveByUserIdAndRoomIds(42L, List.of(100L))).thenReturn(List.of(member));
+		when(messageRepository.countUnreadByRoomIds(42L, List.of(100L))).thenReturn(List.of());
+		when(messageRepository.findLastVisibleMessagesByRoomIds(42L, List.of(100L))).thenReturn(List.of(lastMessage));
+
+		var response = service.listForUser(42L, null);
+
+		assertThat(response).singleElement().satisfies(summary ->
+			assertThat(summary.lastMessage().replyTo()).isNull()
+		);
+	}
+
+	@Test
 	void listForUserReturnsDirectRoomWhenUserHasNoQuestionRooms() {
 		User me = user(42L, "me@example.com", "me");
 		ChatRoom directRoom = room(ChatRoom.direct(42L, 77L), 100L);
