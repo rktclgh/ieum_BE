@@ -89,7 +89,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
 
@@ -99,7 +99,8 @@ jobs:
           test -n "$NEXT_PUBLIC_GOOGLE_CLIENT_ID"
           test -n "$NEXT_PUBLIC_KAKAO_REST_API_KEY"
           pnpm install --frozen-lockfile
-          pnpm verify
+          pnpm build
+          pnpm verify:out
           test -s out/index.html
           test -s out/index.txt
           test -s out/404.html
