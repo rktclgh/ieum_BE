@@ -1305,6 +1305,7 @@ SELECT NOT EXISTS (
 \i db/migrations/v33_question_ai_ungrounded_answer.sql
 \endif
 \i db/migrations/v34_question_ai_ungrounded_answer_validate.sql
+\i db/migrations/v35_knowledge_relation_candidates.sql
 
 DO $verify$
 BEGIN

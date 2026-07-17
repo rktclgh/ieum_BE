@@ -99,9 +99,15 @@ class AcceptedAnswerKnowledgeEnabledConfiguration {
 	AcceptedAnswerKnowledgeRepository acceptedAnswerKnowledgeRepository(
 		JdbcClient jdbcClient,
 		PlatformTransactionManager transactionManager,
-		AcceptedAnswerKnowledgeDocumentFactory documentFactory
+		AcceptedAnswerKnowledgeDocumentFactory documentFactory,
+		@Value("${app.ai.features.knowledge-relation-extraction-enabled:false}") boolean enqueueRelationExtractionTasks
 	) {
-		return new JdbcAcceptedAnswerKnowledgeRepository(jdbcClient, transactionManager, documentFactory);
+		return new JdbcAcceptedAnswerKnowledgeRepository(
+			jdbcClient,
+			transactionManager,
+			documentFactory,
+			enqueueRelationExtractionTasks
+		);
 	}
 
 	@Bean
