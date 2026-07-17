@@ -56,9 +56,12 @@ import shinhan.fibri.ieum.ai.question.finalization.InsufficientQuestionAnswerFin
 import shinhan.fibri.ieum.ai.question.finalization.QuestionAnswerFinalizationResult;
 import shinhan.fibri.ieum.ai.question.finalization.QuestionAnswerFinalizationService;
 import shinhan.fibri.ieum.ai.question.finalization.QuestionAnswerMode;
+import shinhan.fibri.ieum.ai.question.finalization.UngroundedQuestionAnswerFinalization;
 import shinhan.fibri.ieum.ai.question.generation.GeneratedAnswer;
 import shinhan.fibri.ieum.ai.question.generation.LocalAnswerGateway;
 import shinhan.fibri.ieum.ai.question.generation.LocalAnswerPrompt;
+import shinhan.fibri.ieum.ai.question.generation.UngroundedAnswer;
+import shinhan.fibri.ieum.ai.question.generation.UngroundedAnswerGateway;
 import shinhan.fibri.ieum.ai.question.grounding.GroundingValidation;
 import shinhan.fibri.ieum.ai.question.grounding.GroundingValidationResult;
 import shinhan.fibri.ieum.ai.question.grounding.LocalGroundingGateway;
@@ -283,6 +286,56 @@ class DefaultQuestionAnswerOrchestratorTest {
 			Fixture.LEASE
 		);
 		verify(fixture.callbackWake, never()).wake(anyLong());
+	}
+
+	@Test
+	void generatesUngroundedAnswerWhenLocalEvidenceIsInsufficientAndWebGroundingIsDisabled() {
+		Fixture fixture = new Fixture();
+		fixture.localEvidenceInsufficient();
+
+		fixture.newOrchestrator(Fixture.LEASE, true).process(fixture.task);
+
+		ArgumentCaptor<WebGroundingPrompt> prompt = ArgumentCaptor.forClass(WebGroundingPrompt.class);
+		verify(fixture.ungroundedAnswerGateway).generate(prompt.capture(), eq(Duration.ofSeconds(30)));
+		assertThat(prompt.getValue()).isEqualTo(fixture.webPrompt);
+		verifyNoInteractions(fixture.answerGateway, fixture.groundingGateway, fixture.citationAssembler);
+		ArgumentCaptor<UngroundedQuestionAnswerFinalization> finalization = ArgumentCaptor.forClass(
+			UngroundedQuestionAnswerFinalization.class
+		);
+		verify(fixture.finalizationService).completeUngrounded(finalization.capture());
+		assertThat(finalization.getValue().content()).isEqualTo(fixture.ungroundedAnswer.content());
+		assertThat(finalization.getValue().context().generationProvider()).isEqualTo("gemini");
+		assertThat(finalization.getValue().context().generationModel()).isEqualTo("gemini-3.1-flash-lite");
+		assertThat(finalization.getValue().context().promptVersion())
+			.isEqualTo("question-ungrounded-answer-v1");
+		assertThat(finalization.getValue().context().groundingScore()).isEqualByComparingTo(BigDecimal.ZERO);
+		assertThat(finalization.getValue().context().evidence()).isEmpty();
+		assertThat(finalization.getValue().context().fallbackReason()).isEqualTo("web_grounding_disabled");
+		verify(fixture.callbackWake).wake(fixture.task.questionId());
+	}
+
+	@Test
+	void fallsBackToUngroundedAnswerWhenWebGroundingIsRateLimited() {
+		Fixture fixture = new Fixture();
+		fixture.localEvidenceInsufficient();
+		fixture.enableWebGrounding();
+		when(fixture.webGroundingGateway.ground(any(), any())).thenThrow(
+			new QuestionWebGroundingUnavailableException(WebGroundingFailureCode.rate_limited)
+		);
+
+		fixture.newOrchestrator(Fixture.LEASE, true).process(fixture.task);
+
+		verify(fixture.ungroundedAnswerGateway).generate(
+			same(fixture.webPrompt),
+			eq(Duration.ofSeconds(30))
+		);
+		ArgumentCaptor<UngroundedQuestionAnswerFinalization> finalization = ArgumentCaptor.forClass(
+			UngroundedQuestionAnswerFinalization.class
+		);
+		verify(fixture.finalizationService).completeUngrounded(finalization.capture());
+		assertThat(finalization.getValue().context().fallbackReason())
+			.isEqualTo("web_grounding_rate_limited");
+		verify(fixture.callbackWake).wake(fixture.task.questionId());
 	}
 
 	@Test
@@ -727,6 +780,7 @@ class DefaultQuestionAnswerOrchestratorTest {
 		private final WebGroundingGateway webGroundingGateway = mock(WebGroundingGateway.class);
 		private final WebGroundingPromptFactory webGroundingPromptFactory = mock(WebGroundingPromptFactory.class);
 		private final WebQuestionEvidenceAssembler webEvidenceAssembler = mock(WebQuestionEvidenceAssembler.class);
+		private final UngroundedAnswerGateway ungroundedAnswerGateway = mock(UngroundedAnswerGateway.class);
 		private final QuestionAnswerFinalizationService finalizationService = mock(
 			QuestionAnswerFinalizationService.class
 		);
@@ -801,6 +855,12 @@ class DefaultQuestionAnswerOrchestratorTest {
 			"request-web",
 			new BigDecimal("0.93")
 		);
+		private final UngroundedAnswer ungroundedAnswer = new UngroundedAnswer(
+			"검색 근거 없이 생성한 임시 답변입니다.",
+			"gemini",
+			"gemini-3.1-flash-lite",
+			"question-ungrounded-answer-v1"
+		);
 		private final JsonNode webEvidence = webEvidence();
 		private final DefaultQuestionAnswerOrchestrator orchestrator;
 
@@ -831,6 +891,8 @@ class DefaultQuestionAnswerOrchestratorTest {
 			when(webGroundingPromptFactory.create(any(), any())).thenReturn(Optional.of(webPrompt));
 			when(webGroundingGateway.ground(any(), eq(Duration.ofSeconds(45))))
 				.thenReturn(Optional.of(webAnswer));
+			when(ungroundedAnswerGateway.generate(any(), eq(Duration.ofSeconds(30))))
+				.thenReturn(ungroundedAnswer);
 			when(webEvidenceAssembler.assemble(same(webAnswer))).thenReturn(List.of(webEvidence));
 			when(citationAssembler.assemble(
 				eq(generated.answer()),
@@ -841,17 +903,27 @@ class DefaultQuestionAnswerOrchestratorTest {
 				.thenReturn(new QuestionAnswerFinalizationResult(task.questionId(), 900L));
 			when(finalizationService.completeInsufficient(any()))
 				.thenReturn(new QuestionAnswerFinalizationResult(task.questionId(), null));
+			when(finalizationService.completeUngrounded(any()))
+				.thenReturn(new QuestionAnswerFinalizationResult(task.questionId(), 901L));
 			orchestrator = newOrchestrator(LEASE);
 		}
 
 		private DefaultQuestionAnswerOrchestrator newOrchestrator(Duration leaseExtension) {
+			return newOrchestrator(leaseExtension, false);
+		}
+
+		private DefaultQuestionAnswerOrchestrator newOrchestrator(
+			Duration leaseExtension,
+			boolean ungroundedAnswerEnabled
+		) {
 			return newOrchestrator(
 				leaseExtension,
 				webGroundingGateway,
 				webGroundingPromptFactory,
 				webEvidenceAssembler,
 				Duration.ofSeconds(30),
-				Duration.ofSeconds(30)
+				Duration.ofSeconds(30),
+				ungroundedAnswerEnabled
 			);
 		}
 
@@ -862,6 +934,26 @@ class DefaultQuestionAnswerOrchestratorTest {
 			WebQuestionEvidenceAssembler evidenceAssembler,
 			Duration answerTimeout,
 			Duration groundingTimeout
+		) {
+			return newOrchestrator(
+				leaseExtension,
+				webGateway,
+				promptFactory,
+				evidenceAssembler,
+				answerTimeout,
+				groundingTimeout,
+				false
+			);
+		}
+
+		private DefaultQuestionAnswerOrchestrator newOrchestrator(
+			Duration leaseExtension,
+			WebGroundingGateway webGateway,
+			WebGroundingPromptFactory promptFactory,
+			WebQuestionEvidenceAssembler evidenceAssembler,
+			Duration answerTimeout,
+			Duration groundingTimeout,
+			boolean ungroundedAnswerEnabled
 		) {
 			return new DefaultQuestionAnswerOrchestrator(
 				snapshotRepository,
@@ -877,13 +969,15 @@ class DefaultQuestionAnswerOrchestratorTest {
 				webGateway,
 				promptFactory,
 				evidenceAssembler,
+				ungroundedAnswerGateway,
 				citationAssembler,
 				finalizationService,
 				callbackWake,
 				objectMapper,
 				leaseExtension,
 				answerTimeout,
-				groundingTimeout
+				groundingTimeout,
+				ungroundedAnswerEnabled
 			);
 		}
 

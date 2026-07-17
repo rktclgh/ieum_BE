@@ -18,6 +18,7 @@ import shinhan.fibri.ieum.ai.question.embedding.QuestionEmbeddingTextFormatter;
 import shinhan.fibri.ieum.ai.question.finalization.QuestionAnswerFinalizationService;
 import shinhan.fibri.ieum.ai.question.generation.LocalAnswerGateway;
 import shinhan.fibri.ieum.ai.question.generation.LocalAnswerProperties;
+import shinhan.fibri.ieum.ai.question.generation.UngroundedAnswerGateway;
 import shinhan.fibri.ieum.ai.question.grounding.LocalGroundingGateway;
 import shinhan.fibri.ieum.ai.question.grounding.LocalGroundingProperties;
 import shinhan.fibri.ieum.ai.question.retrieval.GroundingSufficiencyPolicy;
@@ -120,6 +121,7 @@ class QuestionAnswerProcessingConfigurationTest {
 				() -> mock(HybridKnowledgeRetrievalService.class)
 			)
 			.withBean(LocalAnswerGateway.class, () -> mock(LocalAnswerGateway.class))
+			.withBean(UngroundedAnswerGateway.class, () -> mock(UngroundedAnswerGateway.class))
 			.withBean(LocalGroundingGateway.class, () -> mock(LocalGroundingGateway.class))
 			.withBean(
 				QuestionAnswerFinalizationService.class,

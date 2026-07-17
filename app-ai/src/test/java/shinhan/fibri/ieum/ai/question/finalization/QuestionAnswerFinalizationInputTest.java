@@ -350,6 +350,55 @@ class QuestionAnswerFinalizationInputTest {
 			.hasMessageContaining("generation");
 	}
 
+	@Test
+	void ungroundedAllowsAnAnswerWithoutEvidenceButRequiresGenerationProvenance() {
+		QuestionAnswerFinalizationContext ungroundedContext = new QuestionAnswerFinalizationContext(
+			embedding(),
+			"gemini-embedding-2",
+			GeoScope.general,
+			BigDecimal.ONE,
+			objectMapper.createObjectNode(),
+			"gemini",
+			"gemini-3.1-flash-lite",
+			"hybrid-rag-v1",
+			"web_grounding_rate_limited",
+			"question-ungrounded-answer-v1",
+			BigDecimal.ZERO,
+			List.of()
+		);
+
+		UngroundedQuestionAnswerFinalization command = new UngroundedQuestionAnswerFinalization(
+			fence(),
+			"검색 근거 없이 생성한 임시 답변입니다.",
+			ungroundedContext
+		);
+
+		assertThat(command.content()).isEqualTo("검색 근거 없이 생성한 임시 답변입니다.");
+		assertThat(QuestionAnswerMode.UNGROUNDED.databaseValue()).isEqualTo("ungrounded");
+
+		QuestionAnswerFinalizationContext withoutGeneration = new QuestionAnswerFinalizationContext(
+			embedding(),
+			"gemini-embedding-2",
+			GeoScope.general,
+			BigDecimal.ONE,
+			objectMapper.createObjectNode(),
+			null,
+			null,
+			"hybrid-rag-v1",
+			"web_grounding_rate_limited",
+			null,
+			BigDecimal.ZERO,
+			List.of()
+		);
+
+		assertThatThrownBy(() -> new UngroundedQuestionAnswerFinalization(
+			fence(),
+			"답변",
+			withoutGeneration
+		)).isInstanceOf(IllegalArgumentException.class)
+			.hasMessageContaining("generation");
+	}
+
 	private QuestionTaskFence fence() {
 		return new QuestionTaskFence(1L, "worker-a", UUID.randomUUID());
 	}

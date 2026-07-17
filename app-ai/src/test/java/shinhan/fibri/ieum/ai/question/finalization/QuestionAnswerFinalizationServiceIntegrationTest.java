@@ -211,6 +211,61 @@ class QuestionAnswerFinalizationServiceIntegrationTest {
 	}
 
 	@Test
+	void atomicallyStoresUngroundedAnswerAndItsProvenance() {
+		QuestionTaskFence fence = insertProcessingTask("worker-a", OffsetDateTime.now().plusMinutes(2));
+		UngroundedQuestionAnswerFinalization command = new UngroundedQuestionAnswerFinalization(
+			fence,
+			"현재 검색 근거 없이 생성한 임시 답변입니다.",
+			ungroundedContext()
+		);
+
+		QuestionAnswerFinalizationResult result = service.completeUngrounded(command);
+
+		assertThat(result.questionId()).isEqualTo(fence.questionId());
+		assertThat(result.hasAnswer()).isTrue();
+		assertThat(result.answerId()).isPositive();
+		assertThat(answerCount(fence.questionId())).isOne();
+		var task = jdbc.sql("""
+			SELECT status::text,
+			       stage::text,
+			       answer_id,
+			       answer_outcome,
+			       generation_provider,
+			       generation_model,
+			       retrieval_config_version,
+			       fallback_reason,
+			       prompt_version,
+			       grounding_status,
+			       grounding_score,
+			       evidence::text,
+			       completed_at,
+			       lease_until,
+			       locked_by,
+			       lease_token
+			FROM ai_question_tasks
+			WHERE question_id = :questionId
+			""")
+			.param("questionId", fence.questionId())
+			.query().singleRow();
+		assertThat(task.get("status")).isEqualTo("completed");
+		assertThat(task.get("stage")).isEqualTo("persisting");
+		assertThat(task.get("answer_id")).isEqualTo(result.answerId());
+		assertThat(task.get("answer_outcome")).isEqualTo("ungrounded");
+		assertThat(task.get("generation_provider")).isEqualTo("gemini");
+		assertThat(task.get("generation_model")).isEqualTo("gemini-3.1-flash-lite");
+		assertThat(task.get("retrieval_config_version")).isEqualTo("hybrid-rag-v1");
+		assertThat(task.get("fallback_reason")).isEqualTo("web_grounding_rate_limited");
+		assertThat(task.get("prompt_version")).isEqualTo("question-ungrounded-answer-v1");
+		assertThat(task.get("grounding_status")).isEqualTo("ungrounded");
+		assertThat(task.get("grounding_score")).isNull();
+		assertThat(task.get("evidence")).isEqualTo("[]");
+		assertThat(task.get("completed_at")).isNotNull();
+		assertThat(task.get("lease_until")).isNull();
+		assertThat(task.get("locked_by")).isNull();
+		assertThat(task.get("lease_token")).isNull();
+	}
+
+	@Test
 	void rejectsExpiredFenceWithoutWritingAnswerOrTaskResult() {
 		QuestionTaskFence fence = insertProcessingTask("worker-a", OffsetDateTime.now().minusSeconds(1));
 
@@ -589,6 +644,23 @@ class QuestionAnswerFinalizationServiceIntegrationTest {
 			"hybrid-rag-v1",
 			"no_local_evidence",
 			null,
+			BigDecimal.ZERO,
+			List.of()
+		);
+	}
+
+	private QuestionAnswerFinalizationContext ungroundedContext() {
+		return new QuestionAnswerFinalizationContext(
+			embedding(),
+			"gemini-embedding-2",
+			GeoScope.general,
+			BigDecimal.ZERO,
+			objectMapper.createObjectNode(),
+			"gemini",
+			"gemini-3.1-flash-lite",
+			"hybrid-rag-v1",
+			"web_grounding_rate_limited",
+			"question-ungrounded-answer-v1",
 			BigDecimal.ZERO,
 			List.of()
 		);

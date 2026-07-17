@@ -459,7 +459,7 @@ CREATE TABLE ai_question_tasks (
     retrieval_config_version VARCHAR(80),
     fallback_reason VARCHAR(100),
     prompt_version VARCHAR(80),
-    grounding_status VARCHAR(30) CHECK (grounding_status IN ('grounded', 'insufficient_evidence')),
+    grounding_status VARCHAR(30) CHECK (grounding_status IN ('grounded', 'insufficient_evidence', 'ungrounded')),
     grounding_score NUMERIC(5,4) CHECK (grounding_score BETWEEN 0 AND 1),
     evidence JSONB NOT NULL DEFAULT '[]'::jsonb,
     last_error_code VARCHAR(100),
@@ -496,7 +496,7 @@ CREATE TABLE ai_question_tasks (
     CONSTRAINT ck_ai_question_tasks_region_context
         CHECK (jsonb_typeof(region_context) = 'object'),
     CONSTRAINT ck_ai_question_tasks_answer_outcome
-        CHECK (answer_outcome IS NULL OR answer_outcome IN ('local_grounded','web_grounded','insufficient_evidence')),
+        CHECK (answer_outcome IS NULL OR answer_outcome IN ('local_grounded','web_grounded','insufficient_evidence','ungrounded')),
     CONSTRAINT ck_ai_question_tasks_completed CHECK (status <> 'completed' OR (
         completed_at IS NOT NULL
         AND embedding IS NOT NULL
@@ -511,6 +511,13 @@ CREATE TABLE ai_question_tasks (
                 AND generation_provider IS NOT NULL
                 AND generation_model IS NOT NULL
                 AND jsonb_array_length(evidence) > 0)
+            OR
+            (answer_outcome = 'ungrounded'
+                AND answer_id IS NOT NULL
+                AND generation_provider IS NOT NULL
+                AND generation_model IS NOT NULL
+                AND grounding_status = 'ungrounded'
+                AND jsonb_array_length(evidence) = 0)
         )
     )),
     CHECK (status <> 'cancelled' OR cancelled_at IS NOT NULL),
