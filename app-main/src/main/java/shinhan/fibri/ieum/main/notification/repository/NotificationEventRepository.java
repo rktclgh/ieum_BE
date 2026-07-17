@@ -21,7 +21,19 @@ public class NotificationEventRepository {
 			answer_is_ai,
 			event_key
 		)
-		VALUES (?, CAST(? AS notification_type), ?, ?, ?, ?, ?)
+		SELECT ?, CAST(? AS notification_type), ?, ?, ?, ?, ?
+		WHERE NOT (
+			COALESCE(?, FALSE)
+			AND CAST(? AS notification_type) = 'question'::notification_type
+			AND EXISTS (
+				SELECT 1
+				FROM notifications existing
+				WHERE existing.user_id = ?
+				  AND existing.type = 'question'::notification_type
+				  AND existing.ref_id = ?
+				  AND existing.answer_is_ai = TRUE
+			)
+		)
 		ON CONFLICT (user_id, event_key) WHERE event_key IS NOT NULL DO NOTHING
 		RETURNING notification_id, created_at
 		""";
@@ -52,6 +64,10 @@ public class NotificationEventRepository {
 				statement.setObject(5, refId, Types.BIGINT);
 				statement.setObject(6, answerIsAi, Types.BOOLEAN);
 				statement.setString(7, eventKey);
+				statement.setObject(8, answerIsAi, Types.BOOLEAN);
+				statement.setString(9, Objects.requireNonNull(type, "type must not be null").name());
+				statement.setObject(10, userId, Types.BIGINT);
+				statement.setObject(11, refId, Types.BIGINT);
 			},
 			resultSet -> resultSet.next()
 				? Optional.of(new InsertedNotification(

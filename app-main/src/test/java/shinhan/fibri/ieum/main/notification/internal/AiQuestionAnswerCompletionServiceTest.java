@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -22,6 +23,8 @@ class AiQuestionAnswerCompletionServiceTest {
 	private static final long PIN_ID = 20L;
 	private static final long USER_ID = 30L;
 	private static final long ANSWER_ID = 40L;
+	private static final long REPLACEMENT_ANSWER_ID = 41L;
+	private static final String EVENT_KEY = "ai-answer-created:question:" + QUESTION_ID;
 
 	private final AiQuestionAnswerCompletionRepository repository =
 		mock(AiQuestionAnswerCompletionRepository.class);
@@ -39,7 +42,7 @@ class AiQuestionAnswerCompletionServiceTest {
 			"회원님의 질문에 답변이 달렸어요",
 			QUESTION_ID,
 			true,
-			"answer-created:" + ANSWER_ID
+			EVENT_KEY
 		)).thenReturn(true);
 		when(repository.acknowledgeNotification(QUESTION_ID, ANSWER_ID)).thenReturn(1);
 
@@ -57,7 +60,7 @@ class AiQuestionAnswerCompletionServiceTest {
 			"회원님의 질문에 답변이 달렸어요",
 			QUESTION_ID,
 			true,
-			"answer-created:" + ANSWER_ID
+			EVENT_KEY
 		);
 		order.verify(repository).acknowledgeNotification(QUESTION_ID, ANSWER_ID);
 	}
@@ -75,7 +78,7 @@ class AiQuestionAnswerCompletionServiceTest {
 			"회원님의 질문에 답변이 달렸어요",
 			QUESTION_ID,
 			true,
-			"answer-created:" + ANSWER_ID
+			EVENT_KEY
 		);
 		verify(repository, never()).acknowledgeNotification(QUESTION_ID, ANSWER_ID);
 	}
@@ -94,7 +97,7 @@ class AiQuestionAnswerCompletionServiceTest {
 			"회원님의 질문에 답변이 달렸어요",
 			QUESTION_ID,
 			true,
-			"answer-created:" + ANSWER_ID
+			EVENT_KEY
 		);
 		verify(repository).acknowledgeNotification(QUESTION_ID, ANSWER_ID);
 	}
@@ -109,13 +112,46 @@ class AiQuestionAnswerCompletionServiceTest {
 			"회원님의 질문에 답변이 달렸어요",
 			QUESTION_ID,
 			true,
-			"answer-created:" + ANSWER_ID
+			EVENT_KEY
 		)).thenReturn(false);
 		when(repository.acknowledgeNotification(QUESTION_ID, ANSWER_ID)).thenReturn(1);
 
 		service.complete(QUESTION_ID, ANSWER_ID);
 
 		verify(repository).acknowledgeNotification(QUESTION_ID, ANSWER_ID);
+	}
+
+	@Test
+	void replacementAiAnswerForTheSameQuestionUsesTheSameEventKey() {
+		when(repository.lockTicket(QUESTION_ID)).thenReturn(
+			Optional.of(new AiQuestionAnswerCompletionRepository.LockedTicket("completed", ANSWER_ID, null)),
+			Optional.of(new AiQuestionAnswerCompletionRepository.LockedTicket(
+				"completed", REPLACEMENT_ANSWER_ID, null
+			))
+		);
+		when(repository.lockQuestion(QUESTION_ID)).thenReturn(Optional.of(
+			new AiQuestionAnswerCompletionRepository.LockedQuestion(PIN_ID, USER_ID, false)
+		));
+		when(repository.lockPin(PIN_ID)).thenReturn(Optional.of(
+			new AiQuestionAnswerCompletionRepository.LockedPin(false)
+		));
+		when(repository.isMatchingAiAnswer(QUESTION_ID, ANSWER_ID)).thenReturn(true);
+		when(repository.isMatchingAiAnswer(QUESTION_ID, REPLACEMENT_ANSWER_ID)).thenReturn(true);
+		when(repository.acknowledgeNotification(QUESTION_ID, ANSWER_ID)).thenReturn(1);
+		when(repository.acknowledgeNotification(QUESTION_ID, REPLACEMENT_ANSWER_ID)).thenReturn(1);
+
+		service.complete(QUESTION_ID, ANSWER_ID);
+		service.complete(QUESTION_ID, REPLACEMENT_ANSWER_ID);
+
+		verify(publisher, times(2)).publishDurableOnce(
+			USER_ID,
+			NotificationType.question,
+			"새 답변",
+			"회원님의 질문에 답변이 달렸어요",
+			QUESTION_ID,
+			true,
+			EVENT_KEY
+		);
 	}
 
 	@Test
@@ -150,7 +186,7 @@ class AiQuestionAnswerCompletionServiceTest {
 			"회원님의 질문에 답변이 달렸어요",
 			QUESTION_ID,
 			true,
-			"answer-created:" + ANSWER_ID
+			EVENT_KEY
 		)).thenThrow(new IllegalStateException("database failure"));
 
 		assertThatThrownBy(() -> service.complete(QUESTION_ID, ANSWER_ID))
