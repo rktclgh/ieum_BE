@@ -165,6 +165,22 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 	@Query("""
 		SELECT message
 		FROM Message message
+		JOIN FETCH message.room
+		JOIN FETCH message.sender
+		JOIN ChatMember member ON member.room = message.room AND member.user.id = :userId
+		WHERE message.id = :messageId
+		  AND member.leftAt IS NULL
+		  AND message.id > member.visibleAfterMessageId
+		  AND message.deletedAt IS NULL
+		""")
+	Optional<Message> findVisibleByIdForTranslation(
+		@Param("messageId") Long messageId,
+		@Param("userId") Long userId
+	);
+
+	@Query("""
+		SELECT message
+		FROM Message message
 		JOIN FETCH message.sender
 		WHERE message.room.id = :roomId
 		  AND message.deletedAt IS NULL
