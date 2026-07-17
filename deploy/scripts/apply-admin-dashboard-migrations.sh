@@ -332,6 +332,117 @@ BEGIN
 END
 $function$;
 
+CREATE OR REPLACE FUNCTION pg_temp.message_reply_contract_state()
+RETURNS text
+LANGUAGE plpgsql
+AS $function$
+DECLARE
+  column_count integer;
+  constraint_count integer;
+  reply_to_attnum smallint;
+  message_id_attnum smallint;
+  column_exact boolean;
+  constraint_exact boolean;
+BEGIN
+  IF to_regclass('public.messages') IS NULL THEN
+    RETURN 'mismatch';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_class table_class
+    JOIN pg_namespace table_namespace ON table_namespace.oid = table_class.relnamespace
+    WHERE table_class.oid = 'public.messages'::regclass
+      AND table_namespace.nspname = 'public'
+      AND table_class.relkind = 'r'
+      AND table_class.relpersistence = 'p'
+      AND NOT table_class.relispartition
+  ) THEN
+    RETURN 'mismatch';
+  END IF;
+
+  SELECT count(*)
+  INTO column_count
+  FROM pg_attribute
+  WHERE attrelid = 'public.messages'::regclass
+    AND attname = 'reply_to_message_id'
+    AND attnum > 0
+    AND NOT attisdropped;
+
+  SELECT count(*)
+  INTO constraint_count
+  FROM pg_constraint
+  WHERE conrelid = 'public.messages'::regclass
+    AND conname = 'fk_messages_reply_to_message';
+
+  IF column_count = 0 THEN
+    RETURN CASE
+      WHEN constraint_count = 0 THEN 'absent'
+      ELSE 'mismatch'
+    END;
+  END IF;
+
+  IF constraint_count <> 1 THEN
+    RETURN 'mismatch';
+  END IF;
+
+  SELECT attnum
+  INTO reply_to_attnum
+  FROM pg_attribute
+  WHERE attrelid = 'public.messages'::regclass
+    AND attname = 'reply_to_message_id'
+    AND attnum > 0
+    AND NOT attisdropped;
+
+  SELECT attnum
+  INTO message_id_attnum
+  FROM pg_attribute
+  WHERE attrelid = 'public.messages'::regclass
+    AND attname = 'message_id'
+    AND attnum > 0
+    AND NOT attisdropped;
+
+  SELECT count(*) = 1
+    AND bool_and(
+      attribute.atttypid = 'bigint'::regtype
+      AND attribute.atttypmod = -1
+      AND NOT attribute.attnotnull
+      AND attribute.attgenerated = ''
+      AND attribute.attidentity = ''
+      AND NOT attribute.atthasdef
+    )
+  INTO column_exact
+  FROM pg_attribute attribute
+  WHERE attribute.attrelid = 'public.messages'::regclass
+    AND attribute.attname = 'reply_to_message_id'
+    AND attribute.attnum > 0
+    AND NOT attribute.attisdropped;
+
+  SELECT count(*) = 1
+    AND bool_and(
+      constraint_row.contype = 'f'
+      AND constraint_row.convalidated
+      AND NOT constraint_row.condeferrable
+      AND NOT constraint_row.condeferred
+      AND constraint_row.conkey = ARRAY[reply_to_attnum]
+      AND constraint_row.confrelid = 'public.messages'::regclass
+      AND constraint_row.confkey = ARRAY[message_id_attnum]
+      AND constraint_row.confmatchtype = 's'
+      AND constraint_row.confupdtype = 'a'
+      AND constraint_row.confdeltype = 'n'
+    )
+  INTO constraint_exact
+  FROM pg_constraint constraint_row
+  WHERE constraint_row.conrelid = 'public.messages'::regclass
+    AND constraint_row.conname = 'fk_messages_reply_to_message';
+
+  RETURN CASE
+    WHEN column_exact AND constraint_exact THEN 'exact'
+    ELSE 'mismatch'
+  END;
+END
+$function$;
+
 CREATE OR REPLACE FUNCTION pg_temp.admin_audit_contract_state()
 RETURNS text
 LANGUAGE plpgsql
@@ -982,6 +1093,9 @@ BEGIN
   IF pg_temp.message_type_contract_state() = 'mismatch' THEN
     RAISE EXCEPTION 'partial or incompatible messages.message_type schema';
   END IF;
+  IF pg_temp.message_reply_contract_state() = 'mismatch' THEN
+    RAISE EXCEPTION 'partial or incompatible messages.reply_to_message_id schema';
+  END IF;
   IF pg_temp.admin_audit_contract_state() = 'mismatch' THEN
     RAISE EXCEPTION 'partial or incompatible admin_audit_logs schema';
   END IF;
@@ -1128,6 +1242,7 @@ SELECT (
       AND enumlabel = 'schedule'
   )
 ) AS apply_schedule_report_target_enum_migration \gset
+SELECT pg_temp.message_reply_contract_state() = 'absent' AS apply_message_reply_migration \gset
 
 \if :apply_report_policy_migrations
 \i db/migrations/v24_seed_report_policy_rules.sql
@@ -1177,6 +1292,9 @@ SELECT (
 \if :apply_schedule_report_target_migration
 \i db/migrations/v31_report_schedule_target.sql
 \endif
+\if :apply_message_reply_migration
+\i db/migrations/v32_chat_message_reply.sql
+\endif
 
 DO $verify$
 BEGIN
@@ -1185,6 +1303,9 @@ BEGIN
   END IF;
   IF pg_temp.message_type_contract_state() <> 'exact' THEN
     RAISE EXCEPTION 'messages.message_type schema verification failed';
+  END IF;
+  IF pg_temp.message_reply_contract_state() <> 'exact' THEN
+    RAISE EXCEPTION 'messages.reply_to_message_id schema verification failed';
   END IF;
   IF pg_temp.admin_audit_contract_state() <> 'exact' THEN
     RAISE EXCEPTION 'admin_audit_logs schema verification failed';

@@ -236,6 +236,38 @@ class ChatInboundChannelInterceptorTest {
 	}
 
 	@Test
+	void subscribeAllowsOwnRoomMessageQueueForActiveMember() {
+		ChatWebSocketPrincipal principal = principal(42L, "sid-1");
+		StompHeaderAccessor accessor = authenticatedAccessor(StompCommand.SUBSCRIBE, principal);
+		accessor.setDestination("/user/queue/rooms/100");
+		stubValidSession(principal);
+		when(chatMemberRepository.existsByRoom_IdAndUser_IdAndLeftAtIsNull(100L, 42L)).thenReturn(true);
+
+		Message<?> result = interceptor.preSend(message(accessor), null);
+
+		assertThat(result).isNotNull();
+		verify(chatMemberRepository).existsByRoom_IdAndUser_IdAndLeftAtIsNull(100L, 42L);
+	}
+
+	@Test
+	void subscribeRejectsOwnRoomMessageQueueForNonMember() {
+		ChatWebSocketPrincipal principal = principal(42L, "sid-1");
+		StompHeaderAccessor accessor = authenticatedAccessor(StompCommand.SUBSCRIBE, principal);
+		accessor.setDestination("/user/queue/rooms/100");
+		stubValidSession(principal);
+		when(chatMemberRepository.existsByRoom_IdAndUser_IdAndLeftAtIsNull(100L, 42L)).thenReturn(false);
+
+		Message<?> result = interceptor.preSend(message(accessor), null);
+
+		assertThat(result).isNull();
+		verify(errorSender).send(principal, new ChatWebSocketErrorResponse(
+			"NOT_ROOM_MEMBER",
+			"Room membership is required",
+			100L
+		));
+	}
+
+	@Test
 	void subscribeRejectsRoomListQueueWildcardWithoutMembershipCheck() {
 		ChatWebSocketPrincipal principal = principal(42L, "sid-1");
 		StompHeaderAccessor accessor = authenticatedAccessor(StompCommand.SUBSCRIBE, principal);

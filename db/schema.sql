@@ -807,9 +807,12 @@ CREATE TABLE messages (
     sender_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     content TEXT,
     image_file_id UUID REFERENCES files(file_id) ON DELETE SET NULL,
+    reply_to_message_id BIGINT,
     message_type VARCHAR(16) NOT NULL DEFAULT 'user',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     deleted_at TIMESTAMPTZ,
+    CONSTRAINT fk_messages_reply_to_message
+        FOREIGN KEY (reply_to_message_id) REFERENCES messages(message_id) ON DELETE SET NULL,
     CHECK (content IS NOT NULL OR image_file_id IS NOT NULL),
     CONSTRAINT ck_messages_message_type CHECK (message_type IN ('user', 'system')),
     CONSTRAINT ck_messages_system_text_only CHECK (

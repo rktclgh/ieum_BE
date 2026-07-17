@@ -4,6 +4,11 @@ import java.util.UUID;
 
 public record SendChatMessageRequest(
 	String content,
-	UUID imageFileId
+	UUID imageFileId,
+	Long replyToMessageId
 ) {
+
+	public SendChatMessageRequest(String content, UUID imageFileId) {
+		this(content, imageFileId, null);
+	}
 }
