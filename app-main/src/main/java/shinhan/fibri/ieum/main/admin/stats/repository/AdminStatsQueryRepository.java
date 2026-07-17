@@ -298,8 +298,12 @@ public class AdminStatsQueryRepository {
 		String sql = """
 			SELECT
 			  (SELECT COUNT(*) FROM reports r WHERE CAST(r.status AS varchar) = 'pending') AS pending_report_count,
-			  (SELECT COUNT(*) FROM reports r WHERE CAST(r.ai_review_state AS varchar) = 'retry') AS retry_report_count,
-			  (SELECT COUNT(*) FROM reports r WHERE CAST(r.ai_review_state AS varchar) = 'dead') AS dead_report_count,
+			  (SELECT COUNT(*) FROM reports r
+			   WHERE CAST(r.ai_review_state AS varchar) = 'retry'
+			     AND CAST(r.status AS varchar) IN ('pending', 'ai_reviewed')) AS retry_report_count,
+			  (SELECT COUNT(*) FROM reports r
+			   WHERE CAST(r.ai_review_state AS varchar) = 'dead'
+			     AND CAST(r.status AS varchar) IN ('pending', 'ai_reviewed')) AS dead_report_count,
 			  (SELECT COUNT(*) FROM inquiries i WHERE CAST(i.status AS varchar) = 'pending') AS pending_inquiry_count
 			""";
 		return jdbcTemplate.queryForObject(sql, new MapSqlParameterSource(), (rs, rowNum) -> new QueueStatsRow(

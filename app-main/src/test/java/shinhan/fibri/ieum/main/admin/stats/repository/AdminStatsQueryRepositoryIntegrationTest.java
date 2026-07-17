@@ -14,6 +14,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import shinhan.fibri.ieum.main.admin.stats.repository.AdminStatsQueryRepository.AnswerStatsRow;
+import shinhan.fibri.ieum.main.admin.stats.repository.AdminStatsQueryRepository.QueueStatsRow;
 import shinhan.fibri.ieum.main.admin.stats.repository.AdminStatsQueryRepository.ReportStatsRow;
 import shinhan.fibri.ieum.testsupport.CanonicalPostgresContainer;
 import shinhan.fibri.ieum.testsupport.SqlScriptRunner;
@@ -100,6 +101,19 @@ class AdminStatsQueryRepositoryIntegrationTest {
 		assertThat(reportStats.dismissedCount()).isEqualTo(1);
 		// sanctionCount는 행 수 지표: 탈퇴 여부 무관, 기간 내 제재 4건(s1·s2·s4·s5)
 		assertThat(repository.countSanctions(FROM, TO)).isEqualTo(4);
+	}
+
+	@Test
+	void currentQueuesExcludeResolvedDeadReports() {
+		insertQueueReport(5, "pending", "retry");
+		insertQueueReport(6, "ai_reviewed", "dead");
+		insertQueueReport(7, "confirmed", "dead");
+		insertQueueReport(8, "dismissed", "dead");
+
+		QueueStatsRow queues = repository.getCurrentQueues();
+
+		assertThat(queues.retryReportCount()).isEqualTo(1);
+		assertThat(queues.deadReportCount()).isEqualTo(1);
 	}
 
 	private void truncateTables() {
@@ -260,5 +274,18 @@ class AdminStatsQueryRepositoryIntegrationTest {
 			INSERT INTO answers(answer_id, question_id, author_id, is_ai, content, is_accepted, created_at)
 			VALUES (?, ?, NULL, true, 'ai answer', false, ?::timestamptz)
 			""", answerId, questionId, createdAt);
+	}
+
+	private void insertQueueReport(long reportId, String status, String aiReviewState) {
+		Long resolvedBy = ("confirmed".equals(status) || "dismissed".equals(status)) ? 4L : null;
+		String resolvedAt = resolvedBy == null ? null : "2026-07-08T10:00:00+09:00";
+		jdbcTemplate.update("""
+			INSERT INTO reports(
+				report_id, reporter_id, target_type, message_id, reported_user_id, reason, context_hash,
+				status, resolved_by, resolved_at, ai_review_state, created_at
+			)
+			VALUES (?, 2, 'message', 1, 1, 'spam', repeat('e', 64),
+				?::report_status, ?, ?::timestamptz, ?::ai_job_status, '2026-07-08T09:00:00+09:00')
+			""", reportId, status, resolvedBy, resolvedAt, aiReviewState);
 	}
 }

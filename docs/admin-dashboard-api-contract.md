@@ -21,6 +21,7 @@
 | `GET` | `/admin/stats/users?from=&to=` | `200 UserStatsResponse` |
 | `GET` | `/admin/stats/content?from=&to=` | `200 ContentStatsResponse` |
 | `GET` | `/admin/stats/reports?from=&to=` | `200 ReportStatsResponse` |
+| `GET` | `/admin/stats/overview?from=&to=&bucket=day` | `200 AdminStatsOverviewResponse` |
 | `GET` | `/admin/users?status=&q=&cursor=&size=` | `200 CursorPage<AdminUserItem>` |
 | `GET` | `/admin/users/{userId}` | `200 AdminUserDetailResponse` |
 | `POST` | `/admin/users/{userId}/sanctions` | `201 CreateSanctionResponse` |
@@ -33,6 +34,72 @@
 | `GET` | `/admin/inquiries?status=&cursor=&size=` | `200 CursorPage<AdminInquiryItem>` |
 | `GET` | `/admin/inquiries/{inquiryId}` | `200 AdminInquiryItem` |
 | `POST` | `/admin/inquiries/{inquiryId}/answer` | `204` |
+| `GET` | `/admin/knowledge/relation-candidates?status=&cursor=&size=` | `200 AdminKnowledgeCandidateListResponse` |
+| `GET` | `/admin/knowledge/relation-candidates/{candidateId}` | `200 AdminKnowledgeCandidateDetailResponse` |
+| `POST` | `/admin/knowledge/relation-candidates/{candidateId}/approve` | `200 AdminKnowledgeCandidateDecisionResponse` |
+| `POST` | `/admin/knowledge/relation-candidates/{candidateId}/reject` | `200 AdminKnowledgeCandidateDecisionResponse` |
+
+## KPI overview
+
+- `from`, `to`는 KST 날짜(`YYYY-MM-DD`)이며 양 끝을 포함한다. 생략하면 KST 오늘까지 최근 30일을 사용한다.
+- 허용 기간은 1~366일이고 현재 `bucket`은 `day`만 허용한다.
+- 응답은 적용된 `from`, `to`, `bucket`, 기간 합계 `summary`, 날짜별 0-채움 `series`, 기간과 무관한 현재 운영 대기열 `queues`를 반환한다.
+- 채택률은 사람 답변(`ai_generated=false`)만 분모·분자로 계산하며, 분모가 0이면 `0`이다.
+- `queues.pendingReportCount`는 `status=pending`, `queues.retryReportCount`와 `queues.deadReportCount`는 미해결 신고(`status in pending, ai_reviewed`) 중 해당 AI work 상태만 집계한다. 확정/기각된 신고는 retry/dead queue에서 제외한다.
+
+```json
+{
+  "from": "2026-07-01",
+  "to": "2026-07-31",
+  "bucket": "day",
+  "summary": {
+    "signupCount": 0,
+    "activeUserCount": 0,
+    "suspensionCount": 0,
+    "questionCount": 0,
+    "humanAnswerCount": 0,
+    "acceptedHumanAnswerCount": 0,
+    "acceptedRate": 0.0,
+    "reportCount": 0,
+    "aiReviewedCount": 0,
+    "confirmedCount": 0,
+    "dismissedCount": 0,
+    "sanctionCount": 0
+  },
+  "series": [
+    {
+      "date": "2026-07-01",
+      "signupCount": 0,
+      "activeUserCount": 0,
+      "questionCount": 0,
+      "humanAnswerCount": 0,
+      "acceptedHumanAnswerCount": 0,
+      "reportCount": 0,
+      "aiReviewedCount": 0,
+      "confirmedCount": 0,
+      "dismissedCount": 0,
+      "sanctionCount": 0
+    }
+  ],
+  "queues": {
+    "pendingReportCount": 0,
+    "retryReportCount": 0,
+    "deadReportCount": 0,
+    "pendingInquiryCount": 0
+  }
+}
+```
+
+- 실패 코드는 공통 인증/인가 규칙 외에 `400 VALIDATION_FAILED`(날짜 형식 등 바인딩 실패), `400 INVALID_STATS_RANGE`(from > to 또는 366일 초과), `400 INVALID_STATS_BUCKET`(`bucket`이 `day`가 아님)를 반환한다.
+
+## KG 관계 후보 검토
+
+- 채택된 사람 답변이 Vector source/chunk로 `ready`가 된 뒤에만 비동기 관계 후보를 만들며, 후보는 운영자 승인 전에는 검색에 사용되지 않는다.
+- 후보 상태는 `pending`, `approved`, `rejected`, `invalidated`다. 목록의 기본 filter는 `pending`이다.
+- 상세는 후보 triple·근거 excerpt·source 적격성·질문/답변 맥락·동일 source의 기존 relation·검토 메타데이터를 반환한다.
+- 승인 요청은 `{version, subject, predicate, object}`, 반려 요청은 `{version, reason?}`다. predicate는 KG v1 allowlist만 허용한다.
+- 승인은 source/relation 연결과 `KNOWLEDGE_RELATION_APPROVED` 감사 로그를 한 transaction으로 기록한다. 반려는 `KNOWLEDGE_RELATION_REJECTED` 감사 로그를 기록한다.
+- stale version 또는 이미 종결된 후보는 `409 KNOWLEDGE_CANDIDATE_CONCURRENTLY_CHANGED`다. 승인 시 source가 더 이상 적격하지 않으면 후보를 `invalidated`로 보존하고 `409 KNOWLEDGE_CANDIDATE_SOURCE_INELIGIBLE`을 반환한다.
 
 ## 역할 변경
 
@@ -65,7 +132,7 @@ Content-Type: application/json
 - 콘텐츠 삭제/비노출 API
 - 회원 영구 삭제 API
 - AI 제재 pending-review API
-- AI 정책 CRUD 및 지식 탐색/승격 API
+- AI 정책 CRUD 및 후보 검토 외 지식 탐색/시각화 API
 - 감사 로그 조회 UI/API, 보존 기간 정책
 
 이 항목들은 관리자 대시보드 MVP의 AS-BUILT API로 취급하지 않는다.
