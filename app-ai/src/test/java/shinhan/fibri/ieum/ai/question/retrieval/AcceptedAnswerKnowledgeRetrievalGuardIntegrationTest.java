@@ -3,13 +3,13 @@ package shinhan.fibri.ieum.ai.question.retrieval;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.BiConsumer;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -46,16 +46,7 @@ class AcceptedAnswerKnowledgeRetrievalGuardIntegrationTest {
 	) {
 		AcceptedFixture fixture = insertAcceptedFixture();
 
-		assertThat(vectorRepository.findGlobalCandidates(vector(), 20))
-			.extracting(VectorKnowledgeCandidate::chunkId)
-			.containsExactly(fixture.chunkId());
-		assertThat(graphRepository.findOneHopCandidates(List.of("서울"), 20))
-			.extracting(KnowledgeGraphCandidate::relationId)
-			.containsExactly(fixture.relationId());
-		assertThat(vectorRepository.findEligibleChunkIds(List.of(fixture.chunkId())))
-			.containsExactly(fixture.chunkId());
-		assertThat(graphRepository.findEligibleRelationIds(List.of(fixture.relationId())))
-			.containsExactly(fixture.relationId());
+		assertAcceptedFixturePresent(fixture);
 
 		mutation.accept(jdbc, fixture);
 
@@ -66,13 +57,66 @@ class AcceptedAnswerKnowledgeRetrievalGuardIntegrationTest {
 	}
 
 	@ParameterizedTest(name = "{0}")
-	@MethodSource("sameQuestionEligibilityLosses")
-	void sameQuestionAcceptedSourcesDisappearTogetherFromVectorAndKgCandidatesAndRevalidation(
+	@MethodSource("softDeletePreservations")
+	void acceptedSourceSurvivesSoftDeleteInVectorAndKgCandidatesAndRevalidation(
 		String name,
-		BiConsumer<JdbcClient, SameQuestionFixture> mutation
+		BiConsumer<JdbcClient, AcceptedFixture> mutation
 	) {
+		AcceptedFixture fixture = insertAcceptedFixture();
+
+		assertAcceptedFixturePresent(fixture);
+
+		mutation.accept(jdbc, fixture);
+
+		// #182: soft-deleting the resolved question (or its pin) must NOT remove the
+		// already-ingested accepted-answer knowledge from RAG vector/KG retrieval.
+		assertAcceptedFixturePresent(fixture);
+	}
+
+	@Test
+	void acceptedSourceIsPurgedFromVectorAndKgCandidatesOnQuestionHardDelete() {
+		AcceptedFixture fixture = insertAcceptedFixture();
+
+		assertAcceptedFixturePresent(fixture);
+
+		// Admin hard-purge deletes the question row; ON DELETE CASCADE removes the
+		// knowledge_sources/chunks/relations, so retrieval no longer surfaces it.
+		jdbc.sql("DELETE FROM questions WHERE question_id=:id")
+			.param("id", fixture.questionId()).update();
+
+		assertThat(vectorRepository.findGlobalCandidates(vector(), 20)).isEmpty();
+		assertThat(graphRepository.findOneHopCandidates(List.of("서울"), 20)).isEmpty();
+		assertThat(vectorRepository.findEligibleChunkIds(List.of(fixture.chunkId()))).isEmpty();
+		assertThat(graphRepository.findEligibleRelationIds(List.of(fixture.relationId()))).isEmpty();
+	}
+
+	@Test
+	void sameQuestionAcceptedSourcesSurviveSoftDeleteTogetherInVectorAndKgCandidatesAndRevalidation() {
 		SameQuestionFixture fixture = insertSameQuestionAcceptedFixture();
 
+		assertSameQuestionFixturePresent(fixture);
+
+		jdbc.sql("UPDATE questions SET deleted_at=now() WHERE question_id=:id")
+			.param("id", fixture.questionId()).update();
+
+		// #182: both accepted-answer sources under the same soft-deleted question stay retrievable.
+		assertSameQuestionFixturePresent(fixture);
+	}
+
+	private void assertAcceptedFixturePresent(AcceptedFixture fixture) {
+		assertThat(vectorRepository.findGlobalCandidates(vector(), 20))
+			.extracting(VectorKnowledgeCandidate::chunkId)
+			.containsExactly(fixture.chunkId());
+		assertThat(graphRepository.findOneHopCandidates(List.of("서울"), 20))
+			.extracting(KnowledgeGraphCandidate::relationId)
+			.containsExactly(fixture.relationId());
+		assertThat(vectorRepository.findEligibleChunkIds(List.of(fixture.chunkId())))
+			.containsExactly(fixture.chunkId());
+		assertThat(graphRepository.findEligibleRelationIds(List.of(fixture.relationId())))
+			.containsExactly(fixture.relationId());
+	}
+
+	private void assertSameQuestionFixturePresent(SameQuestionFixture fixture) {
 		assertThat(vectorRepository.findGlobalCandidates(vector(), 20))
 			.extracting(VectorKnowledgeCandidate::sourceId)
 			.containsExactly(fixture.firstSourceId(), fixture.secondSourceId());
@@ -83,13 +127,6 @@ class AcceptedAnswerKnowledgeRetrievalGuardIntegrationTest {
 			.containsExactly(fixture.firstSourceId(), fixture.secondSourceId());
 		assertThat(graphRepository.findEligibleRelationIds(List.of(fixture.firstRelationId(), fixture.secondRelationId())))
 			.isEqualTo(Set.of(fixture.firstRelationId(), fixture.secondRelationId()));
-
-		mutation.accept(jdbc, fixture);
-
-		assertThat(vectorRepository.findGlobalCandidates(vector(), 20)).isEmpty();
-		assertThat(vectorRepository.findEligibleChunkIds(List.of(fixture.firstChunkId(), fixture.secondChunkId()))).isEmpty();
-		assertThat(graphRepository.findOneHopCandidates(List.of("서울"), 20)).isEmpty();
-		assertThat(graphRepository.findEligibleRelationIds(List.of(fixture.firstRelationId(), fixture.secondRelationId()))).isEmpty();
 	}
 
 	private static List<Object[]> eligibilityLosses() {
@@ -97,23 +134,20 @@ class AcceptedAnswerKnowledgeRetrievalGuardIntegrationTest {
 			new Object[]{"acceptance revoked", (BiConsumer<JdbcClient, AcceptedFixture>) (jdbc, fixture) ->
 				jdbc.sql("UPDATE answers SET is_accepted=false WHERE answer_id=:id")
 					.param("id", fixture.answerId()).update()},
-			new Object[]{"question soft deleted", (BiConsumer<JdbcClient, AcceptedFixture>) (jdbc, fixture) ->
-				jdbc.sql("UPDATE questions SET deleted_at=now() WHERE question_id=:id")
-					.param("id", fixture.questionId()).update()},
-			new Object[]{"pin soft deleted", (BiConsumer<JdbcClient, AcceptedFixture>) (jdbc, fixture) ->
-				jdbc.sql("UPDATE pins SET deleted_at=now() WHERE pin_id=:id")
-					.param("id", fixture.pinId()).update()},
 			new Object[]{"answer text removed", (BiConsumer<JdbcClient, AcceptedFixture>) (jdbc, fixture) ->
 				jdbc.sql("UPDATE answers SET content='   ' WHERE answer_id=:id")
 					.param("id", fixture.answerId()).update()}
 		);
 	}
 
-	private static List<Object[]> sameQuestionEligibilityLosses() {
-		return Collections.singletonList(
-			new Object[]{"question soft deleted", (BiConsumer<JdbcClient, SameQuestionFixture>) (jdbc, fixture) ->
+	private static List<Object[]> softDeletePreservations() {
+		return List.of(
+			new Object[]{"question soft deleted", (BiConsumer<JdbcClient, AcceptedFixture>) (jdbc, fixture) ->
 				jdbc.sql("UPDATE questions SET deleted_at=now() WHERE question_id=:id")
-					.param("id", fixture.questionId()).update()}
+					.param("id", fixture.questionId()).update()},
+			new Object[]{"pin soft deleted", (BiConsumer<JdbcClient, AcceptedFixture>) (jdbc, fixture) ->
+				jdbc.sql("UPDATE pins SET deleted_at=now() WHERE pin_id=:id")
+					.param("id", fixture.pinId()).update()}
 		);
 	}
 
