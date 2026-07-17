@@ -138,7 +138,7 @@ class DefaultQuestionAnswerOrchestratorTest {
 		assertThat(finalization.getValue().answerMode()).isEqualTo(QuestionAnswerMode.LOCAL_GROUNDED);
 		assertThat(finalization.getValue().context().generationProvider()).isEqualTo("bedrock");
 		assertThat(finalization.getValue().context().retrievalConfigVersion())
-			.isEqualTo("retrieval-v2-hybrid-kg1");
+			.isEqualTo("retrieval-v3-hybrid-kg2");
 		assertThat(finalization.getValue().context().groundingScore()).isEqualByComparingTo("0.91");
 		assertThat(finalization.getValue().context().regionContext().fieldNames())
 			.toIterable()
@@ -934,7 +934,7 @@ class DefaultQuestionAnswerOrchestratorTest {
 			evidence(2L, 22L, "추가 후보")
 		);
 		private final HybridKnowledgeRetrievalResult retrievalResult = new HybridKnowledgeRetrievalResult(
-			"retrieval-v2-hybrid-kg1",
+			"retrieval-v3-hybrid-kg2",
 			candidates,
 			evidence
 		);

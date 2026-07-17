@@ -60,23 +60,23 @@ class WeightedRrfFusionTest {
 		HybridKnowledgeEvidence both = (HybridKnowledgeEvidence) fused.get(0);
 		assertThat(both.vectorRank()).isEqualTo(1);
 		assertThat(both.kgRank()).isEqualTo(1);
-		assertThat(both.semanticScore()).isEqualByComparingTo("0.980000");
-		assertThat(both.finalScore()).isEqualByComparingTo("0.956000");
+		assertThat(both.semanticScore()).isEqualByComparingTo("0.930000");
+		assertThat(both.finalScore()).isEqualByComparingTo("0.908500");
 		assertThat(both.relationId()).isEqualTo(303L);
 		assertThat(both.excerpt()).isEqualTo(
 			"관계: 아이돌봄서비스 supports 출산가정\n근거: 공통 근거"
 		);
 
 		assertThat(fused.get(1)).isSameAs(vectorOnly);
-		assertThat(fused.get(1).semanticScore()).isEqualByComparingTo("0.611290");
-		assertThat(fused.get(1).finalScore()).isEqualByComparingTo("0.605726");
+		assertThat(fused.get(1).semanticScore()).isEqualByComparingTo("0.663710");
+		assertThat(fused.get(1).finalScore()).isEqualByComparingTo("0.655524");
 		assertThat(fused.get(1).relationId()).isNull();
 
 		HybridKnowledgeEvidence onlyKg = (HybridKnowledgeEvidence) fused.get(2);
 		assertThat(onlyKg.vectorRank()).isNull();
 		assertThat(onlyKg.kgRank()).isEqualTo(2);
-		assertThat(onlyKg.semanticScore()).isEqualByComparingTo("0.434194");
-		assertThat(onlyKg.finalScore()).isEqualByComparingTo("0.437484");
+		assertThat(onlyKg.semanticScore()).isEqualByComparingTo("0.479806");
+		assertThat(onlyKg.finalScore()).isEqualByComparingTo("0.480816");
 		assertThat(onlyKg.relationId()).isEqualTo(202L);
 		assertThatThrownBy(() -> fused.add(vectorOnly))
 			.isInstanceOf(UnsupportedOperationException.class);
@@ -134,8 +134,8 @@ class WeightedRrfFusionTest {
 		assertThat(evidence.relationId()).isEqualTo(7L);
 		assertThat(evidence.relationConfidence()).isEqualByComparingTo("0.900000");
 		assertThat(evidence.kgRank()).isEqualTo(3);
-		assertThat(evidence.semanticScore()).isEqualByComparingTo("0.968571");
-		assertThat(evidence.finalScore()).isEqualByComparingTo("0.945143");
+		assertThat(evidence.semanticScore()).isEqualByComparingTo("0.921746");
+		assertThat(evidence.finalScore()).isEqualByComparingTo("0.900659");
 		assertThat(evidence.excerpt()).isEqualTo(
 			"관계: 결정주체 prevents 결정객체\n근거: 결정 근거"
 		);
@@ -148,12 +148,12 @@ class WeightedRrfFusionTest {
 
 		assertThatThrownBy(() -> new WeightedRrfFusion(nonCanonicalK))
 			.isInstanceOf(IllegalArgumentException.class)
-			.hasMessageContaining("retrieval-v2-hybrid-kg1")
+			.hasMessageContaining("retrieval-v3-hybrid-kg2")
 			.hasMessageContaining("k=60")
 			.hasMessageContaining("vectorWeight=0.6");
 		assertThatThrownBy(() -> new WeightedRrfFusion(nonCanonicalWeight))
 			.isInstanceOf(IllegalArgumentException.class)
-			.hasMessageContaining("retrieval-v2-hybrid-kg1")
+			.hasMessageContaining("retrieval-v3-hybrid-kg2")
 			.hasMessageContaining("k=60")
 			.hasMessageContaining("vectorWeight=0.6");
 	}
@@ -196,10 +196,45 @@ class WeightedRrfFusionTest {
 			retrievedAt
 		).getFirst();
 
-		assertThat(evidence.semanticScore()).isEqualByComparingTo("0.460000");
+		assertThat(evidence.semanticScore()).isEqualByComparingTo("0.610000");
 		assertThat(evidence.geoScore()).isEqualByComparingTo("0.135335");
-		assertThat(evidence.finalScore()).isEqualByComparingTo("0.362601");
+		assertThat(evidence.finalScore()).isEqualByComparingTo("0.467601");
 		assertThat(evidence.distanceKm()).isEqualByComparingTo("20.000000");
+	}
+
+	@Test
+	void gatesGraphOnlyEvidenceByRelationConfidenceToProtectAgainstThinKnowledgeGraph() {
+		VectorKnowledgeRetrievalRequest request = request(GeoScope.general, RegionContext.empty());
+		VectorKnowledgeEvidence acceptedAnswer = vectorScorer.score(
+			acceptedAnswerCandidate(1L, 11L, 0.95d),
+			1,
+			request,
+			retrievedAt
+		);
+		KnowledgeGraphCandidate confidentGovernment = relation(
+			201L, 2L, 22L, "서울시", "supports", "돌봄서비스", "0.900000",
+			GeoScope.general, null, "고신뢰 근거", "government"
+		);
+		KnowledgeGraphCandidate thinGovernment = relation(
+			301L, 3L, 33L, "서울시", "supports", "돌봄서비스", "0.300000",
+			GeoScope.general, null, "부실 근거", "government"
+		);
+
+		KnowledgeEvidence accepted = fusion
+			.fuse(List.of(acceptedAnswer), List.of(), request, retrievedAt)
+			.getFirst();
+		HybridKnowledgeEvidence confident = (HybridKnowledgeEvidence) fusion
+			.fuse(List.of(), List.of(confidentGovernment), request, retrievedAt)
+			.getFirst();
+		HybridKnowledgeEvidence thin = (HybridKnowledgeEvidence) fusion
+			.fuse(List.of(), List.of(thinGovernment), request, retrievedAt)
+			.getFirst();
+
+		// 확신 있는 정부 KG(고신뢰)는 채택답변(저신뢰)을 앞선다.
+		assertThat(confident.finalScore()).isGreaterThan(accepted.finalScore());
+		// 부실한(낮은 confidence) 정부 KG는 채택답변을 앞서지 못한다 — confidence 게이트 안전장치.
+		assertThat(thin.finalScore()).isLessThan(accepted.finalScore());
+		assertThat(thin.finalScore()).isLessThan(confident.finalScore());
 	}
 
 	@Test
@@ -248,11 +283,34 @@ class WeightedRrfFusionTest {
 		candidates.clear();
 		evidence.clear();
 
-		assertThat(result.retrievalConfigVersion()).isEqualTo("retrieval-v2-hybrid-kg1");
+		assertThat(result.retrievalConfigVersion()).isEqualTo("retrieval-v3-hybrid-kg2");
 		assertThat(result.candidates()).containsExactly(item);
 		assertThat(result.evidence()).containsExactly(item);
 		assertThatThrownBy(() -> result.evidence().clear())
 			.isInstanceOf(UnsupportedOperationException.class);
+	}
+
+	private VectorKnowledgeCandidate acceptedAnswerCandidate(
+		long sourceId,
+		long chunkId,
+		double cosineSimilarity
+	) {
+		return new VectorKnowledgeCandidate(
+			sourceId,
+			chunkId,
+			"accepted_human_answer",
+			"source-" + sourceId,
+			"vector-content-" + chunkId,
+			"community",
+			"a".repeat(64),
+			"https://example.com/source/" + sourceId,
+			"transportation",
+			"community",
+			GeoScope.general,
+			RegionContext.empty(),
+			cosineSimilarity,
+			null
+		);
 	}
 
 	private VectorKnowledgeEvidence vectorEvidence(

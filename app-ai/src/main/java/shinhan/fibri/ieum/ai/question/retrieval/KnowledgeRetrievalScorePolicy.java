@@ -7,8 +7,8 @@ import java.util.Objects;
 public final class KnowledgeRetrievalScorePolicy {
 
 	private static final int SCORE_SCALE = 6;
-	private static final double FUSION_SEMANTIC_WEIGHT = 0.9d;
-	private static final double AUTHORITY_WEIGHT = 0.1d;
+	private static final double FUSION_SEMANTIC_WEIGHT = 0.65d;
+	private static final double AUTHORITY_WEIGHT = 0.35d;
 	private static final double NEUTRAL_GEO_SCORE = 0.5d;
 
 	private final VectorKnowledgeRetrievalConfig config;
@@ -25,10 +25,17 @@ public final class KnowledgeRetrievalScorePolicy {
 		Double distanceKm,
 		Integer vectorRank,
 		Integer kgRank,
+		BigDecimal relationConfidence,
 		VectorKnowledgeRetrievalRequest request
 	) {
 		Objects.requireNonNull(request, "request must not be null");
-		double semantic = rawSemanticScore(sourceType, sourceGrade, vectorRank, kgRank);
+		double semantic = rawSemanticScore(
+			sourceType,
+			sourceGrade,
+			vectorRank,
+			kgRank,
+			relationConfidence
+		);
 		double geo = request.geoScope() == GeoScope.general
 			? NEUTRAL_GEO_SCORE
 			: clamp(geoScore(
@@ -52,7 +59,8 @@ public final class KnowledgeRetrievalScorePolicy {
 		String sourceType,
 		String sourceGrade,
 		Integer vectorRank,
-		Integer kgRank
+		Integer kgRank,
+		BigDecimal relationConfidence
 	) {
 		validateRank(vectorRank, "vectorRank");
 		validateRank(kgRank, "kgRank");
@@ -64,22 +72,59 @@ public final class KnowledgeRetrievalScorePolicy {
 		double kgWeight = 1.0d - config.vectorWeight();
 		double fusionRaw = config.vectorWeight() * vectorRrf + kgWeight * kgRrf;
 		double fusionNorm = clamp(fusionRaw * (config.rrfK() + 1.0d));
-		return clamp(
-			FUSION_SEMANTIC_WEIGHT * fusionNorm
-				+ AUTHORITY_WEIGHT * authorityScore(sourceType, sourceGrade)
+		double authority = effectiveAuthority(
+			sourceType,
+			sourceGrade,
+			vectorRank,
+			kgRank,
+			relationConfidence
 		);
+		return clamp(FUSION_SEMANTIC_WEIGHT * fusionNorm + AUTHORITY_WEIGHT * authority);
 	}
 
 	private double reciprocalRank(int rank) {
 		return 1.0d / (config.rrfK() + rank);
 	}
 
+	/**
+	 * Applies the source authority score, gated by knowledge-graph relation confidence when the
+	 * evidence is graph-only (no vector-lane corroboration). A KG relation is retrieved by entity
+	 * match rather than semantic similarity, so a low-confidence or thin relation must not inherit
+	 * the full authority of its curated source. When the same source also surfaces in the vector
+	 * lane, cosine similarity already corroborates relevance, so the confidence gate is not applied.
+	 * A graph-only relation without a confidence value carries no trust signal, so it fails safe to a
+	 * zero authority factor rather than inheriting the full source authority.
+	 */
+	private double effectiveAuthority(
+		String sourceType,
+		String sourceGrade,
+		Integer vectorRank,
+		Integer kgRank,
+		BigDecimal relationConfidence
+	) {
+		double authority = authorityScore(sourceType, sourceGrade);
+		boolean graphOnly = vectorRank == null && kgRank != null;
+		if (graphOnly) {
+			double factor = relationConfidence == null ? 0.0d : confidenceFactor(relationConfidence);
+			return authority * factor;
+		}
+		return authority;
+	}
+
+	private double confidenceFactor(BigDecimal relationConfidence) {
+		double value = relationConfidence.doubleValue();
+		if (!Double.isFinite(value)) {
+			return 0.0d;
+		}
+		return Math.max(0.0d, Math.min(1.0d, value));
+	}
+
 	private double authorityScore(String sourceType, String sourceGrade) {
 		return switch (sourceType) {
 			case "verified_external" -> 0.9d;
-			case "accepted_human_answer" -> 0.7d;
+			case "accepted_human_answer" -> 0.3d;
 			case "curated" -> governmentGrade(sourceGrade) ? 1.0d : 0.8d;
-			default -> 0.8d;
+			default -> 0.6d;
 		};
 	}
 

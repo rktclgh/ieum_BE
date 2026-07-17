@@ -34,6 +34,7 @@ public class VectorKnowledgeScorer {
 			candidate.distanceKm(),
 			vectorRank,
 			null,
+			null,
 			request
 		);
 
