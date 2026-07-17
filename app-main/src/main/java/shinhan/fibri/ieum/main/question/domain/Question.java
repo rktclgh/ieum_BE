@@ -67,6 +67,11 @@ public class Question {
 		this.resolved = true;
 	}
 
+	public void edit(String title, String content) {
+		this.title = Objects.requireNonNull(title, "title must not be null");
+		this.content = Objects.requireNonNull(content, "content must not be null");
+	}
+
 	public void softDelete(OffsetDateTime deletedAt) {
 		if (this.deletedAt == null) {
 			this.deletedAt = Objects.requireNonNull(deletedAt, "deletedAt must not be null");

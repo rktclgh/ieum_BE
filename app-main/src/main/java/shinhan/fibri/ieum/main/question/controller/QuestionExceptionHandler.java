@@ -19,6 +19,7 @@ import shinhan.fibri.ieum.main.pin.exception.InvalidPinRequestException;
 import shinhan.fibri.ieum.main.question.exception.InvalidQuestionRequestException;
 import shinhan.fibri.ieum.main.question.exception.QuestionForbiddenException;
 import shinhan.fibri.ieum.main.question.exception.QuestionNotFoundException;
+import shinhan.fibri.ieum.main.question.exception.QuestionResolvedException;
 
 @RestControllerAdvice(assignableTypes = QuestionController.class)
 @Order(Ordered.HIGHEST_PRECEDENCE)
@@ -38,6 +39,13 @@ public class QuestionExceptionHandler {
 		log.warn("Question access forbidden: {}", exception.getMessage());
 		return ResponseEntity.status(HttpStatus.FORBIDDEN)
 			.body(new AuthErrorResponse("FORBIDDEN", exception.getMessage()));
+	}
+
+	@ExceptionHandler(QuestionResolvedException.class)
+	public ResponseEntity<AuthErrorResponse> handleQuestionResolved(QuestionResolvedException exception) {
+		log.warn("Resolved question cannot be edited: {}", exception.getMessage());
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+			.body(new AuthErrorResponse("QUESTION_RESOLVED", exception.getMessage()));
 	}
 
 	@ExceptionHandler(InvalidQuestionRequestException.class)

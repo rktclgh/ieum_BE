@@ -359,6 +359,151 @@ class QuestionServiceTest {
 		verify(pinWriter, never()).softDelete(any(), any());
 	}
 
+	@Test
+	void updateReArmsTicketBeforeLockingQuestionAndPublishesRegenerationWake() {
+		UUID imageId = UUID.fromString("00000000-0000-0000-0000-000000000031");
+		when(questionRepository.findDetailByQuestionId(200L)).thenReturn(Optional.of(
+			new DetailProjection(200L, "old title", "old content", false, 42L, "nickname", null)
+		));
+		when(fileRepository.findByFileIdAndUploaderId(imageId, 42L))
+			.thenReturn(Optional.of(uploadedFile(imageId, 42L)));
+		when(questionAnswerTicketWriter.requestRegeneration(200L)).thenReturn(true);
+		Question question = Question.create(100L, 42L, "old title", "old content");
+		setId(question, 200L);
+		when(questionRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(question));
+		when(questionImageRepository.findByQuestionIdOrderBySortOrderAsc(200L)).thenReturn(List.of());
+
+		QuestionDetailResponse response = service.update(
+			principal(),
+			200L,
+			new shinhan.fibri.ieum.main.question.dto.QuestionUpdateRequest("new title", "new content", List.of(imageId))
+		);
+
+		assertThat(question.getTitle()).isEqualTo("new title");
+		assertThat(question.getContent()).isEqualTo("new content");
+		assertThat(response.questionId()).isEqualTo(200L);
+		InOrder inOrder = inOrder(questionAnswerTicketWriter, questionRepository, questionImageRepository, eventPublisher);
+		inOrder.verify(questionAnswerTicketWriter).requestRegeneration(200L);
+		inOrder.verify(questionRepository).findByIdForUpdate(200L);
+		inOrder.verify(questionImageRepository).deleteByQuestionId(200L);
+		ArgumentCaptor<List<QuestionImage>> imagesCaptor = ArgumentCaptor.forClass(List.class);
+		inOrder.verify(questionImageRepository).saveAll(imagesCaptor.capture());
+		assertThat(imagesCaptor.getValue()).hasSize(1);
+		assertThat(imagesCaptor.getValue().get(0).getFileId()).isEqualTo(imageId);
+		assertThat(imagesCaptor.getValue().get(0).getSortOrder()).isZero();
+		verify(eventPublisher).publishEvent(
+			new shinhan.fibri.ieum.main.ai.question.dispatch.QuestionAnswerRegenerationRequestedEvent(200L)
+		);
+	}
+
+	@Test
+	void updateKeepsCompletedAiAnswerAndDoesNotPublishRegenerationWake() {
+		when(questionRepository.findDetailByQuestionId(200L)).thenReturn(Optional.of(
+			new DetailProjection(200L, "old title", "old content", false, 42L, "nickname", null)
+		));
+		when(questionAnswerTicketWriter.requestRegeneration(200L)).thenReturn(false);
+		Question question = Question.create(100L, 42L, "old title", "old content");
+		setId(question, 200L);
+		when(questionRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(question));
+		when(questionImageRepository.findByQuestionIdOrderBySortOrderAsc(200L)).thenReturn(List.of());
+
+		service.update(
+			principal(),
+			200L,
+			new shinhan.fibri.ieum.main.question.dto.QuestionUpdateRequest("new title", "new content", List.of())
+		);
+
+		assertThat(question.getTitle()).isEqualTo("new title");
+		verify(questionAnswerTicketWriter).requestRegeneration(200L);
+		verify(eventPublisher, never()).publishEvent(
+			any(shinhan.fibri.ieum.main.ai.question.dispatch.QuestionAnswerRegenerationRequestedEvent.class)
+		);
+	}
+
+	@Test
+	void updateRejectsNonAuthorBeforeReArming() {
+		when(questionRepository.findDetailByQuestionId(200L)).thenReturn(Optional.of(
+			new DetailProjection(200L, "old title", "old content", false, 99L, "nickname", null)
+		));
+
+		assertThatThrownBy(() -> service.update(
+			principal(),
+			200L,
+			new shinhan.fibri.ieum.main.question.dto.QuestionUpdateRequest("new title", "new content", List.of())
+		)).isInstanceOf(QuestionForbiddenException.class);
+
+		verify(questionAnswerTicketWriter, never()).requestRegeneration(any());
+		verify(questionRepository, never()).findByIdForUpdate(any());
+	}
+
+	@Test
+	void updateRejectsResolvedQuestionBeforeReArming() {
+		when(questionRepository.findDetailByQuestionId(200L)).thenReturn(Optional.of(
+			new DetailProjection(200L, "old title", "old content", true, 42L, "nickname", null)
+		));
+
+		assertThatThrownBy(() -> service.update(
+			principal(),
+			200L,
+			new shinhan.fibri.ieum.main.question.dto.QuestionUpdateRequest("new title", "new content", List.of())
+		)).isInstanceOf(shinhan.fibri.ieum.main.question.exception.QuestionResolvedException.class);
+
+		verify(questionAnswerTicketWriter, never()).requestRegeneration(any());
+	}
+
+	@Test
+	void updateThrowsNotFoundWhenQuestionMissing() {
+		when(questionRepository.findDetailByQuestionId(999L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.update(
+			principal(),
+			999L,
+			new shinhan.fibri.ieum.main.question.dto.QuestionUpdateRequest("new title", "new content", List.of())
+		)).isInstanceOf(QuestionNotFoundException.class);
+
+		verify(questionAnswerTicketWriter, never()).requestRegeneration(any());
+	}
+
+	@Test
+	void updateThrowsResolvedWhenLockedRowIsResolvedAfterPrecheck() {
+		when(questionRepository.findDetailByQuestionId(200L)).thenReturn(Optional.of(
+			new DetailProjection(200L, "old title", "old content", false, 42L, "nickname", null)
+		));
+		when(questionAnswerTicketWriter.requestRegeneration(200L)).thenReturn(true);
+		Question resolvedQuestion = Question.create(100L, 42L, "old title", "old content");
+		setId(resolvedQuestion, 200L);
+		resolvedQuestion.markResolved();
+		when(questionRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(resolvedQuestion));
+
+		assertThatThrownBy(() -> service.update(
+			principal(),
+			200L,
+			new shinhan.fibri.ieum.main.question.dto.QuestionUpdateRequest("new title", "new content", List.of())
+		)).isInstanceOf(shinhan.fibri.ieum.main.question.exception.QuestionResolvedException.class);
+
+		verify(questionImageRepository, never()).deleteByQuestionId(any());
+		verify(eventPublisher, never()).publishEvent(
+			any(shinhan.fibri.ieum.main.ai.question.dispatch.QuestionAnswerRegenerationRequestedEvent.class)
+		);
+	}
+
+	@Test
+	void updateRejectsImageNotOwnedByCurrentUserBeforeReArming() {
+		UUID imageId = UUID.fromString("00000000-0000-0000-0000-000000000032");
+		when(questionRepository.findDetailByQuestionId(200L)).thenReturn(Optional.of(
+			new DetailProjection(200L, "old title", "old content", false, 42L, "nickname", null)
+		));
+		when(fileRepository.findByFileIdAndUploaderId(imageId, 42L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.update(
+			principal(),
+			200L,
+			new shinhan.fibri.ieum.main.question.dto.QuestionUpdateRequest("new title", "new content", List.of(imageId))
+		)).isInstanceOf(InvalidQuestionRequestException.class);
+
+		verify(questionAnswerTicketWriter, never()).requestRegeneration(any());
+	}
+
 	private AuthenticatedUser principal() {
 		return new AuthenticatedUser(42L, "user@example.com", UserRole.user, UserStatus.active);
 	}

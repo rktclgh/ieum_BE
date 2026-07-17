@@ -7,6 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -18,6 +19,7 @@ import shinhan.fibri.ieum.main.question.dto.CursorPage;
 import shinhan.fibri.ieum.main.question.dto.MyQuestionItem;
 import shinhan.fibri.ieum.main.question.dto.QuestionCreateRequest;
 import shinhan.fibri.ieum.main.question.dto.QuestionDetailResponse;
+import shinhan.fibri.ieum.main.question.dto.QuestionUpdateRequest;
 import shinhan.fibri.ieum.main.question.service.QuestionService;
 
 @RestController
@@ -40,6 +42,15 @@ public class QuestionController {
 	@GetMapping("/{questionId}")
 	public ResponseEntity<QuestionDetailResponse> getDetail(@PathVariable Long questionId) {
 		return ResponseEntity.ok(questionService.getDetail(questionId));
+	}
+
+	@PatchMapping("/{questionId}")
+	public ResponseEntity<QuestionDetailResponse> update(
+		@AuthenticationPrincipal AuthenticatedUser principal,
+		@PathVariable Long questionId,
+		@Valid @RequestBody QuestionUpdateRequest request
+	) {
+		return ResponseEntity.ok(questionService.update(principal, questionId, request));
 	}
 
 	@GetMapping("/me")

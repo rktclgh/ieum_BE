@@ -46,7 +46,10 @@ import shinhan.fibri.ieum.main.question.dto.CursorPage;
 import shinhan.fibri.ieum.main.question.dto.MyQuestionItem;
 import shinhan.fibri.ieum.main.question.dto.QuestionCreateRequest;
 import shinhan.fibri.ieum.main.question.dto.QuestionDetailResponse;
+import shinhan.fibri.ieum.main.question.dto.QuestionUpdateRequest;
+import shinhan.fibri.ieum.main.question.exception.QuestionForbiddenException;
 import shinhan.fibri.ieum.main.question.exception.QuestionNotFoundException;
+import shinhan.fibri.ieum.main.question.exception.QuestionResolvedException;
 import shinhan.fibri.ieum.main.question.service.QuestionService;
 
 @WebMvcTest(QuestionController.class)
@@ -159,17 +162,94 @@ class QuestionControllerTest {
 	}
 
 	@Test
-	void updateQuestionIsNotSupported() throws Exception {
+	void updateQuestionReturnsDetailBody() throws Exception {
+		when(questionService.update(any(AuthenticatedUser.class), eq(200L), any(QuestionUpdateRequest.class)))
+			.thenReturn(detailResponse());
+
 		mockMvc.perform(patch("/api/v1/questions/200")
 				.with(authenticated())
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
-					  "title": "updated",
-					  "imageFileIds": []
+					  "title": "updated title",
+					  "content": "updated content",
+					  "imageFileIds": ["00000000-0000-0000-0000-000000000001"]
 					}
 					"""))
-			.andExpect(status().isMethodNotAllowed());
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.questionId", is(200)))
+			.andExpect(jsonPath("$.isResolved", is(false)))
+			.andExpect(jsonPath("$.answerSelectionFinalized", is(false)))
+			.andExpect(jsonPath("$.imageUrls[0]", is("/api/v1/files/00000000-0000-0000-0000-000000000001?v=display")));
+	}
+
+	@Test
+	void updateQuestionWithBlankTitleMapsToValidationFailed() throws Exception {
+		mockMvc.perform(patch("/api/v1/questions/200")
+				.with(authenticated())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "title": "",
+					  "content": "updated content"
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")));
+	}
+
+	@Test
+	void updateResolvedQuestionMapsTo409() throws Exception {
+		when(questionService.update(any(AuthenticatedUser.class), eq(200L), any(QuestionUpdateRequest.class)))
+			.thenThrow(new QuestionResolvedException());
+
+		mockMvc.perform(patch("/api/v1/questions/200")
+				.with(authenticated())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "title": "updated title",
+					  "content": "updated content"
+					}
+					"""))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code", is("QUESTION_RESOLVED")));
+	}
+
+	@Test
+	void updateForbiddenForNonAuthorMapsTo403() throws Exception {
+		when(questionService.update(any(AuthenticatedUser.class), eq(200L), any(QuestionUpdateRequest.class)))
+			.thenThrow(new QuestionForbiddenException());
+
+		mockMvc.perform(patch("/api/v1/questions/200")
+				.with(authenticated())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "title": "updated title",
+					  "content": "updated content"
+					}
+					"""))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code", is("FORBIDDEN")));
+	}
+
+	@Test
+	void updateMissingQuestionMapsTo404() throws Exception {
+		when(questionService.update(any(AuthenticatedUser.class), eq(999L), any(QuestionUpdateRequest.class)))
+			.thenThrow(new QuestionNotFoundException());
+
+		mockMvc.perform(patch("/api/v1/questions/999")
+				.with(authenticated())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "title": "updated title",
+					  "content": "updated content"
+					}
+					"""))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code", is("QUESTION_NOT_FOUND")));
 	}
 
 	@Test

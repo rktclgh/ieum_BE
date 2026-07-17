@@ -18,6 +18,7 @@ import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
 import shinhan.fibri.ieum.common.file.domain.File;
 import shinhan.fibri.ieum.common.file.repository.FileRepository;
+import shinhan.fibri.ieum.main.ai.question.dispatch.QuestionAnswerRegenerationRequestedEvent;
 import shinhan.fibri.ieum.main.ai.question.repository.QuestionAnswerTicketWriter;
 import shinhan.fibri.ieum.main.answer.domain.AnswerImage;
 import shinhan.fibri.ieum.main.answer.repository.AnswerImageRepository;
@@ -33,9 +34,11 @@ import shinhan.fibri.ieum.main.question.dto.CursorPage;
 import shinhan.fibri.ieum.main.question.dto.MyQuestionItem;
 import shinhan.fibri.ieum.main.question.dto.QuestionCreateRequest;
 import shinhan.fibri.ieum.main.question.dto.QuestionDetailResponse;
+import shinhan.fibri.ieum.main.question.dto.QuestionUpdateRequest;
 import shinhan.fibri.ieum.main.question.exception.InvalidQuestionRequestException;
 import shinhan.fibri.ieum.main.question.exception.QuestionForbiddenException;
 import shinhan.fibri.ieum.main.question.exception.QuestionNotFoundException;
+import shinhan.fibri.ieum.main.question.exception.QuestionResolvedException;
 import shinhan.fibri.ieum.main.question.repository.AnswerItemProjection;
 import shinhan.fibri.ieum.main.question.repository.MyQuestionItemProjection;
 import shinhan.fibri.ieum.main.question.repository.QuestionDetailProjection;
@@ -110,6 +113,57 @@ public class QuestionService {
 
 	@Transactional(readOnly = true)
 	public QuestionDetailResponse getDetail(Long questionId) {
+		return assembleDetail(questionId);
+	}
+
+	@Transactional(timeout = 30)
+	public QuestionDetailResponse update(AuthenticatedUser principal, Long questionId, QuestionUpdateRequest request) {
+		// 1. 선검증(비-락 read): 존재/작성자/미확정 빠른 실패 (권위 판정은 4의 락 재검증).
+		QuestionDetailProjection precheck = questionRepository.findDetailByQuestionId(questionId)
+			.orElseThrow(QuestionNotFoundException::new);
+		if (!precheck.getAuthorId().equals(principal.userId())) {
+			throw new QuestionForbiddenException();
+		}
+		if (precheck.getResolved()) {
+			throw new QuestionResolvedException();
+		}
+
+		// 2. 이미지 검증(create와 동일): 소유·업로드 완료 확인.
+		List<UUID> imageFileIds = normalizeImageFileIds(request.imageFileIds());
+		List<File> files = validateImages(imageFileIds, principal.userId());
+
+		// 3. 티켓 재무장(task lock 먼저 — finalize와 동일 순서로 데드락 회피).
+		boolean regenerationRequested = questionAnswerTicketWriter.requestRegeneration(questionId);
+
+		// 4. 본문 갱신(question lock, 권위 판정). 그 사이 확정/삭제됐으면 롤백(3의 재무장도 함께).
+		Question question = questionRepository.findByIdForUpdate(questionId)
+			.orElseThrow(QuestionNotFoundException::new);
+		if (!question.getAuthorId().equals(principal.userId())) {
+			throw new QuestionForbiddenException();
+		}
+		if (question.isResolved()) {
+			throw new QuestionResolvedException();
+		}
+		question.edit(request.title(), request.content());
+
+		// 5. 이미지 전체 교체(요청 순서대로). delete를 먼저 flush해 insert와의 제약 충돌을 피한다.
+		questionImageRepository.deleteByQuestionId(questionId);
+		questionImageRepository.flush();
+		List<QuestionImage> images = new ArrayList<>();
+		for (int index = 0; index < files.size(); index++) {
+			images.add(QuestionImage.link(questionId, files.get(index).getFileId(), index));
+		}
+		questionImageRepository.saveAll(images);
+
+		// 6. afterCommit: 재무장된 경우(=status가 completed가 아니었던 경우)에만 워커 wake.
+		if (regenerationRequested) {
+			eventPublisher.publishEvent(new QuestionAnswerRegenerationRequestedEvent(questionId));
+		}
+
+		return assembleDetail(questionId);
+	}
+
+	private QuestionDetailResponse assembleDetail(Long questionId) {
 		QuestionDetailProjection detail = questionRepository.findDetailByQuestionId(questionId)
 			.orElseThrow(QuestionNotFoundException::new);
 		List<String> imageUrls = questionImageRepository.findByQuestionIdOrderBySortOrderAsc(questionId)
