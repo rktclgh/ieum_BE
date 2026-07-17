@@ -33,4 +33,46 @@ public class JdbcQuestionAnswerTicketWriter implements QuestionAnswerTicketWrite
 			.param("questionId", questionId)
 			.update();
 	}
+
+	@Override
+	public boolean requestRegeneration(Long questionId) {
+		int updated = jdbc.sql("""
+			UPDATE ai_question_tasks
+			   SET status = 'pending',
+			       stage = 'discovered',
+			       attempts = 0,
+			       next_attempt_at = now(),
+			       lease_until = NULL,
+			       locked_by = NULL,
+			       lease_token = NULL,
+			       cancel_requested_at = NULL,
+			       cancelled_at = NULL,
+			       started_at = NULL,
+			       completed_at = NULL,
+			       answer_id = NULL,
+			       answer_outcome = NULL,
+			       answer_notification_processed_at = NULL,
+			       embedding = NULL,
+			       embedding_model = NULL,
+			       grounding_status = NULL,
+			       grounding_score = NULL,
+			       evidence = '[]'::jsonb,
+			       generation_provider = NULL,
+			       generation_model = NULL,
+			       retrieval_config_version = NULL,
+			       fallback_reason = NULL,
+			       prompt_version = NULL,
+			       last_error_code = NULL,
+			       last_error_message = NULL,
+			       geo_scope = NULL,
+			       geo_scope_confidence = NULL,
+			       region_context = '{}'::jsonb,
+			       updated_at = now()
+			 WHERE question_id = :questionId
+			   AND status <> 'completed'
+			""")
+			.param("questionId", questionId)
+			.update();
+		return updated > 0;
+	}
 }

@@ -7,4 +7,6 @@ import shinhan.fibri.ieum.main.question.domain.QuestionImage;
 public interface QuestionImageRepository extends JpaRepository<QuestionImage, Long> {
 
 	List<QuestionImage> findByQuestionIdOrderBySortOrderAsc(Long questionId);
+
+	void deleteByQuestionId(Long questionId);
 }

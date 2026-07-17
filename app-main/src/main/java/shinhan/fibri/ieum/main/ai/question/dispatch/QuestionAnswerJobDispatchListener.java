@@ -24,12 +24,21 @@ public class QuestionAnswerJobDispatchListener {
 
 	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
 	public void onQuestionCreated(QuestionCreatedEvent event) {
+		wake(event.questionId());
+	}
+
+	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+	public void onQuestionAnswerRegenerationRequested(QuestionAnswerRegenerationRequestedEvent event) {
+		wake(event.questionId());
+	}
+
+	private void wake(Long questionId) {
 		try {
-			executor.execute(() -> dispatchBestEffort(event.questionId()));
+			executor.execute(() -> dispatchBestEffort(questionId));
 		}
 		catch (RejectedExecutionException exception) {
 			log.warn("Question answer dispatch wake was shed because the executor is saturated: questionId={}",
-				event.questionId());
+				questionId);
 		}
 	}
 
