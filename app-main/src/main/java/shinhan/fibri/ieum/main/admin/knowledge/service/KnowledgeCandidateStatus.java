@@ -5,7 +5,7 @@ import shinhan.fibri.ieum.main.admin.knowledge.exception.InvalidKnowledgeCandida
 
 final class KnowledgeCandidateStatus {
 
-	private static final Set<String> ALLOWED = Set.of("pending", "approved", "rejected", "promoted", "invalidated");
+	private static final Set<String> ALLOWED = Set.of("pending", "approved", "rejected", "invalidated");
 
 	private KnowledgeCandidateStatus() {
 	}

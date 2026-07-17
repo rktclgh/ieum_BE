@@ -201,16 +201,82 @@ class KnowledgeRelationCandidateExtractionServiceTest {
 	}
 
 	@Test
-	void invalidatesIneligibleTasksAndContinuesToTheNextEligibleTask() {
-		long inactiveSourceId = insertReadyAcceptedAnswerSource("접수는 주민센터에서 합니다.");
-		long missingChunkSourceId = insertReadyAcceptedAnswerSource("신청은 온라인에서 합니다.");
+	void invalidatesTasksWhenAnyExtractionEligibilityRequirementFailsAndContinuesToTheNextEligibleTask() {
+		long inactiveStatusSourceId = insertReadyAcceptedAnswerSource("접수는 주민센터에서 합니다.");
+		long inactiveSourceId = insertReadyAcceptedAnswerSource("접수는 온라인에서 합니다.");
+		long expiredSourceId = insertReadyAcceptedAnswerSource("발급은 주민센터에서 합니다.");
+		long unacceptedAnswerSourceId = insertReadyAcceptedAnswerSource("신청은 온라인에서 합니다.");
+		long aiAnswerSourceId = insertReadyAcceptedAnswerSource("증명서는 주민센터에서 발급합니다.");
+		long blankAnswerSourceId = insertReadyAcceptedAnswerSource("예약은 전화로 확인합니다.");
+		long deletedQuestionSourceId = insertReadyAcceptedAnswerSource("문의는 게시판에 남깁니다.");
+		long deletedPinSourceId = insertReadyAcceptedAnswerSource("상담은 주민센터에서 가능합니다.");
+		long meetingPinSourceId = insertReadyAcceptedAnswerSource("교육은 주민센터에서 진행합니다.");
+		long missingChunkSourceId = insertReadyAcceptedAnswerSource("신청은 모바일에서도 가능합니다.");
 		long eligibleSourceId = insertReadyAcceptedAnswerSource("발급은 주민센터에서 합니다.");
-		repository.enqueue(inactiveSourceId);
-		repository.enqueue(missingChunkSourceId);
-		repository.enqueue(eligibleSourceId);
+		List.of(
+			inactiveStatusSourceId,
+			inactiveSourceId,
+			expiredSourceId,
+			unacceptedAnswerSourceId,
+			aiAnswerSourceId,
+			blankAnswerSourceId,
+			deletedQuestionSourceId,
+			deletedPinSourceId,
+			meetingPinSourceId,
+			missingChunkSourceId,
+			eligibleSourceId
+		).forEach(repository::enqueue);
 		jdbc.sql("UPDATE knowledge_sources SET status = 'inactive' WHERE source_id = :sourceId")
+			.param("sourceId", inactiveStatusSourceId)
+			.update();
+		jdbc.sql("UPDATE knowledge_sources SET active = false WHERE source_id = :sourceId")
 			.param("sourceId", inactiveSourceId)
 			.update();
+		jdbc.sql("""
+			UPDATE knowledge_sources
+			SET valid_until = clock_timestamp() - interval '1 second'
+			WHERE source_id = :sourceId
+			""").param("sourceId", expiredSourceId).update();
+		jdbc.sql("""
+			UPDATE answers
+			SET is_accepted = false
+			WHERE answer_id = (SELECT answer_id FROM knowledge_sources WHERE source_id = :sourceId)
+			""").param("sourceId", unacceptedAnswerSourceId).update();
+		jdbc.sql("""
+			UPDATE answers
+			SET is_ai = true, author_id = NULL
+			WHERE answer_id = (SELECT answer_id FROM knowledge_sources WHERE source_id = :sourceId)
+			""").param("sourceId", aiAnswerSourceId).update();
+		jdbc.sql("""
+			UPDATE answers
+			SET content = '   '
+			WHERE answer_id = (SELECT answer_id FROM knowledge_sources WHERE source_id = :sourceId)
+			""").param("sourceId", blankAnswerSourceId).update();
+		jdbc.sql("""
+			UPDATE questions
+			SET deleted_at = clock_timestamp()
+			WHERE question_id = (SELECT question_id FROM knowledge_sources WHERE source_id = :sourceId)
+			""").param("sourceId", deletedQuestionSourceId).update();
+		jdbc.sql("""
+			UPDATE pins
+			SET deleted_at = clock_timestamp()
+			WHERE pin_id = (
+			    SELECT question.pin_id
+			    FROM questions question
+			    JOIN knowledge_sources source ON source.question_id = question.question_id
+			    WHERE source.source_id = :sourceId
+			)
+			""").param("sourceId", deletedPinSourceId).update();
+		jdbc.sql("""
+			UPDATE pins
+			SET pin_type = 'meeting'
+			WHERE pin_id = (
+			    SELECT question.pin_id
+			    FROM questions question
+			    JOIN knowledge_sources source ON source.question_id = question.question_id
+			    WHERE source.source_id = :sourceId
+			)
+			""").param("sourceId", meetingPinSourceId).update();
 		jdbc.sql("DELETE FROM knowledge_chunks WHERE source_id = :sourceId")
 			.param("sourceId", missingChunkSourceId)
 			.update();
@@ -220,11 +286,17 @@ class KnowledgeRelationCandidateExtractionServiceTest {
 
 		assertThat(service.processNext()).isTrue();
 
-		assertThat(taskState(inactiveSourceId)).containsExactly(
-			"invalidated", "0", "relation_source_not_ready_or_missing_chunk"
-		);
-		assertThat(taskState(missingChunkSourceId)).containsExactly(
-			"invalidated", "0", "relation_source_not_ready_or_missing_chunk"
+		assertTasksInvalidated(
+			inactiveStatusSourceId,
+			inactiveSourceId,
+			expiredSourceId,
+			unacceptedAnswerSourceId,
+			aiAnswerSourceId,
+			blankAnswerSourceId,
+			deletedQuestionSourceId,
+			deletedPinSourceId,
+			meetingPinSourceId,
+			missingChunkSourceId
 		);
 		assertThat(taskState(eligibleSourceId)).containsExactly("completed", "1", null);
 	}
@@ -345,14 +417,22 @@ class KnowledgeRelationCandidateExtractionServiceTest {
 		return jdbc.sql("""
 			SELECT status, attempts::text, last_error_code
 			FROM knowledge_relation_extraction_tasks
-			WHERE source_id = :sourceId
-			""").param("sourceId", sourceId)
-			.query((rs, row) -> Arrays.asList(
-				rs.getString("status"),
-				rs.getString("attempts"),
-				rs.getString("last_error_code")
-			))
-			.single();
+				WHERE source_id = :sourceId
+				""").param("sourceId", sourceId)
+				.query((rs, row) -> Arrays.asList(
+					rs.getString("status"),
+					rs.getString("attempts"),
+					rs.getString("last_error_code")
+				))
+				.single();
+	}
+
+	private void assertTasksInvalidated(long... sourceIds) {
+		for (long sourceId : sourceIds) {
+			assertThat(taskState(sourceId)).containsExactly(
+				"invalidated", "0", "relation_source_ineligible_or_missing_chunk"
+			);
+		}
 	}
 
 	private List<String> sourceAndChunkState(long sourceId) {

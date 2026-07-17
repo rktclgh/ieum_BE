@@ -23,9 +23,9 @@ public final class JdbcKnowledgeRelationCandidateRepository implements Knowledge
 	private static final String ACTOR = "knowledge-relation-extraction";
 	private static final String PROVIDER_FAILURE_CODE = "relation_extraction_provider_failed";
 	private static final String INVALID_OUTPUT_CODE = "invalid_extraction_output";
-	private static final String SOURCE_INELIGIBLE_CODE = "relation_source_not_ready_or_missing_chunk";
+	private static final String SOURCE_INELIGIBLE_CODE = "relation_source_ineligible_or_missing_chunk";
 	private static final String SOURCE_INELIGIBLE_MESSAGE =
-		"Source is not ready or has no eligible chunk_order=0";
+		"Source no longer meets relation extraction eligibility or has no eligible chunk_order=0";
 	private static final int MAX_INVALIDATIONS_PER_CLAIM = 32;
 
 	private final JdbcClient jdbc;
@@ -211,7 +211,29 @@ public final class JdbcKnowledgeRelationCandidateRepository implements Knowledge
 			    JOIN knowledge_chunks chunk ON chunk.source_id = source.source_id
 			    WHERE source.source_type = 'accepted_human_answer'
 			      AND source.status = 'ready'
-			      AND source.active
+			      AND source.active = TRUE
+			      AND (source.valid_until IS NULL OR source.valid_until > now())
+			      AND (
+			          source.source_type <> 'accepted_human_answer'
+			          OR EXISTS (
+			              SELECT 1
+			              FROM answers accepted_answer
+			              JOIN questions accepted_question
+			                ON accepted_question.question_id = accepted_answer.question_id
+			              JOIN pins accepted_pin
+			                ON accepted_pin.pin_id = accepted_question.pin_id
+			              WHERE accepted_answer.answer_id = source.answer_id
+			                AND accepted_answer.question_id = source.question_id
+			                AND accepted_answer.is_accepted
+			                AND NOT accepted_answer.is_ai
+			                AND accepted_answer.author_id IS NOT NULL
+			                AND btrim(accepted_answer.content) <> ''
+			                AND accepted_question.question_id = source.question_id
+			                AND accepted_question.deleted_at IS NULL
+			                AND accepted_pin.deleted_at IS NULL
+			                AND accepted_pin.pin_type = 'question'
+			          )
+			      )
 			      AND chunk.chunk_order = 0
 			      AND btrim(chunk.content) <> ''
 			    FOR UPDATE OF source, chunk

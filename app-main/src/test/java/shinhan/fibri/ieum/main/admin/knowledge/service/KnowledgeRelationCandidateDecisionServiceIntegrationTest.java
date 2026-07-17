@@ -20,7 +20,9 @@ import shinhan.fibri.ieum.common.knowledge.KnowledgeRelationPredicate;
 import shinhan.fibri.ieum.main.admin.audit.repository.AdminAuditLogWriter;
 import shinhan.fibri.ieum.main.admin.knowledge.dto.AdminKnowledgeCandidateApproveRequest;
 import shinhan.fibri.ieum.main.admin.knowledge.dto.AdminKnowledgeCandidateDecisionResponse;
+import shinhan.fibri.ieum.main.admin.knowledge.dto.AdminKnowledgeCandidateListRequest;
 import shinhan.fibri.ieum.main.admin.knowledge.dto.AdminKnowledgeCandidateRejectRequest;
+import shinhan.fibri.ieum.main.admin.knowledge.exception.InvalidKnowledgeCandidateStatusException;
 import shinhan.fibri.ieum.main.admin.knowledge.exception.KnowledgeCandidateConcurrentlyChangedException;
 import shinhan.fibri.ieum.main.admin.knowledge.exception.KnowledgeCandidateSourceIneligibleException;
 import shinhan.fibri.ieum.main.admin.knowledge.repository.JdbcKnowledgeRelationCandidateAdminRepository;
@@ -31,6 +33,7 @@ class KnowledgeRelationCandidateDecisionServiceIntegrationTest {
 
 	private static final String DATABASE = "ieum_main_admin_knowledge_candidate_decision";
 	private static KnowledgeRelationCandidateDecisionService service;
+	private static KnowledgeRelationCandidateQueryService queryService;
 	private static JdbcTemplate jdbc;
 
 	@BeforeAll
@@ -40,11 +43,13 @@ class KnowledgeRelationCandidateDecisionServiceIntegrationTest {
 		var dataSource = CanonicalPostgresContainer.dataSource(DATABASE);
 		jdbc = new JdbcTemplate(dataSource);
 		var transactionManager = new DataSourceTransactionManager(dataSource);
+		var repository = new JdbcKnowledgeRelationCandidateAdminRepository(JdbcClient.create(dataSource));
 		var target = new KnowledgeRelationCandidateDecisionService(
-			new JdbcKnowledgeRelationCandidateAdminRepository(JdbcClient.create(dataSource)),
+			repository,
 			new AdminAuditLogWriter(JdbcClient.create(dataSource), new ObjectMapper().findAndRegisterModules())
 		);
 		service = transactionalService(target, transactionManager);
+		queryService = new KnowledgeRelationCandidateQueryService(repository);
 	}
 
 	@BeforeEach
@@ -159,6 +164,13 @@ class KnowledgeRelationCandidateDecisionServiceIntegrationTest {
 		assertThat(value("SELECT review_note FROM knowledge_relation_candidates WHERE candidate_id = " + candidateId))
 			.isEqualTo("source_ineligible");
 		assertThat(count("SELECT COUNT(*) FROM knowledge_relations")).isZero();
+	}
+
+	@Test
+	void rejectsStalePromotedCandidateStatusFilter() {
+		assertThatThrownBy(() -> queryService.list(new AdminKnowledgeCandidateListRequest("promoted", null, null)))
+			.isInstanceOf(InvalidKnowledgeCandidateStatusException.class)
+			.hasMessage("Knowledge candidate status must be pending, approved, rejected, or invalidated");
 	}
 
 	@Test
