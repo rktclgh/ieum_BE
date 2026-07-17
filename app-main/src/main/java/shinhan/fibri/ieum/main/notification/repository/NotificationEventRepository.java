@@ -65,7 +65,7 @@ public class NotificationEventRepository {
 				statement.setObject(6, answerIsAi, Types.BOOLEAN);
 				statement.setString(7, eventKey);
 				statement.setObject(8, answerIsAi, Types.BOOLEAN);
-				statement.setString(9, Objects.requireNonNull(type, "type must not be null").name());
+				statement.setString(9, type.name());
 				statement.setObject(10, userId, Types.BIGINT);
 				statement.setObject(11, refId, Types.BIGINT);
 			},

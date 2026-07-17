@@ -24,7 +24,8 @@ class AiQuestionAnswerCompletionServiceTest {
 	private static final long USER_ID = 30L;
 	private static final long ANSWER_ID = 40L;
 	private static final long REPLACEMENT_ANSWER_ID = 41L;
-	private static final String EVENT_KEY = "ai-answer-created:question:" + QUESTION_ID;
+	private static final String EVENT_KEY =
+		AiQuestionAnswerCompletionService.AI_ANSWER_EVENT_KEY_PREFIX + QUESTION_ID;
 
 	private final AiQuestionAnswerCompletionRepository repository =
 		mock(AiQuestionAnswerCompletionRepository.class);
