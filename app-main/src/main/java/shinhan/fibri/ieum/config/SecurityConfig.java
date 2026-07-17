@@ -1,5 +1,6 @@
 package shinhan.fibri.ieum.config;
 
+import jakarta.servlet.DispatcherType;
 import java.util.Arrays;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -44,6 +45,7 @@ public class SecurityConfig {
 				.accessDeniedHandler(jsonAccessDeniedHandler)
 			)
 			.authorizeHttpRequests(authorize -> authorize
+				.dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
 				.requestMatchers(HttpMethod.GET, "/api/places/**").permitAll()
 				.requestMatchers(HttpMethod.POST, InternalAiCallbackEndpoint.SECURITY_PATTERN).permitAll()
 				.requestMatchers(
@@ -57,6 +59,7 @@ public class SecurityConfig {
 					"/v3/api-docs/**",
 					"/actuator/health"
 				).permitAll()
+				.requestMatchers(HttpMethod.GET, "/api/v1/files/**").permitAll()
 				.requestMatchers(HttpMethod.POST, "/api/v1/inquiries/suspended-users").permitAll()
 				.requestMatchers("/api/v1/admin/**").hasRole("admin")
 				.requestMatchers("/api/**").authenticated()

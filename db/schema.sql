@@ -112,7 +112,7 @@ CREATE TYPE friendship_status AS ENUM ('pending', 'accepted', 'blocked');
 CREATE TYPE room_type AS ENUM ('direct', 'group', 'question');
 CREATE TYPE report_reason AS ENUM ('spam', 'ad', 'abuse', 'obscene', 'harassment', 'etc');
 CREATE TYPE report_status AS ENUM ('pending', 'ai_reviewed', 'confirmed', 'dismissed');
-CREATE TYPE report_target_type AS ENUM ('message', 'answer');
+CREATE TYPE report_target_type AS ENUM ('message', 'answer', 'schedule');
 CREATE TYPE ai_recommendation AS ENUM ('temporary_suspend', 'hold', 'dismiss'); -- AI 권고(명령 아님)
 CREATE TYPE ai_report_decision AS ENUM ('suspend', 'hold', 'normal');
 CREATE TYPE sanction_type AS ENUM ('temporary', 'permanent');
@@ -459,7 +459,7 @@ CREATE TABLE ai_question_tasks (
     retrieval_config_version VARCHAR(80),
     fallback_reason VARCHAR(100),
     prompt_version VARCHAR(80),
-    grounding_status VARCHAR(30) CHECK (grounding_status IN ('grounded', 'insufficient_evidence')),
+    grounding_status VARCHAR(30) CHECK (grounding_status IN ('grounded', 'insufficient_evidence', 'ungrounded')),
     grounding_score NUMERIC(5,4) CHECK (grounding_score BETWEEN 0 AND 1),
     evidence JSONB NOT NULL DEFAULT '[]'::jsonb,
     last_error_code VARCHAR(100),
@@ -496,7 +496,7 @@ CREATE TABLE ai_question_tasks (
     CONSTRAINT ck_ai_question_tasks_region_context
         CHECK (jsonb_typeof(region_context) = 'object'),
     CONSTRAINT ck_ai_question_tasks_answer_outcome
-        CHECK (answer_outcome IS NULL OR answer_outcome IN ('local_grounded','web_grounded','insufficient_evidence')),
+        CHECK (answer_outcome IS NULL OR answer_outcome IN ('local_grounded','web_grounded','insufficient_evidence','ungrounded')),
     CONSTRAINT ck_ai_question_tasks_completed CHECK (status <> 'completed' OR (
         completed_at IS NOT NULL
         AND embedding IS NOT NULL
@@ -511,6 +511,14 @@ CREATE TABLE ai_question_tasks (
                 AND generation_provider IS NOT NULL
                 AND generation_model IS NOT NULL
                 AND jsonb_array_length(evidence) > 0)
+            OR
+            (answer_outcome = 'ungrounded'
+                AND answer_id IS NOT NULL
+                AND generation_provider IS NOT NULL
+                AND generation_model IS NOT NULL
+                AND prompt_version IS NOT NULL
+                AND grounding_status = 'ungrounded'
+                AND jsonb_array_length(evidence) = 0)
         )
     )),
     CHECK (status <> 'cancelled' OR cancelled_at IS NOT NULL),
@@ -609,6 +617,93 @@ CREATE TABLE knowledge_chunks (
 CREATE INDEX idx_knowledge_chunks_embedding_hnsw
     ON knowledge_chunks USING hnsw (embedding vector_cosine_ops);
 
+CREATE TABLE knowledge_relation_extraction_tasks (
+    task_id BIGSERIAL PRIMARY KEY,
+    source_id BIGINT NOT NULL REFERENCES knowledge_sources(source_id) ON DELETE CASCADE,
+    status VARCHAR(24) NOT NULL DEFAULT 'pending',
+    lease_token UUID,
+    lease_until TIMESTAMPTZ,
+    attempts SMALLINT NOT NULL DEFAULT 0,
+    next_attempt_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    last_error_code VARCHAR(100),
+    last_error_message TEXT,
+    created_by VARCHAR(100),
+    updated_by VARCHAR(100),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_knowledge_relation_extraction_tasks_source UNIQUE (source_id),
+    CONSTRAINT ck_knowledge_relation_extraction_tasks_status
+        CHECK (status IN ('pending','processing','retry','completed','dead','invalidated')),
+    CONSTRAINT ck_knowledge_relation_extraction_tasks_lease
+        CHECK ((status = 'processing') = (lease_token IS NOT NULL AND lease_until IS NOT NULL)),
+    CONSTRAINT ck_knowledge_relation_extraction_tasks_attempts
+        CHECK (attempts >= 0),
+    CONSTRAINT ck_knowledge_relation_extraction_tasks_completed
+        CHECK (status <> 'completed' OR completed_at IS NOT NULL)
+);
+CREATE INDEX idx_knowledge_relation_extraction_tasks_claim
+    ON knowledge_relation_extraction_tasks(status, next_attempt_at, created_at, task_id)
+    WHERE status IN ('pending','retry');
+CREATE INDEX idx_knowledge_relation_extraction_tasks_expired_lease
+    ON knowledge_relation_extraction_tasks(lease_until, task_id)
+    WHERE status = 'processing';
+
+CREATE TABLE knowledge_relation_candidates (
+    candidate_id BIGSERIAL PRIMARY KEY,
+    source_id BIGINT NOT NULL REFERENCES knowledge_sources(source_id) ON DELETE CASCADE,
+    evidence_chunk_id BIGINT NOT NULL,
+    candidate_fingerprint CHAR(64) NOT NULL,
+    subject_text VARCHAR(200) NOT NULL,
+    predicate VARCHAR(32) NOT NULL,
+    object_text VARCHAR(200) NOT NULL,
+    confidence NUMERIC(5,4) NOT NULL,
+    evidence_excerpt TEXT NOT NULL,
+    extraction_provider VARCHAR(80) NOT NULL,
+    extraction_model VARCHAR(120) NOT NULL,
+    status VARCHAR(24) NOT NULL DEFAULT 'pending',
+    version INTEGER NOT NULL DEFAULT 1,
+    reviewer_user_id BIGINT REFERENCES users(user_id) ON DELETE SET NULL,
+    reviewed_at TIMESTAMPTZ,
+    review_note TEXT,
+    promotion_relation_id BIGINT,
+    created_by VARCHAR(100),
+    updated_by VARCHAR(100),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_knowledge_relation_candidates_source_fingerprint
+        UNIQUE (source_id, candidate_fingerprint),
+    CONSTRAINT fk_knowledge_relation_candidates_same_source_evidence
+        FOREIGN KEY (source_id, evidence_chunk_id)
+        REFERENCES knowledge_chunks(source_id, chunk_id)
+        ON DELETE CASCADE,
+    CONSTRAINT ck_knowledge_relation_candidates_fingerprint
+        CHECK (candidate_fingerprint ~ '^[0-9a-f]{64}$'),
+    CONSTRAINT ck_knowledge_relation_candidates_predicate
+        CHECK (predicate IN (
+            'requires','applies_to','located_in','exception_of','prevents',
+            'supports','has_deadline','depends_on','reported_to','used_for'
+        )),
+    CONSTRAINT ck_knowledge_relation_candidates_status
+        CHECK (status IN ('pending','approved','rejected','invalidated')),
+    CONSTRAINT ck_knowledge_relation_candidates_terms
+        CHECK (btrim(subject_text) <> '' AND btrim(object_text) <> ''),
+    CONSTRAINT ck_knowledge_relation_candidates_confidence
+        CHECK (confidence BETWEEN 0 AND 1),
+    CONSTRAINT ck_knowledge_relation_candidates_evidence
+        CHECK (
+            btrim(evidence_excerpt) <> ''
+            AND char_length(evidence_excerpt) BETWEEN 1 AND 200
+        ),
+    CONSTRAINT ck_knowledge_relation_candidates_version
+        CHECK (version >= 1)
+);
+CREATE INDEX idx_knowledge_relation_candidates_review
+    ON knowledge_relation_candidates(status, created_at, candidate_id)
+    WHERE status = 'pending';
+CREATE INDEX idx_knowledge_relation_candidates_source
+    ON knowledge_relation_candidates(source_id, candidate_id);
+
 CREATE TABLE knowledge_relations (
     relation_id BIGSERIAL PRIMARY KEY,
     source_id BIGINT NOT NULL REFERENCES knowledge_sources(source_id) ON DELETE CASCADE,
@@ -630,6 +725,12 @@ CREATE INDEX idx_knowledge_relations_subject
     ON knowledge_relations(subject, predicate);
 CREATE INDEX idx_knowledge_relations_object
     ON knowledge_relations(object, predicate);
+
+ALTER TABLE knowledge_relation_candidates
+    ADD CONSTRAINT fk_knowledge_relation_candidates_promotion_relation
+    FOREIGN KEY (promotion_relation_id)
+    REFERENCES knowledge_relations(relation_id)
+    ON DELETE SET NULL;
 
 CREATE TABLE ai_report_policy_rules (
     rule_id BIGSERIAL PRIMARY KEY,
@@ -704,6 +805,8 @@ CREATE TABLE meeting_schedules (
     schedule_id BIGSERIAL PRIMARY KEY,
     meeting_id BIGINT NOT NULL REFERENCES meetings(meeting_id) ON DELETE CASCADE,
     created_by BIGINT REFERENCES users(user_id) ON DELETE SET NULL,       -- [v25] 최초 작성자. 하드 삭제 시 일정은 보존
+    title VARCHAR(100),                                                    -- [v29] 채팅에서 작성한 일정별 제목
+    location_name VARCHAR(200),                                           -- [v29] 채팅에서 작성한 일정별 장소명
     starts_at TIMESTAMPTZ NOT NULL,
     ends_at TIMESTAMPTZ,
     visible_until TIMESTAMPTZ NOT NULL,
@@ -805,9 +908,18 @@ CREATE TABLE messages (
     sender_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     content TEXT,
     image_file_id UUID REFERENCES files(file_id) ON DELETE SET NULL,
+    reply_to_message_id BIGINT,
+    message_type VARCHAR(16) NOT NULL DEFAULT 'user',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     deleted_at TIMESTAMPTZ,
-    CHECK (content IS NOT NULL OR image_file_id IS NOT NULL)
+    CONSTRAINT fk_messages_reply_to_message
+        FOREIGN KEY (reply_to_message_id) REFERENCES messages(message_id) ON DELETE SET NULL,
+    CHECK (content IS NOT NULL OR image_file_id IS NOT NULL),
+    CONSTRAINT ck_messages_message_type CHECK (message_type IN ('user', 'system')),
+    CONSTRAINT ck_messages_system_text_only CHECK (
+        message_type <> 'system'
+        OR (content IS NOT NULL AND image_file_id IS NULL)
+    )
 );
 CREATE INDEX idx_messages_room ON messages(room_id, created_at DESC);
 
@@ -820,6 +932,7 @@ CREATE TABLE reports (
     target_type report_target_type NOT NULL DEFAULT 'message',
     message_id BIGINT REFERENCES messages(message_id) ON DELETE SET NULL,
     answer_id BIGINT,
+    schedule_id BIGINT,
     reported_user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
     reason report_reason NOT NULL,
     detail TEXT,
@@ -849,15 +962,24 @@ CREATE TABLE reports (
     CHECK (status NOT IN ('confirmed', 'dismissed') OR resolved_by IS NOT NULL),
     CONSTRAINT fk_reports_answer
         FOREIGN KEY (answer_id) REFERENCES answers(answer_id) ON DELETE SET NULL,
+    CONSTRAINT fk_reports_schedule
+        FOREIGN KEY (schedule_id) REFERENCES meeting_schedules(schedule_id) ON DELETE SET NULL,
     CONSTRAINT ck_reports_target_xor CHECK (
-        (target_type = 'message' AND answer_id IS NULL)
-        OR (target_type = 'answer' AND message_id IS NULL)
+        (target_type = 'message' AND answer_id IS NULL AND schedule_id IS NULL)
+        OR (target_type = 'answer' AND message_id IS NULL AND schedule_id IS NULL)
+        OR (target_type = 'schedule' AND message_id IS NULL AND answer_id IS NULL)
     ),
     CONSTRAINT ck_reports_message_reported_user CHECK (
         target_type <> 'message' OR reported_user_id IS NOT NULL
     ),
     CONSTRAINT ck_reports_answer_manual_only CHECK (
         target_type <> 'answer' OR ai_review_state = 'cancelled'
+    ),
+    CONSTRAINT ck_reports_schedule_manual_only CHECK (
+        target_type <> 'schedule' OR ai_review_state = 'cancelled'
+    ),
+    CONSTRAINT ck_reports_schedule_reported_user CHECK (
+        target_type <> 'schedule' OR reported_user_id IS NOT NULL
     ),
     CONSTRAINT ck_reports_context_hash CHECK (context_hash ~ '^[0-9a-f]{64}$'),
     CONSTRAINT ck_reports_ai_attempts CHECK (ai_attempts BETWEEN 0 AND 5),
@@ -891,6 +1013,7 @@ AS $function$
 DECLARE
     v_answer_is_ai BOOLEAN;
     v_answer_author_id BIGINT;
+    v_schedule_creator_id BIGINT;
     v_allowed_target_delete BOOLEAN;
 BEGIN
     IF TG_OP = 'UPDATE' THEN
@@ -926,11 +1049,26 @@ BEGIN
                     USING ERRCODE = '23514', CONSTRAINT = 'ck_reports_target_xor';
             END IF;
         END IF;
+
+        IF NEW.schedule_id IS DISTINCT FROM OLD.schedule_id THEN
+            v_allowed_target_delete :=
+                OLD.target_type = 'schedule'
+                AND OLD.schedule_id IS NOT NULL
+                AND NEW.schedule_id IS NULL
+                AND NOT EXISTS (
+                    SELECT 1 FROM meeting_schedules WHERE schedule_id = OLD.schedule_id
+                );
+            IF NOT v_allowed_target_delete THEN
+                RAISE EXCEPTION 'report schedule target may only be cleared by target deletion'
+                    USING ERRCODE = '23514', CONSTRAINT = 'ck_reports_target_xor';
+            END IF;
+        END IF;
     END IF;
 
     IF TG_OP = 'INSERT' AND (
         (NEW.target_type = 'message' AND NEW.message_id IS NULL)
         OR (NEW.target_type = 'answer' AND NEW.answer_id IS NULL)
+        OR (NEW.target_type = 'schedule' AND NEW.schedule_id IS NULL)
     ) THEN
         RAISE EXCEPTION 'report selected target is required at creation'
             USING ERRCODE = '23514', CONSTRAINT = 'ck_reports_target_xor';
@@ -954,12 +1092,27 @@ BEGIN
         END IF;
     END IF;
 
+    IF NEW.target_type = 'schedule' AND NEW.schedule_id IS NOT NULL THEN
+        SELECT created_by
+          INTO v_schedule_creator_id
+          FROM meeting_schedules
+         WHERE schedule_id = NEW.schedule_id;
+
+        IF FOUND AND (
+            v_schedule_creator_id IS NULL
+            OR NEW.reported_user_id IS DISTINCT FROM v_schedule_creator_id
+        ) THEN
+            RAISE EXCEPTION 'reported user must match the schedule creator'
+                USING ERRCODE = '23514', CONSTRAINT = 'ck_reports_schedule_reported_user';
+        END IF;
+    END IF;
+
     RETURN NEW;
 END;
 $function$;
 
 CREATE TRIGGER trg_reports_target_integrity
-BEFORE INSERT OR UPDATE OF target_type, message_id, answer_id, reported_user_id
+BEFORE INSERT OR UPDATE OF target_type, message_id, answer_id, schedule_id, reported_user_id
 ON reports
 FOR EACH ROW
 EXECUTE FUNCTION enforce_report_target_integrity();
@@ -967,6 +1120,7 @@ EXECUTE FUNCTION enforce_report_target_integrity();
 CREATE INDEX idx_reports_status ON reports(status, created_at DESC);
 CREATE INDEX idx_reports_reported_user ON reports(reported_user_id);
 CREATE INDEX idx_reports_answer ON reports(answer_id) WHERE answer_id IS NOT NULL;
+CREATE INDEX idx_reports_schedule ON reports(schedule_id) WHERE schedule_id IS NOT NULL;
 CREATE INDEX idx_reports_ai_due ON reports(ai_next_attempt_at, created_at, report_id)
     WHERE ai_review_state IN ('pending', 'retry');
 CREATE INDEX idx_reports_ai_expired_lease ON reports(ai_lease_until, report_id)
@@ -1048,11 +1202,13 @@ CREATE TABLE admin_audit_logs (
             'USER_ROLE_CHANGED',
             'REPORT_CONFIRMED',
             'REPORT_DISMISSED',
-            'INQUIRY_ANSWERED'
+            'INQUIRY_ANSWERED',
+            'KNOWLEDGE_RELATION_APPROVED',
+            'KNOWLEDGE_RELATION_REJECTED'
         )
     ),
     CONSTRAINT ck_admin_audit_logs_target_type CHECK (
-        target_type IN ('user', 'report', 'inquiry')
+        target_type IN ('user', 'report', 'inquiry', 'knowledge_relation_candidate')
     ),
     CONSTRAINT ck_admin_audit_logs_details_object CHECK (
         jsonb_typeof(details) = 'object'

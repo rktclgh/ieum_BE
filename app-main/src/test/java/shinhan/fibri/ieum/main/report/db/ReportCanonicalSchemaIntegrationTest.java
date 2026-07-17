@@ -27,6 +27,7 @@ class ReportCanonicalSchemaIntegrationTest {
 			"target_type",
 			"message_id",
 			"answer_id",
+			"schedule_id",
 			"reported_user_id",
 			"reason",
 			"context_snapshot",
@@ -45,18 +46,22 @@ class ReportCanonicalSchemaIntegrationTest {
 			"ai_policy_set_hash",
 			"ai_review_result",
 			"status");
-		assertThat(enumLabels(jdbc, "report_target_type")).containsExactly("message", "answer");
-		assertThat(nullableColumns(jdbc, "reports")).contains("message_id", "answer_id", "reported_user_id");
+		assertThat(enumLabels(jdbc, "report_target_type")).containsExactly("message", "answer", "schedule");
+		assertThat(nullableColumns(jdbc, "reports")).contains(
+			"message_id", "answer_id", "schedule_id", "reported_user_id"
+		);
 		assertThat(validCheckConstraints(jdbc, "reports")).contains(
 			"ck_reports_target_xor",
 			"ck_reports_message_reported_user",
-			"ck_reports_answer_manual_only"
+			"ck_reports_answer_manual_only",
+			"ck_reports_schedule_manual_only",
+			"ck_reports_schedule_reported_user"
 		);
-		assertThat(foreignKeyNames(jdbc, "reports")).contains("fk_reports_answer");
+		assertThat(foreignKeyNames(jdbc, "reports")).contains("fk_reports_answer", "fk_reports_schedule");
 		assertThat(reportTargetFunctionDefinition(jdbc))
-			.contains("ck_reports_target_xor")
+			.contains("ck_reports_target_xor", "schedule_id")
 			.doesNotContain("ck_reports_target_required");
-		assertThat(indexNames(jdbc, "reports")).contains("idx_reports_answer");
+		assertThat(indexNames(jdbc, "reports")).contains("idx_reports_answer", "idx_reports_schedule");
 		assertThat(triggerNames(jdbc, "reports")).contains("trg_reports_target_integrity");
 		assertThat(tableExists(jdbc, "user_sanctions")).isTrue();
 		assertThat(validCheckConstraints(jdbc, "user_sanctions"))

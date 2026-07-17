@@ -35,14 +35,25 @@ public final class JdbcAcceptedAnswerKnowledgeRepository implements AcceptedAnsw
 	private final JdbcClient jdbc;
 	private final TransactionTemplate transaction;
 	private final AcceptedAnswerKnowledgeDocumentFactory documentFactory;
+	private final boolean enqueueRelationExtractionTasks;
 
 	public JdbcAcceptedAnswerKnowledgeRepository(
 		JdbcClient jdbc,
 		PlatformTransactionManager transactionManager,
 		AcceptedAnswerKnowledgeDocumentFactory documentFactory
 	) {
+		this(jdbc, transactionManager, documentFactory, false);
+	}
+
+	public JdbcAcceptedAnswerKnowledgeRepository(
+		JdbcClient jdbc,
+		PlatformTransactionManager transactionManager,
+		AcceptedAnswerKnowledgeDocumentFactory documentFactory,
+		boolean enqueueRelationExtractionTasks
+	) {
 		this.jdbc = Objects.requireNonNull(jdbc, "jdbc must not be null");
 		this.documentFactory = Objects.requireNonNull(documentFactory, "documentFactory must not be null");
+		this.enqueueRelationExtractionTasks = enqueueRelationExtractionTasks;
 		this.transaction = new TransactionTemplate(
 			Objects.requireNonNull(transactionManager, "transactionManager must not be null")
 		);
@@ -518,9 +529,24 @@ public final class JdbcAcceptedAnswerKnowledgeRepository implements AcceptedAnsw
 			.param("actor", ACTOR)
 			.query(Long.class)
 			.optional();
-		return publishedSource.isPresent()
-			? AcceptedAnswerKnowledgeFinalizeResult.READY
-			: AcceptedAnswerKnowledgeFinalizeResult.STALE;
+		if (publishedSource.isEmpty()) {
+			return AcceptedAnswerKnowledgeFinalizeResult.STALE;
+		}
+		if (enqueueRelationExtractionTasks) {
+			enqueueRelationExtractionTask(publishedSource.get());
+		}
+		return AcceptedAnswerKnowledgeFinalizeResult.READY;
+	}
+
+	private void enqueueRelationExtractionTask(long sourceId) {
+		jdbc.sql("""
+			INSERT INTO knowledge_relation_extraction_tasks(source_id, status, created_by, updated_by)
+			VALUES (:sourceId, 'pending', :actor, :actor)
+			ON CONFLICT (source_id) DO NOTHING
+			""")
+			.param("sourceId", sourceId)
+			.param("actor", ACTOR)
+			.update();
 	}
 
 	private OffsetDateTime databaseNow() {

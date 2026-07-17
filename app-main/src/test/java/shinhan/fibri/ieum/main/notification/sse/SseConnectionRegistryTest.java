@@ -3,6 +3,7 @@ package shinhan.fibri.ieum.main.notification.sse;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.io.IOException;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -85,21 +86,32 @@ class SseConnectionRegistryTest {
 	}
 
 	@Test
-	void removesConnectionWhenEmitterCompletesOrTimesOutOrErrors() {
+	void removesConnectionWhenEmitterCompletesOrErrors() {
 		SseConnectionRegistry registry = registry(5);
 		FakeConnection completed = new FakeConnection();
-		FakeConnection timedOut = new FakeConnection();
 		FakeConnection errored = new FakeConnection();
 		registry.register(42L, "sid-1", completed);
-		registry.register(42L, "sid-2", timedOut);
-		registry.register(42L, "sid-3", errored);
+		registry.register(42L, "sid-2", errored);
 
 		completed.fireCompletion();
-		timedOut.fireTimeout();
 		errored.fireError(new IllegalStateException("connection failed"));
 
 		assertThat(registry.isOnline(42L)).isFalse();
 		assertThat(registry.onlineUserIds()).isEmpty();
+	}
+
+	@Test
+	void completesTimedOutEmitterBeforeRemovingConnection() {
+		SseConnectionRegistry registry = registry(5);
+		FakeConnection timedOut = new FakeConnection();
+		registry.register(42L, "sid-timeout", timedOut);
+
+		timedOut.fireTimeout();
+		timedOut.fireTimeout();
+
+		assertThat(timedOut.completeCount).isEqualTo(1);
+		assertThat(registry.connectionCount(42L)).isZero();
+		assertThat(registry.isOnline(42L)).isFalse();
 	}
 
 	@Test
@@ -125,6 +137,22 @@ class SseConnectionRegistryTest {
 			.isInstanceOf(IllegalStateException.class)
 			.hasMessage("emitter completion failed");
 
+		assertThat(registry.connectionCount(42L)).isZero();
+		assertThat(registry.isOnline(42L)).isFalse();
+		assertThat(registry.onlineUserIds()).isEmpty();
+		org.mockito.Mockito.verify(presenceRegistry).removeOnLastDisconnect(42L);
+	}
+
+	@Test
+	void sendFailureRemovesConnectionWithoutCompletingUnusableEmitter() {
+		PresenceRegistry presenceRegistry = org.mockito.Mockito.mock(PresenceRegistry.class);
+		SseConnectionRegistry registry = registry(5, presenceRegistry);
+		FakeConnection connection = FakeConnection.throwingOnSend();
+		registry.register(42L, "sid-failed-send", connection);
+
+		registry.push(42L, durable(1L));
+
+		assertThat(connection.completeCount).isZero();
 		assertThat(registry.connectionCount(42L)).isZero();
 		assertThat(registry.isOnline(42L)).isFalse();
 		assertThat(registry.onlineUserIds()).isEmpty();
@@ -245,6 +273,7 @@ class SseConnectionRegistryTest {
 
 		private final List<OutboundEvent> sent = new ArrayList<>();
 		private final boolean throwOnComplete;
+		private final boolean throwOnSend;
 		private Runnable completionCallback;
 		private Runnable timeoutCallback;
 		private Consumer<Throwable> errorCallback;
@@ -255,11 +284,23 @@ class SseConnectionRegistryTest {
 		}
 
 		private FakeConnection(boolean throwOnComplete) {
+			this(throwOnComplete, false);
+		}
+
+		private FakeConnection(boolean throwOnComplete, boolean throwOnSend) {
 			this.throwOnComplete = throwOnComplete;
+			this.throwOnSend = throwOnSend;
+		}
+
+		private static FakeConnection throwingOnSend() {
+			return new FakeConnection(false, true);
 		}
 
 		@Override
-		public void send(OutboundEvent event) {
+		public void send(OutboundEvent event) throws IOException {
+			if (throwOnSend) {
+				throw new IOException("emitter send failed");
+			}
 			sent.add(event);
 		}
 

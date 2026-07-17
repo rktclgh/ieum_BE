@@ -2,7 +2,8 @@ package shinhan.fibri.ieum.ai.question.finalization;
 
 public enum QuestionAnswerMode {
 	LOCAL_GROUNDED("local_grounded"),
-	WEB_GROUNDED("web_grounded");
+	WEB_GROUNDED("web_grounded"),
+	UNGROUNDED("ungrounded");
 
 	private final String databaseValue;
 

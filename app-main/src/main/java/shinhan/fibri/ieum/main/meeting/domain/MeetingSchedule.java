@@ -28,6 +28,12 @@ public class MeetingSchedule {
 	@Column(name = "created_by")
 	private Long createdBy;
 
+	@Column(name = "title", length = 100)
+	private String title;
+
+	@Column(name = "location_name", length = 200)
+	private String locationName;
+
 	@Column(name = "starts_at", nullable = false)
 	private OffsetDateTime startsAt;
 
@@ -96,6 +102,53 @@ public class MeetingSchedule {
 		return new MeetingSchedule(meetingId, createdBy, startsAt, endsAt, visibleUntil, sequenceNo);
 	}
 
+	public static MeetingSchedule createManaged(
+		Long meetingId,
+		Long createdBy,
+		String title,
+		String locationName,
+		OffsetDateTime startsAt,
+		OffsetDateTime endsAt,
+		OffsetDateTime visibleUntil,
+		int sequenceNo
+	) {
+		MeetingSchedule schedule = new MeetingSchedule(
+			meetingId,
+			createdBy,
+			startsAt,
+			endsAt,
+			visibleUntil,
+			sequenceNo
+		);
+		schedule.title = requireText(title, "title");
+		schedule.locationName = requireText(locationName, "locationName");
+		return schedule;
+	}
+
+	public void update(
+		String title,
+		String locationName,
+		OffsetDateTime startsAt,
+		OffsetDateTime endsAt,
+		OffsetDateTime visibleUntil
+	) {
+		ensureScheduled();
+		OffsetDateTime requiredStartsAt = Objects.requireNonNull(startsAt, "startsAt must not be null");
+		OffsetDateTime requiredVisibleUntil = Objects.requireNonNull(visibleUntil, "visibleUntil must not be null");
+		if (endsAt != null && !endsAt.isAfter(requiredStartsAt)) {
+			throw new IllegalArgumentException("endsAt must be after startsAt");
+		}
+		if (requiredVisibleUntil.isBefore(requiredStartsAt)) {
+			throw new IllegalArgumentException("visibleUntil must not be before startsAt");
+		}
+		this.title = requireText(title, "title");
+		this.locationName = requireText(locationName, "locationName");
+		this.startsAt = requiredStartsAt;
+		this.endsAt = endsAt;
+		this.visibleUntil = requiredVisibleUntil;
+		this.updatedAt = OffsetDateTime.now();
+	}
+
 	public void complete() {
 		ensureScheduled();
 		this.status = MeetingScheduleStatus.completed;
@@ -120,6 +173,14 @@ public class MeetingSchedule {
 		}
 	}
 
+	private static String requireText(String value, String fieldName) {
+		String text = Objects.requireNonNull(value, fieldName + " must not be null").trim();
+		if (text.isEmpty()) {
+			throw new IllegalArgumentException(fieldName + " must not be blank");
+		}
+		return text;
+	}
+
 	public Long getId() {
 		return id;
 	}
@@ -130,6 +191,14 @@ public class MeetingSchedule {
 
 	public Long getCreatedBy() {
 		return createdBy;
+	}
+
+	public String getTitle() {
+		return title;
+	}
+
+	public String getLocationName() {
+		return locationName;
 	}
 
 	public OffsetDateTime getStartsAt() {

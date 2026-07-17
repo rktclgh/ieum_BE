@@ -12,21 +12,17 @@ import org.junit.jupiter.api.Test;
 import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.context.support.StaticMessageSource;
 import org.springframework.mail.MailSendException;
-import org.springframework.mail.SimpleMailMessage;
-import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.scheduling.annotation.Async;
+import shinhan.fibri.ieum.main.mail.EmailTemplateRenderer;
+import shinhan.fibri.ieum.main.mail.RenderedEmail;
+import shinhan.fibri.ieum.main.mail.SmtpMailSender;
 
 class SmtpAdminInquiryMailSenderTest {
 
 	@Test
 	void sendsSuspendedInquiryToConfiguredAdminWithReplyToRequester() {
-		JavaMailSender javaMailSender = mock(JavaMailSender.class);
-		SmtpAdminInquiryMailSender mailSender = new SmtpAdminInquiryMailSender(
-			javaMailSender,
-			"noreply@example.com",
-			"admin@example.com",
-			messageSource()
-		);
+		SmtpMailSender smtpMailSender = mock(SmtpMailSender.class);
+		SmtpAdminInquiryMailSender mailSender = mailSender(smtpMailSender);
 
 		LocaleContextHolder.setLocale(Locale.KOREAN);
 		try {
@@ -35,28 +31,28 @@ class SmtpAdminInquiryMailSenderTest {
 			LocaleContextHolder.resetLocaleContext();
 		}
 
-		var messageCaptor = forClass(SimpleMailMessage.class);
-		verify(javaMailSender).send(messageCaptor.capture());
-		SimpleMailMessage message = messageCaptor.getValue();
-		assertThat(message.getFrom()).isEqualTo("noreply@example.com");
-		assertThat(message.getTo()).containsExactly("admin@example.com");
-		assertThat(message.getReplyTo()).isEqualTo("user@example.com");
-		assertThat(message.getSubject()).isEqualTo("[Ieum] 정지 계정 문의: 제재 문의");
-		assertThat(message.getText()).contains("문의자 이메일: user@example.com").contains("로그인이 안 됩니다.");
+		var emailCaptor = forClass(RenderedEmail.class);
+		verify(smtpMailSender).send(
+			org.mockito.ArgumentMatchers.eq("admin@example.com"),
+			org.mockito.ArgumentMatchers.eq("user@example.com"),
+			emailCaptor.capture()
+		);
+		RenderedEmail email = emailCaptor.getValue();
+		assertThat(email.subject()).isEqualTo("[Ieum] 정지 계정 문의: 제재 문의");
+		assertThat(email.plainText()).contains("문의자 이메일: user@example.com").contains("로그인이 안 됩니다.");
 	}
 
 	@Test
 	void sendToAdminThrowsWhenSmtpFails() {
-		JavaMailSender javaMailSender = mock(JavaMailSender.class);
+		SmtpMailSender smtpMailSender = mock(SmtpMailSender.class);
 		doThrow(new MailSendException("smtp down"))
-			.when(javaMailSender)
-			.send(org.mockito.ArgumentMatchers.any(SimpleMailMessage.class));
-		SmtpAdminInquiryMailSender mailSender = new SmtpAdminInquiryMailSender(
-			javaMailSender,
-			"noreply@example.com",
-			"admin@example.com",
-			messageSource()
-		);
+			.when(smtpMailSender)
+			.send(
+				org.mockito.ArgumentMatchers.anyString(),
+				org.mockito.ArgumentMatchers.anyString(),
+				org.mockito.ArgumentMatchers.any(RenderedEmail.class)
+			);
+		SmtpAdminInquiryMailSender mailSender = mailSender(smtpMailSender);
 
 		LocaleContextHolder.setLocale(Locale.KOREAN);
 		try {
@@ -78,26 +74,40 @@ class SmtpAdminInquiryMailSenderTest {
 
 	private StaticMessageSource messageSource() {
 		StaticMessageSource messageSource = new StaticMessageSource();
+		messageSource.addMessage("mail.template.footer", Locale.KOREAN, "본 메일은 발신 전용입니다.");
+		messageSource.addMessage("mail.template.footer", Locale.ENGLISH, "This is an automated email.");
 		messageSource.addMessage(
 			"inquiry.suspended.subject",
 			Locale.KOREAN,
 			"[Ieum] 정지 계정 문의: {0}"
 		);
-		messageSource.addMessage(
-			"inquiry.suspended.body",
-			Locale.KOREAN,
-			"문의자 이메일: {0}\n\n{1}"
-		);
+		messageSource.addMessage("inquiry.suspended.category", Locale.KOREAN, "정지 계정 문의");
+		messageSource.addMessage("inquiry.suspended.headline", Locale.KOREAN, "정지 계정 문의가 접수되었습니다");
+		messageSource.addMessage("inquiry.suspended.intro", Locale.KOREAN, "아래 문의 내용을 확인해 주세요.");
+		messageSource.addMessage("inquiry.suspended.requester.label", Locale.KOREAN, "문의자 이메일");
+		messageSource.addMessage("inquiry.suspended.content.label", Locale.KOREAN, "문의 내용");
+		messageSource.addMessage("inquiry.suspended.notice", Locale.KOREAN, "답변은 관리자 문의 화면에서 등록해 주세요.");
 		messageSource.addMessage(
 			"inquiry.suspended.subject",
 			Locale.ENGLISH,
 			"[Ieum] Suspended account inquiry: {0}"
 		);
-		messageSource.addMessage(
-			"inquiry.suspended.body",
-			Locale.ENGLISH,
-			"Requester email: {0}\n\n{1}"
-		);
+		messageSource.addMessage("inquiry.suspended.category", Locale.ENGLISH, "Suspended account inquiry");
+		messageSource.addMessage("inquiry.suspended.headline", Locale.ENGLISH, "A suspended account inquiry has arrived");
+		messageSource.addMessage("inquiry.suspended.intro", Locale.ENGLISH, "Review the inquiry details below.");
+		messageSource.addMessage("inquiry.suspended.requester.label", Locale.ENGLISH, "Requester email");
+		messageSource.addMessage("inquiry.suspended.content.label", Locale.ENGLISH, "Inquiry content");
+		messageSource.addMessage("inquiry.suspended.notice", Locale.ENGLISH, "Reply from the administrator inquiry screen.");
 		return messageSource;
+	}
+
+	private SmtpAdminInquiryMailSender mailSender(SmtpMailSender smtpMailSender) {
+		StaticMessageSource messageSource = messageSource();
+		return new SmtpAdminInquiryMailSender(
+			smtpMailSender,
+			new EmailTemplateRenderer(messageSource),
+			"admin@example.com",
+			messageSource
+		);
 	}
 }

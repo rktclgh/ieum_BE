@@ -27,6 +27,9 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
+import shinhan.fibri.ieum.main.admin.stats.dto.AdminStatsDailySeriesResponse;
+import shinhan.fibri.ieum.main.admin.stats.dto.AdminStatsOverviewResponse;
+import shinhan.fibri.ieum.main.admin.stats.dto.AdminStatsQueueResponse;
 import shinhan.fibri.ieum.main.admin.stats.dto.ContentStatsResponse;
 import shinhan.fibri.ieum.main.admin.stats.dto.ReportStatsResponse;
 import shinhan.fibri.ieum.main.admin.stats.dto.UserStatsResponse;
@@ -133,6 +136,42 @@ class AdminStatsControllerTest {
 			.andExpect(jsonPath("$.confirmedCount", is(7)))
 			.andExpect(jsonPath("$.dismissedCount", is(3)))
 			.andExpect(jsonPath("$.sanctionCount", is(6)));
+	}
+
+	@Test
+	void overviewEndpointReturnsSummarySeriesAndQueues() throws Exception {
+		when(queryService.getOverview(any())).thenReturn(new AdminStatsOverviewResponse(
+			LocalDate.of(2026, 7, 1),
+			LocalDate.of(2026, 7, 3),
+			"day",
+			new AdminStatsOverviewResponse.Summary(3, 2, 1, 4, 10, 4, 0.4, 6, 7, 8, 9, 5),
+			java.util.List.of(new AdminStatsDailySeriesResponse(
+				LocalDate.of(2026, 7, 1),
+				1,
+				2,
+				3,
+				4,
+				1,
+				5,
+				6,
+				7,
+				8,
+				9
+			)),
+			new AdminStatsQueueResponse(11, 12, 13, 14)
+		));
+
+		mockMvc.perform(get("/api/v1/admin/stats/overview")
+				.with(admin())
+				.param("from", "2026-07-01")
+				.param("to", "2026-07-03")
+				.param("bucket", "day"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.bucket", is("day")))
+			.andExpect(jsonPath("$.summary.acceptedRate", is(0.4)))
+			.andExpect(jsonPath("$.summary.humanAnswerCount", is(10)))
+			.andExpect(jsonPath("$.series[0].date", is("2026-07-01")))
+			.andExpect(jsonPath("$.queues.pendingReportCount", is(11)));
 	}
 
 	@Test

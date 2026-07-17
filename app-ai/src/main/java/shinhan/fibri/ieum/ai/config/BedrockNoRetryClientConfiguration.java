@@ -90,5 +90,13 @@ public class BedrockNoRetryClientConfiguration {
 		)
 		static final class ReportReviewEnabled {
 		}
+
+		@ConditionalOnProperty(
+			prefix = "app.ai.features",
+			name = "accepted-answer-relation-candidates-enabled",
+			havingValue = "true"
+		)
+		static final class AcceptedAnswerRelationCandidatesEnabled {
+		}
 	}
 }

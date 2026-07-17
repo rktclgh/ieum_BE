@@ -17,6 +17,7 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import shinhan.fibri.ieum.main.auth.dto.AuthErrorResponse;
 import shinhan.fibri.ieum.main.support.HttpRequestPaths;
 
@@ -66,6 +67,11 @@ public class GlobalExceptionHandler {
 	public ResponseEntity<AuthErrorResponse> handleBadRequest(Exception exception) {
 		return ResponseEntity.status(HttpStatus.BAD_REQUEST)
 			.body(new AuthErrorResponse("BAD_REQUEST", "Bad request"));
+	}
+
+	@ExceptionHandler(AsyncRequestNotUsableException.class)
+	public void handleAsyncRequestNotUsable(AsyncRequestNotUsableException exception) {
+		log.debug("Async request became unusable: {}", exception.getMessage());
 	}
 
 	@ExceptionHandler(Exception.class)

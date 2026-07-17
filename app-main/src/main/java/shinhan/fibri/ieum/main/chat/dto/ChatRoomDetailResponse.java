@@ -13,7 +13,8 @@ public record ChatRoomDetailResponse(
 	String questionTitle,
 	boolean pinned,
 	boolean notifyEnabled,
-	List<ChatRoomMemberResponse> members
+	List<ChatRoomMemberResponse> members,
+	ChatRoomMemberResponse counterpart
 ) {
 
 	public static ChatRoomDetailResponse from(
@@ -33,7 +34,14 @@ public record ChatRoomDetailResponse(
 			members.stream()
 				.filter(ChatMember::isActive)
 				.map(member -> ChatRoomMemberResponse.from(member.getUser()))
-				.toList()
+				.toList(),
+			(room.getRoomType() == RoomType.direct || room.getRoomType() == RoomType.question)
+				? members.stream()
+					.filter(member -> !member.getUser().getId().equals(currentMember.getUser().getId()))
+					.findFirst()
+					.map(member -> ChatRoomMemberResponse.from(member.getUser()))
+					.orElse(null)
+				: null
 		);
 	}
 }

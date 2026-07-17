@@ -20,6 +20,7 @@ import org.hibernate.type.SqlTypes;
 import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.chat.domain.Message;
 import shinhan.fibri.ieum.main.answer.domain.Answer;
+import shinhan.fibri.ieum.main.meeting.domain.MeetingSchedule;
 
 @Entity
 @Table(name = "reports")
@@ -46,6 +47,10 @@ public class Report {
 	@ManyToOne(fetch = FetchType.LAZY)
 	@JoinColumn(name = "answer_id")
 	private Answer answer;
+
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "schedule_id")
+	private MeetingSchedule schedule;
 
 	@ManyToOne(fetch = FetchType.LAZY)
 	@JoinColumn(name = "reported_user_id")
@@ -87,6 +92,7 @@ public class Report {
 		ReportTargetType targetType,
 		Message message,
 		Answer answer,
+		MeetingSchedule schedule,
 		User reportedUser,
 		ReportReason reason,
 		String detail,
@@ -97,6 +103,7 @@ public class Report {
 		this.targetType = Objects.requireNonNull(targetType, "targetType must not be null");
 		this.message = message;
 		this.answer = answer;
+		this.schedule = schedule;
 		this.reportedUser = reportedUser;
 		this.reason = Objects.requireNonNull(reason, "reason must not be null");
 		this.detail = detail;
@@ -119,6 +126,7 @@ public class Report {
 			reporter,
 			ReportTargetType.message,
 			target,
+			null,
 			null,
 			target.getSender(),
 			reason,
@@ -143,7 +151,35 @@ public class Report {
 			ReportTargetType.answer,
 			null,
 			target,
+			null,
 			reportedUser,
+			reason,
+			detail,
+			contextSnapshot,
+			ReportAiReviewState.cancelled
+		);
+	}
+
+	public static Report scheduleReport(
+		User reporter,
+		MeetingSchedule schedule,
+		User reportedUser,
+		ReportReason reason,
+		String detail,
+		ReportContextSnapshot contextSnapshot
+	) {
+		MeetingSchedule target = Objects.requireNonNull(schedule, "schedule must not be null");
+		User owner = Objects.requireNonNull(reportedUser, "reportedUser must not be null");
+		if (!Objects.equals(target.getCreatedBy(), owner.getId())) {
+			throw new IllegalArgumentException("reportedUser must match the schedule creator");
+		}
+		return new Report(
+			reporter,
+			ReportTargetType.schedule,
+			null,
+			null,
+			target,
+			owner,
 			reason,
 			detail,
 			contextSnapshot,
@@ -182,6 +218,10 @@ public class Report {
 
 	public Answer getAnswer() {
 		return answer;
+	}
+
+	public MeetingSchedule getSchedule() {
+		return schedule;
 	}
 
 	public User getReportedUser() {

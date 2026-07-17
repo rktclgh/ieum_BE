@@ -59,6 +59,22 @@ sql "
   CREATE SCHEMA trap;
   CREATE TABLE public.users (user_id bigint PRIMARY KEY);
   CREATE TABLE trap.users (user_id bigint PRIMARY KEY);
+  CREATE TABLE public.messages (
+    message_id bigint PRIMARY KEY,
+    room_id bigint NOT NULL,
+    sender_id bigint NOT NULL,
+    content text,
+    image_file_id uuid,
+    CHECK (content IS NOT NULL OR image_file_id IS NOT NULL)
+  );
+  CREATE TABLE trap.messages (
+    message_id bigint PRIMARY KEY,
+    room_id bigint NOT NULL,
+    sender_id bigint NOT NULL,
+    content text,
+    image_file_id uuid,
+    CHECK (content IS NOT NULL OR image_file_id IS NOT NULL)
+  );
   CREATE FUNCTION trap.hashtextextended(text, bigint) RETURNS bigint
     LANGUAGE sql AS 'SELECT 0::bigint';
   CREATE FUNCTION trap.pg_advisory_lock(bigint) RETURNS void
@@ -97,10 +113,34 @@ schema_state="$(sql "
         AND attname = 'auth_version'
         AND attnum > 0
         AND NOT attisdropped
+    ),
+    to_regclass('public.web_push_subscriptions') IS NOT NULL,
+    to_regclass('trap.web_push_subscriptions') IS NULL,
+    EXISTS (
+      SELECT 1
+      FROM pg_index index_row
+      JOIN pg_class index_class ON index_class.oid = index_row.indexrelid
+      WHERE index_row.indrelid = 'public.web_push_subscriptions'::regclass
+        AND index_class.relname = 'uidx_web_push_subscriptions_session'
+        AND index_row.indisunique
+    ),
+    EXISTS (
+      SELECT 1 FROM pg_attribute
+      WHERE attrelid = 'public.messages'::regclass
+        AND attname = 'message_type'
+        AND attnum > 0
+        AND NOT attisdropped
+    ),
+    NOT EXISTS (
+      SELECT 1 FROM pg_attribute
+      WHERE attrelid = 'trap.messages'::regclass
+        AND attname = 'message_type'
+        AND attnum > 0
+        AND NOT attisdropped
     )
   );
 ")"
-[[ "$schema_state" == "t:t:t:t" ]] \
+[[ "$schema_state" == "t:t:t:t:t:t:t:t:t" ]] \
   || fail "DDL escaped public under a hostile search_path: $schema_state"
 
 constraint_oid_before="$(sql "
@@ -119,11 +159,43 @@ constraint_oid_after="$(sql "
 [[ -n "$constraint_oid_before" && "$constraint_oid_before" == "$constraint_oid_after" ]] \
   || fail "an exact v25 rerun replaced the users constraint"
 
+message_type_constraint_oids_before="$(sql "
+  SELECT string_agg(oid::text, ':' ORDER BY conname)
+  FROM pg_constraint
+  WHERE conrelid = 'public.messages'::regclass
+    AND conname IN ('ck_messages_message_type', 'ck_messages_system_text_only');
+")"
+run_helper >/dev/null
+message_type_constraint_oids_after="$(sql "
+  SELECT string_agg(oid::text, ':' ORDER BY conname)
+  FROM pg_constraint
+  WHERE conrelid = 'public.messages'::regclass
+    AND conname IN ('ck_messages_message_type', 'ck_messages_system_text_only');
+")"
+[[ "$message_type_constraint_oids_before" =~ ^[0-9]+:[0-9]+$ \
+  && "$message_type_constraint_oids_before" == "$message_type_constraint_oids_after" ]] \
+  || fail "an exact v28 rerun replaced the messages constraints"
+
+sql "
+  ALTER TABLE public.messages DROP CONSTRAINT ck_messages_message_type;
+  ALTER TABLE public.messages
+    ADD CONSTRAINT ck_messages_message_type
+    CHECK (message_type IN ('user', 'system', 'unexpected'));
+" >/dev/null
+if run_helper >/dev/null 2>&1; then
+  fail "helper accepted an incompatible message type check"
+fi
+sql "
+  ALTER TABLE public.messages DROP CONSTRAINT ck_messages_message_type;
+  ALTER TABLE public.messages
+    ADD CONSTRAINT ck_messages_message_type
+    CHECK (message_type IN ('user', 'system'));
+" >/dev/null
+
 sql "ALTER SEQUENCE public.admin_audit_logs_audit_id_seq MAXVALUE 100 CYCLE CACHE 2;" >/dev/null
 if run_helper >/dev/null 2>&1; then
   fail "helper accepted incompatible audit sequence properties"
 fi
-
 sequence_state="$(sql "
   SELECT concat_ws(':', seqmax, seqcache, seqcycle)
   FROM pg_sequence
@@ -131,5 +203,98 @@ sequence_state="$(sql "
 ")"
 [[ "$sequence_state" == "100:2:t" ]] \
   || fail "failed preflight unexpectedly rewrote the incompatible sequence: $sequence_state"
+sql "ALTER SEQUENCE public.admin_audit_logs_audit_id_seq
+  MAXVALUE 9223372036854775807 NO CYCLE CACHE 1;" >/dev/null
+
+sql "ALTER SEQUENCE public.web_push_subscriptions_subscription_id_seq
+  MAXVALUE 100 CYCLE CACHE 2;" >/dev/null
+if run_helper >/dev/null 2>&1; then
+  fail "helper accepted incompatible web push subscription sequence properties"
+fi
+web_push_sequence_state="$(sql "
+  SELECT concat_ws(':', seqmax, seqcache, seqcycle)
+  FROM pg_sequence
+  WHERE seqrelid = 'public.web_push_subscriptions_subscription_id_seq'::regclass;
+")"
+[[ "$web_push_sequence_state" == "100:2:t" ]] \
+  || fail "failed Web Push preflight unexpectedly rewrote the subscription sequence"
+sql "ALTER SEQUENCE public.web_push_subscriptions_subscription_id_seq
+  MAXVALUE 9223372036854775807 NO CYCLE CACHE 1;" >/dev/null
+
+sql "
+  CREATE COLLATION public.web_push_test_collation (provider = libc, locale = 'C');
+  DROP INDEX public.uidx_web_push_subscriptions_session;
+  CREATE UNIQUE INDEX uidx_web_push_subscriptions_session
+    ON public.web_push_subscriptions
+    (session_id COLLATE public.web_push_test_collation varchar_pattern_ops);
+" >/dev/null
+if run_helper >/dev/null 2>&1; then
+  fail "helper accepted a web push session index with non-default collation or opclass"
+fi
+sql "
+  DROP INDEX public.uidx_web_push_subscriptions_session;
+  CREATE UNIQUE INDEX uidx_web_push_subscriptions_session
+    ON public.web_push_subscriptions(session_id);
+  DROP COLLATION public.web_push_test_collation;
+" >/dev/null
+
+sql "
+  CREATE COLLATION public.web_push_test_collation (provider = libc, locale = 'C');
+  ALTER TABLE public.web_push_subscriptions
+    ALTER COLUMN session_id TYPE VARCHAR(64) COLLATE public.web_push_test_collation;
+" >/dev/null
+if run_helper >/dev/null 2>&1; then
+  fail "helper accepted a web push session column with non-default collation"
+fi
+sql "
+  ALTER TABLE public.web_push_subscriptions
+    ALTER COLUMN session_id TYPE VARCHAR(64) COLLATE \"default\";
+  DROP COLLATION public.web_push_test_collation;
+" >/dev/null
+
+sql "
+  DROP TRIGGER trg_web_push_subscriptions_updated ON public.web_push_subscriptions;
+  CREATE TRIGGER trg_web_push_subscriptions_updated
+    BEFORE UPDATE OF p256dh ON public.web_push_subscriptions
+    FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+" >/dev/null
+if run_helper >/dev/null 2>&1; then
+  fail "helper accepted a column-filtered web push updated_at trigger"
+fi
+sql "
+  DROP TRIGGER trg_web_push_subscriptions_updated ON public.web_push_subscriptions;
+  CREATE TRIGGER trg_web_push_subscriptions_updated
+    BEFORE UPDATE ON public.web_push_subscriptions
+    FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+" >/dev/null
+
+sql "
+  ALTER TABLE public.web_push_subscriptions
+    DROP CONSTRAINT web_push_subscriptions_endpoint_hash_key;
+  DROP INDEX public.uidx_web_push_subscriptions_session;
+  CREATE INDEX idx_web_push_subscriptions_session
+    ON public.web_push_subscriptions(session_id);
+" >/dev/null
+if run_helper >/dev/null 2>&1; then
+  fail "helper accepted a web push table without endpoint_hash uniqueness"
+fi
+endpoint_hash_constraint_state="$(sql "
+  SELECT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conrelid = 'public.web_push_subscriptions'::regclass
+      AND conname = 'web_push_subscriptions_endpoint_hash_key'
+  );
+")"
+[[ "$endpoint_hash_constraint_state" == "f" ]] \
+  || fail "failed Web Push preflight unexpectedly rewrote the endpoint hash constraint"
+legacy_session_index_state="$(sql "
+  SELECT concat_ws(':',
+    to_regclass('public.idx_web_push_subscriptions_session') IS NOT NULL,
+    to_regclass('public.uidx_web_push_subscriptions_session') IS NULL
+  );
+")"
+[[ "$legacy_session_index_state" == "t:t" ]] \
+  || fail "failed Web Push preflight ran the session-cardinality migration"
 
 echo "Admin dashboard PostgreSQL migration tests passed."

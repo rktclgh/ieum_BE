@@ -23,6 +23,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import shinhan.fibri.ieum.ai.report.support.ReportReviewObservationLogger;
@@ -32,6 +33,8 @@ import shinhan.fibri.ieum.ai.report.service.ReportEvidenceImageBatch;
 import shinhan.fibri.ieum.ai.report.service.ReportEvidenceImageDownloadException;
 import shinhan.fibri.ieum.ai.report.service.ReportReviewInferenceOrchestrator;
 import shinhan.fibri.ieum.ai.report.service.ReportReviewModelGatewayException;
+import shinhan.fibri.ieum.ai.report.service.ReportReviewProviderAttempt;
+import shinhan.fibri.ieum.ai.report.service.ReportReviewProviderErrorCode;
 import shinhan.fibri.ieum.ai.report.service.ReportReviewPreparationService;
 import shinhan.fibri.ieum.common.ai.report.dto.ReportReviewMessage;
 import shinhan.fibri.ieum.common.ai.report.dto.ReportReviewRequest;
@@ -82,6 +85,25 @@ class ReportReviewInternalControllerTest {
 		verify(preparationService).prepare(900L, request);
 		verify(inferenceOrchestrator).review(prepared);
 		assertSafeSuccessLogs(output);
+	}
+
+	@Test
+	void logsTheSafeProviderAttemptsWhenBedrockFailsAndGeminiCompletes(CapturedOutput output) throws Exception {
+		ReportReviewRequest request = request();
+		PreparedReportReview prepared = preparedReview();
+		when(preparationService.prepare(900L, request)).thenReturn(prepared);
+		when(inferenceOrchestrator.review(same(prepared))).thenReturn(fallbackResponse());
+
+		mockMvc.perform(post("/ai/v1/internal/reports/900/review")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsBytes(request)))
+			.andExpect(status().isOk());
+
+		assertThat(output)
+			.contains("event=report_review_complete")
+			.contains("fallbackUsed=true")
+			.contains("providerAttempts=[bedrock/amazon.nova-lite-v1:0/failure/transport_error/12,gemini/gemini-3.1-flash-lite/success/none/27]")
+			.doesNotContain("raw provider response");
 	}
 
 	@Test
@@ -156,7 +178,22 @@ class ReportReviewInternalControllerTest {
 	void returnsARetryableEnvelopeForModelFailure(CapturedOutput output) throws Exception {
 		PreparedReportReview prepared = preparedReview();
 		when(preparationService.prepare(900L, request())).thenReturn(prepared);
-		doThrow(new ReportReviewModelGatewayException()).when(inferenceOrchestrator).review(prepared);
+		doThrow(new ReportReviewModelGatewayException(List.of(
+			new ReportReviewProviderAttempt(
+				"bedrock",
+				"amazon.nova-lite-v1:0",
+				"failure",
+				ReportReviewProviderErrorCode.transport_error,
+				12L
+			),
+			new ReportReviewProviderAttempt(
+				"gemini",
+				"gemini-3.1-flash-lite",
+				"failure",
+				ReportReviewProviderErrorCode.rate_limited,
+				27L
+			)
+		))).when(inferenceOrchestrator).review(prepared);
 
 		mockMvc.perform(post("/ai/v1/internal/reports/900/review")
 				.contentType(MediaType.APPLICATION_JSON)
@@ -166,6 +203,29 @@ class ReportReviewInternalControllerTest {
 			.andExpect(jsonPath("$.retryable").value(true));
 
 		assertSafeFailureLog(output, "report_model_inference_failed");
+		assertThat(output)
+			.contains("providerAttempts=[bedrock/amazon.nova-lite-v1:0/failure/transport_error/12,gemini/gemini-3.1-flash-lite/failure/rate_limited/27]")
+			.doesNotContain("detail")
+			.doesNotContain("content");
+	}
+
+	@Test
+	void logsFailureWhenProviderAttemptsAreMissing(CapturedOutput output) {
+		MockHttpServletRequest servletRequest = new MockHttpServletRequest(
+			"POST",
+			"/ai/v1/internal/reports/900/review"
+		);
+
+		observationLogger.failed(
+			servletRequest,
+			"report_model_inference_failed",
+			null
+		);
+
+		assertThat(output)
+			.contains("event=report_review_failure")
+			.contains("reportId=900")
+			.doesNotContain("providerAttempts=");
 	}
 
 	@Test
@@ -201,6 +261,7 @@ class ReportReviewInternalControllerTest {
 			.contains("event=report_review_complete")
 			.contains("decision=hold")
 			.contains("fallbackUsed=false")
+			.contains("providerAttempts=[bedrock/amazon.nova-lite-v1:0/success/none/8]")
 			.containsPattern("durationMs=\\d+");
 		assertThat(output)
 			.doesNotContain("detail")
@@ -261,11 +322,37 @@ class ReportReviewInternalControllerTest {
 			.put("ruleCode", "HARASSMENT-CONTEXTUAL-001")
 			.put("revision", 1);
 		var providerAttempts = objectMapper.createArrayNode();
-		providerAttempts.addObject().put("provider", "bedrock").put("outcome", "success");
+		providerAttempts.addObject()
+			.put("provider", "bedrock")
+			.put("model", "amazon.nova-lite-v1:0")
+			.put("outcome", "success")
+			.put("latencyMs", 8L);
 		return new ReportReviewResponse(
 			"hold", "harassment", "medium", new BigDecimal("0.91"), "reason",
 			evidence, matchedRules, "b".repeat(64), policySnapshot,
 			"amazon.nova-lite-v1:0", "report-review-v1", false, providerAttempts
+		);
+	}
+
+	private ReportReviewResponse fallbackResponse() {
+		var response = response();
+		var providerAttempts = objectMapper.createArrayNode();
+		providerAttempts.addObject()
+			.put("provider", "bedrock")
+			.put("model", "amazon.nova-lite-v1:0")
+			.put("outcome", "failure")
+			.put("errorCode", "transport_error")
+			.put("latencyMs", 12L);
+		providerAttempts.addObject()
+			.put("provider", "gemini")
+			.put("model", "gemini-3.1-flash-lite")
+			.put("outcome", "success")
+			.putNull("errorCode")
+			.put("latencyMs", 27L);
+		return new ReportReviewResponse(
+			response.decision(), response.category(), response.severity(), response.confidence(), response.reason(),
+			response.evidence(), response.matchedRules(), response.policySetHash(), response.policySnapshot(),
+			"gemini-3.1-flash-lite", response.promptVersion(), true, providerAttempts
 		);
 	}
 }

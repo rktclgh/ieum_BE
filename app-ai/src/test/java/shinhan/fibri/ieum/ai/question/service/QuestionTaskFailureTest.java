@@ -28,6 +28,8 @@ class QuestionTaskFailureTest {
 				row(QuestionTaskFailureDisposition.RETRY,
 					"QUESTION_ANSWER_PROVIDER_RATE_LIMITED", "Question answer provider is rate limited"),
 				row(QuestionTaskFailureDisposition.RETRY,
+					"QUESTION_ANSWER_WEB_GROUNDING_RATE_LIMITED", "Question web grounding provider is rate limited"),
+				row(QuestionTaskFailureDisposition.RETRY,
 					"QUESTION_ANSWER_PROVIDER_UNAVAILABLE", "Question answer provider is temporarily unavailable"),
 				row(QuestionTaskFailureDisposition.RETRY,
 					"QUESTION_ANSWER_INVALID_MODEL_OUTPUT", "Question answer providers returned invalid output"),

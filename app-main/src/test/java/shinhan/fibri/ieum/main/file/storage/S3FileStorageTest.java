@@ -26,6 +26,8 @@ import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 
 class S3FileStorageTest {
 
@@ -62,6 +64,64 @@ class S3FileStorageTest {
 		assertThat(request.signatureDuration()).isEqualTo(Duration.ofMinutes(5));
 		assertThat(request.getObjectRequest().bucket()).isEqualTo("bucket");
 		assertThat(request.getObjectRequest().key()).isEqualTo("final/image.jpg");
+	}
+
+	@Test
+	void createPresignedPutUrlSignsContentTypeButNotContentLength() {
+		S3FileStorage storage = new S3FileStorage(s3Client, s3Presigner, "bucket");
+		PresignedPutObjectRequest presignedRequest = PresignedPutObjectRequest.builder()
+			.expiration(Instant.parse("2026-07-16T00:05:00Z"))
+			.isBrowserExecutable(true)
+			.signedHeaders(Map.of("host", List.of("storage.example")))
+			.httpRequest(SdkHttpFullRequest.builder()
+				.method(SdkHttpMethod.PUT)
+				.uri(URI.create("https://storage.example/tmp/original.jpg?X-Amz-Signature=test"))
+				.build())
+			.build();
+		when(s3Presigner.presignPutObject(any(PutObjectPresignRequest.class))).thenReturn(presignedRequest);
+
+		URI url = storage.createPresignedPutUrl(
+			"tmp/original.jpg",
+			"image/jpeg",
+			Duration.ofMinutes(5)
+		);
+
+		ArgumentCaptor<PutObjectPresignRequest> captor = ArgumentCaptor.forClass(PutObjectPresignRequest.class);
+		org.mockito.Mockito.verify(s3Presigner).presignPutObject(captor.capture());
+		PutObjectPresignRequest request = captor.getValue();
+		assertThat(url).isEqualTo(URI.create("https://storage.example/tmp/original.jpg?X-Amz-Signature=test"));
+		assertThat(request.signatureDuration()).isEqualTo(Duration.ofMinutes(5));
+		assertThat(request.putObjectRequest().bucket()).isEqualTo("bucket");
+		assertThat(request.putObjectRequest().key()).isEqualTo("tmp/original.jpg");
+		assertThat(request.putObjectRequest().contentType()).isEqualTo("image/jpeg");
+		assertThat(request.putObjectRequest().contentLength()).isNull();
+	}
+
+	@Nested
+	class CreatePresignedPutUrlValidation {
+
+		private final S3FileStorage storage = new S3FileStorage(s3Client, s3Presigner, "bucket");
+
+		@Test
+		void rejectsBlankKey() {
+			assertThatThrownBy(() -> storage.createPresignedPutUrl(" ", "image/jpeg", Duration.ofMinutes(5)))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessage("S3 object key is required");
+		}
+
+		@Test
+		void rejectsNullTtl() {
+			assertThatThrownBy(() -> storage.createPresignedPutUrl("tmp/original.jpg", "image/jpeg", null))
+				.isInstanceOf(NullPointerException.class)
+				.hasMessage("ttl must not be null");
+		}
+
+		@Test
+		void rejectsNonPositiveTtl() {
+			assertThatThrownBy(() -> storage.createPresignedPutUrl("tmp/original.jpg", "image/jpeg", Duration.ZERO))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessage("ttl must be positive");
+		}
 	}
 
 	@Nested

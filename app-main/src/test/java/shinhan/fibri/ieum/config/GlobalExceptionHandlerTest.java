@@ -28,6 +28,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
 
 @WebMvcTest(GlobalExceptionHandlerTest.FailingController.class)
@@ -107,6 +108,15 @@ class GlobalExceptionHandlerTest {
 			.andExpect(jsonPath("$.message", is("Unsupported media type")));
 	}
 
+	@Test
+	void disconnectedAsyncRequestDoesNotAttemptToWriteJsonError(CapturedOutput output) throws Exception {
+		mockMvc.perform(get("/api/v1/test/disconnected").accept(MediaType.TEXT_EVENT_STREAM))
+			.andExpect(status().isOk())
+			.andExpect(content().string(""));
+
+		assertThat(output).doesNotContain("Unhandled exception");
+	}
+
 	@RestController
 	static class FailingController {
 
@@ -118,6 +128,11 @@ class GlobalExceptionHandlerTest {
 		@PostMapping(value = "/api/v1/test/json-only", consumes = "application/json")
 		String jsonOnly() {
 			return "ok";
+		}
+
+		@GetMapping(value = "/api/v1/test/disconnected", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+		void disconnected() throws AsyncRequestNotUsableException {
+			throw new AsyncRequestNotUsableException("Servlet container error notification for disconnected client");
 		}
 	}
 

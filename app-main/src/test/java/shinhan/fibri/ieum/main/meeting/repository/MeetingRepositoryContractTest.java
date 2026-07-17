@@ -23,6 +23,21 @@ class MeetingRepositoryContractTest {
 	}
 
 	@Test
+	void participantRepositoryUsesPessimisticLockForParticipantStateRaces() throws Exception {
+		Method method = MeetingParticipantRepository.class.getMethod(
+			"findByIdMeetingIdAndIdUserIdForUpdate",
+			Long.class,
+			Long.class
+		);
+
+		assertThat(method.getReturnType().getTypeName()).isEqualTo("java.util.Optional");
+		assertThat(method.getGenericReturnType().getTypeName()).contains(MeetingParticipant.class.getSimpleName());
+		Lock lock = method.getAnnotation(Lock.class);
+		assertThat(lock).isNotNull();
+		assertThat(lock.value()).isEqualTo(LockModeType.PESSIMISTIC_WRITE);
+	}
+
+	@Test
 	void participantRepositoryUsesCompositeIdAndJoinedCountContract() throws Exception {
 		assertThat(MeetingParticipantRepository.class.getMethod("save", Object.class)).isNotNull();
 		assertThat(MeetingParticipantRepository.class.getMethod("findById", Object.class)).isNotNull();
@@ -34,5 +49,18 @@ class MeetingRepositoryContractTest {
 		assertThat(MeetingParticipantRepository.class.getGenericInterfaces()[0].getTypeName())
 			.contains(MeetingParticipant.class.getSimpleName())
 			.contains(MeetingParticipantId.class.getSimpleName());
+	}
+
+	@Test
+	void participantRepositoryUsesPessimisticWriteLockForDepartureRace() throws Exception {
+		Method method = MeetingParticipantRepository.class.getMethod(
+			"findByIdMeetingIdAndIdUserIdForUpdate",
+			Long.class,
+			Long.class
+		);
+
+		assertThat(method.getReturnType().getTypeName()).isEqualTo("java.util.Optional");
+		assertThat(method.getGenericReturnType().getTypeName()).contains(MeetingParticipant.class.getSimpleName());
+		assertThat(method.getAnnotation(Lock.class).value()).isEqualTo(LockModeType.PESSIMISTIC_WRITE);
 	}
 }

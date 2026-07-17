@@ -78,7 +78,7 @@ class AiQuestionAnswerCompletionTransactionIntegrationTest {
 			   AND event_key = :eventKey
 			""")
 			.param("userId", recipientUserId)
-			.param("eventKey", "answer-created:" + ANSWER_ID)
+			.param("eventKey", AiQuestionAnswerCompletionService.AI_ANSWER_EVENT_KEY_PREFIX + QUESTION_ID)
 			.query(Long.class)
 			.single()).isZero();
 	}

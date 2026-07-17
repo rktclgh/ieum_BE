@@ -5,7 +5,7 @@ import java.time.Duration;
 
 public interface FileStorage {
 
-	URI createPresignedPutUrl(String key, String contentType, Long sizeBytes, Duration ttl);
+	URI createPresignedPutUrl(String key, String contentType, Duration ttl);
 
 	URI createPresignedGetUrl(String key, Duration ttl);
 

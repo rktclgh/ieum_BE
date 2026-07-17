@@ -69,7 +69,7 @@ class HybridKnowledgeRetrievalServiceTest {
 
 		verify(vectorService).retrieve(same(request));
 		verify(graphService).retrieve(eq(entityCandidates), same(request.coordinates()));
-		assertThat(result.retrievalConfigVersion()).isEqualTo("retrieval-v2-hybrid-kg1");
+		assertThat(result.retrievalConfigVersion()).isEqualTo("retrieval-v3-hybrid-kg2");
 		assertThat(result.candidates()).hasSize(2);
 		assertThat(result.candidates().stream()
 			.filter(item -> item.chunkId() == 11L)
@@ -169,7 +169,7 @@ class HybridKnowledgeRetrievalServiceTest {
 
 		HybridKnowledgeRetrievalResult result = service.retrieve(request, List.of("버스"));
 
-		assertThat(result.retrievalConfigVersion()).isEqualTo("retrieval-v2-hybrid-kg1");
+		assertThat(result.retrievalConfigVersion()).isEqualTo("retrieval-v3-hybrid-kg2");
 		assertThat(result.candidates()).containsExactly(first, second);
 		assertThat(result.evidence()).containsExactly(first, second);
 		assertThat(result.evidence().get(0)).isSameAs(first);

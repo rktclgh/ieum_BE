@@ -2,6 +2,7 @@ package shinhan.fibri.ieum.ai.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Clock;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -15,6 +16,7 @@ import shinhan.fibri.ieum.ai.question.embedding.QuestionEmbeddingTextFormatter;
 import shinhan.fibri.ieum.ai.question.finalization.QuestionAnswerFinalizationService;
 import shinhan.fibri.ieum.ai.question.generation.LocalAnswerGateway;
 import shinhan.fibri.ieum.ai.question.generation.LocalAnswerProperties;
+import shinhan.fibri.ieum.ai.question.generation.UngroundedAnswerGateway;
 import shinhan.fibri.ieum.ai.question.grounding.LocalGroundingGateway;
 import shinhan.fibri.ieum.ai.question.grounding.LocalGroundingProperties;
 import shinhan.fibri.ieum.ai.question.retrieval.GroundingSufficiencyPolicy;
@@ -78,13 +80,15 @@ public class QuestionAnswerProcessingConfiguration {
 		WebGroundingGateway webGroundingGateway,
 		WebGroundingPromptFactory webGroundingPromptFactory,
 		WebQuestionEvidenceAssembler webEvidenceAssembler,
+		UngroundedAnswerGateway ungroundedAnswerGateway,
 		QuestionAnswerCitationAssembler citationAssembler,
 		QuestionAnswerFinalizationService finalizationService,
 		QuestionCompletionCallbackWake callbackWake,
 		ObjectMapper objectMapper,
 		QuestionAnswerDispatchProperties dispatchProperties,
 		LocalAnswerProperties answerProperties,
-		LocalGroundingProperties groundingProperties
+		LocalGroundingProperties groundingProperties,
+		@Value("${app.ai.features.ungrounded-answer-enabled:false}") boolean ungroundedAnswerEnabled
 	) {
 		return new DefaultQuestionAnswerOrchestrator(
 			snapshotRepository,
@@ -100,13 +104,15 @@ public class QuestionAnswerProcessingConfiguration {
 			webGroundingGateway,
 			webGroundingPromptFactory,
 			webEvidenceAssembler,
+			ungroundedAnswerGateway,
 			citationAssembler,
 			finalizationService,
 			callbackWake,
 			objectMapper,
 			dispatchProperties.taskLease(),
 			answerProperties.modelTimeout(),
-			groundingProperties.modelTimeout()
+			groundingProperties.modelTimeout(),
+			ungroundedAnswerEnabled
 		);
 	}
 }

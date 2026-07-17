@@ -40,6 +40,7 @@ import shinhan.fibri.ieum.main.admin.user.repository.UserSanctionRepository;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
 import shinhan.fibri.ieum.main.notification.push.WebPushSubscriptionCleanup;
 import shinhan.fibri.ieum.main.notification.sse.SseConnectionRegistry;
+import shinhan.fibri.ieum.main.mail.UserSuspensionEventPublisher;
 
 class AdminSanctionServiceTest {
 
@@ -49,13 +50,15 @@ class AdminSanctionServiceTest {
 	private final WebPushSubscriptionCleanup webPushSubscriptionCleanup = mock(WebPushSubscriptionCleanup.class);
 	private final SseConnectionRegistry sseConnectionRegistry = mock(SseConnectionRegistry.class);
 	private final AdminAuditLogWriter auditLogWriter = mock(AdminAuditLogWriter.class);
+	private final UserSuspensionEventPublisher suspensionEventPublisher = mock(UserSuspensionEventPublisher.class);
 	private final AdminSanctionService service = new AdminSanctionService(
 		userRepository,
 		sanctionRepository,
 		sessionStore,
 		webPushSubscriptionCleanup,
 		sseConnectionRegistry,
-		auditLogWriter
+		auditLogWriter,
+		suspensionEventPublisher
 	);
 
 	@AfterEach
@@ -101,6 +104,7 @@ class AdminSanctionServiceTest {
 				"endsAt", endsAt.toString()
 			)
 		);
+		verify(suspensionEventPublisher).publish(eq(target), any(UserSanction.class));
 		verify(sessionStore, never()).revokeAllSessionsOfUser(10L);
 		verify(webPushSubscriptionCleanup, never()).deleteForUser(10L);
 		verify(sseConnectionRegistry, never()).closeUser(10L);
@@ -195,6 +199,7 @@ class AdminSanctionServiceTest {
 				&& details.containsKey("endsAt")
 				&& details.get("endsAt") == null)
 		);
+		verify(suspensionEventPublisher, never()).publish(any(User.class), any(UserSanction.class));
 		verify(sessionStore).revokeAllSessionsOfUser(10L);
 	}
 

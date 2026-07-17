@@ -1,8 +1,8 @@
 BEGIN;
 
-CREATE TABLE IF NOT EXISTS web_push_subscriptions (
+CREATE TABLE IF NOT EXISTS public.web_push_subscriptions (
     subscription_id BIGSERIAL PRIMARY KEY,
-    user_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    user_id BIGINT NOT NULL REFERENCES public.users(user_id) ON DELETE CASCADE,
     session_id VARCHAR(64) NOT NULL,
     endpoint TEXT NOT NULL,
     endpoint_hash CHAR(64) NOT NULL UNIQUE,
@@ -15,9 +15,9 @@ CREATE TABLE IF NOT EXISTS web_push_subscriptions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_web_push_subscriptions_user
-    ON web_push_subscriptions(user_id);
+    ON public.web_push_subscriptions(user_id);
 CREATE INDEX IF NOT EXISTS idx_web_push_subscriptions_session
-    ON web_push_subscriptions(session_id);
+    ON public.web_push_subscriptions(session_id);
 
 DO $migration$
 BEGIN
@@ -35,9 +35,9 @@ BEGIN
 END
 $migration$;
 
-DROP TRIGGER IF EXISTS trg_web_push_subscriptions_updated ON web_push_subscriptions;
+DROP TRIGGER IF EXISTS trg_web_push_subscriptions_updated ON public.web_push_subscriptions;
 CREATE TRIGGER trg_web_push_subscriptions_updated
-    BEFORE UPDATE ON web_push_subscriptions
+    BEFORE UPDATE ON public.web_push_subscriptions
     FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 COMMIT;

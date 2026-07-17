@@ -61,7 +61,7 @@ public class FileService {
 			contentType
 		);
 		File file = fileRepository.save(File.pending(fileId, principal.userId(), key, contentType, sizeBytes));
-		URI uploadUrl = storage.createPresignedPutUrl(file.getS3Key(), contentType, sizeBytes, properties.presignTtl());
+		URI uploadUrl = storage.createPresignedPutUrl(file.getS3Key(), contentType, properties.presignTtl());
 
 		return new FilePresignResponse(file.getFileId(), uploadUrl);
 	}

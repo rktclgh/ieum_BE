@@ -5,6 +5,7 @@ import java.util.Objects;
 import shinhan.fibri.ieum.ai.embedding.GeminiEmbedding;
 import shinhan.fibri.ieum.ai.embedding.GeminiEmbeddingUnavailableException;
 import shinhan.fibri.ieum.ai.knowledge.accepted.AcceptedAnswerKnowledgeClaim;
+import shinhan.fibri.ieum.ai.knowledge.accepted.AcceptedAnswerKnowledgeFinalizeResult;
 import shinhan.fibri.ieum.ai.knowledge.accepted.AcceptedAnswerKnowledgeRepository;
 import shinhan.fibri.ieum.ai.knowledge.embedding.KnowledgeDocumentEmbedder;
 
@@ -15,6 +16,7 @@ public final class AcceptedAnswerKnowledgeIngestionService {
 	private final Duration taskLease;
 	private final int maxAttempts;
 	private final Duration retryDelay;
+	private final Runnable candidateTaskWake;
 
 	public AcceptedAnswerKnowledgeIngestionService(
 		AcceptedAnswerKnowledgeRepository repository,
@@ -23,11 +25,23 @@ public final class AcceptedAnswerKnowledgeIngestionService {
 		int maxAttempts,
 		Duration retryDelay
 	) {
+		this(repository, embedder, taskLease, maxAttempts, retryDelay, () -> { });
+	}
+
+	public AcceptedAnswerKnowledgeIngestionService(
+		AcceptedAnswerKnowledgeRepository repository,
+		KnowledgeDocumentEmbedder embedder,
+		Duration taskLease,
+		int maxAttempts,
+		Duration retryDelay,
+		Runnable candidateTaskWake
+	) {
 		this.repository = Objects.requireNonNull(repository, "repository must not be null");
 		this.embedder = Objects.requireNonNull(embedder, "embedder must not be null");
 		this.taskLease = Objects.requireNonNull(taskLease, "taskLease must not be null");
 		this.maxAttempts = maxAttempts;
 		this.retryDelay = Objects.requireNonNull(retryDelay, "retryDelay must not be null");
+		this.candidateTaskWake = Objects.requireNonNull(candidateTaskWake, "candidateTaskWake must not be null");
 	}
 
 	public void process(long answerId) {
@@ -41,7 +55,10 @@ public final class AcceptedAnswerKnowledgeIngestionService {
 				claim.document().displayName(),
 				claim.document().chunkText()
 			);
-			repository.finalizeClaim(claim, embedding.values());
+			AcceptedAnswerKnowledgeFinalizeResult result = repository.finalizeClaim(claim, embedding.values());
+			if (result == AcceptedAnswerKnowledgeFinalizeResult.READY) {
+				candidateTaskWake.run();
+			}
 		}
 		catch (GeminiEmbeddingUnavailableException exception) {
 			repository.markEmbeddingFailure(claim, retryDelay, maxAttempts);

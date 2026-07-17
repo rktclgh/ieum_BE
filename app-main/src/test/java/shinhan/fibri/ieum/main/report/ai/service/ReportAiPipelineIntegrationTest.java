@@ -303,7 +303,7 @@ class ReportAiPipelineIntegrationTest {
 		FileStorage fileStorage() {
 			return new FileStorage() {
 				@Override
-				public URI createPresignedPutUrl(String key, String contentType, Long sizeBytes, Duration ttl) {
+				public URI createPresignedPutUrl(String key, String contentType, Duration ttl) {
 					throw new UnsupportedOperationException("not used by this test");
 				}
 

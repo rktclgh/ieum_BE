@@ -15,7 +15,7 @@ public record QuestionAnalyzerProperties(
 	private static final int MIN_MAX_TOKENS = 128;
 	private static final int MAX_MAX_TOKENS = 2048;
 	private static final int MAX_ANALYSIS_VERSION_LENGTH = 80;
-	private static final String REQUIRED_BEDROCK_REGION = "ap-southeast-2";
+	private static final String REQUIRED_BEDROCK_REGION = "ap-northeast-2";
 	private static final Duration REQUIRED_MODEL_TIMEOUT = Duration.ofSeconds(30);
 
 	public QuestionAnalyzerProperties {

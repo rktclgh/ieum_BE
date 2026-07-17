@@ -63,6 +63,10 @@ out/
 **/spec.md
 **/memory.md
 **/user-api-design-summary.md
+
+### Local design and implementation plans ###
+/docs/superpowers/specs/
+/docs/superpowers/plans/
 /.superpowers/
 /app-main/file-refactor-plan.md
 

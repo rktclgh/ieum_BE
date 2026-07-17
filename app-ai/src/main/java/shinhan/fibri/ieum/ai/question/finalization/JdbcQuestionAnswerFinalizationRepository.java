@@ -191,6 +191,63 @@ public class JdbcQuestionAnswerFinalizationRepository {
 			.update() == 1;
 	}
 
+	boolean completeUngrounded(
+		UngroundedQuestionAnswerFinalization command,
+		long answerId
+	) {
+		QuestionTaskFence fence = command.fence();
+		QuestionAnswerFinalizationContext context = command.context();
+		return jdbc.sql("""
+			UPDATE ai_question_tasks
+			SET status = 'completed',
+			    stage = 'persisting',
+			    embedding = CAST(:embedding AS vector),
+			    embedding_model = :embeddingModel,
+			    geo_scope = :geoScope,
+			    geo_scope_confidence = :geoScopeConfidence,
+			    region_context = CAST(:regionContext AS jsonb),
+			    answer_id = :answerId,
+			    answer_outcome = 'ungrounded',
+			    generation_provider = :generationProvider,
+			    generation_model = :generationModel,
+			    retrieval_config_version = :retrievalConfigVersion,
+			    fallback_reason = :fallbackReason,
+			    prompt_version = :promptVersion,
+			    grounding_status = 'ungrounded',
+			    grounding_score = NULL,
+			    evidence = '[]'::jsonb,
+			    last_error_code = NULL,
+			    last_error_message = NULL,
+			    completed_at = CURRENT_TIMESTAMP,
+			    lease_until = NULL,
+			    locked_by = NULL,
+			    lease_token = NULL,
+			    updated_at = CURRENT_TIMESTAMP
+			WHERE question_id = :questionId
+			  AND status = 'processing'
+			  AND stage = 'persisting'
+			  AND locked_by = :workerId
+			  AND lease_token = :leaseToken
+			  AND lease_until > clock_timestamp()
+			  AND cancel_requested_at IS NULL
+			""")
+			.param("embedding", vectorLiteral(context.embedding()))
+			.param("embeddingModel", context.embeddingModel())
+			.param("geoScope", context.geoScope().name())
+			.param("geoScopeConfidence", context.geoScopeConfidence())
+			.param("regionContext", json(context.regionContext()))
+			.param("answerId", answerId)
+			.param("generationProvider", context.generationProvider())
+			.param("generationModel", context.generationModel())
+			.param("retrievalConfigVersion", context.retrievalConfigVersion())
+			.param("fallbackReason", context.fallbackReason(), Types.VARCHAR)
+			.param("promptVersion", context.promptVersion())
+			.param("questionId", fence.questionId())
+			.param("workerId", fence.workerId())
+			.param("leaseToken", fence.leaseToken())
+			.update() == 1;
+	}
+
 	private String vectorLiteral(List<Float> embedding) {
 		StringBuilder literal = new StringBuilder(embedding.size() * 8).append('[');
 		for (int index = 0; index < embedding.size(); index++) {

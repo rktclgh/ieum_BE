@@ -73,6 +73,9 @@ class OneToOneVisibilityIntegrationTest {
 	@MockitoBean
 	private ChatRoomListChangeEmitter chatRoomListChangeEmitter;
 
+	@MockitoBean
+	private ChatSystemMessageService chatSystemMessageService;
+
 	@AfterAll
 	static void cleanUpDatabase() {
 		JdbcTemplate admin = new JdbcTemplate(CanonicalPostgresContainer.dataSource("postgres"));

@@ -3,6 +3,9 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 helper="$root/deploy/scripts/apply-admin-dashboard-migrations.sh"
+workflow="$root/.github/workflows/deploy-app-main.yml"
+ai_workflow="$root/.github/workflows/deploy-app-ai.yml"
+env_example="$root/deploy/env/app-main.env.example"
 work_dir="$(mktemp -d)"
 trap 'rm -rf "$work_dir"' EXIT
 
@@ -12,6 +15,19 @@ fail() {
 }
 
 test -x "$helper" || fail "migration helper is missing or not executable"
+test -s "$workflow" || fail "app-main deployment workflow is missing"
+test -s "$ai_workflow" || fail "app-ai deployment workflow is missing"
+test -s "$env_example" || fail "app-main environment example is missing"
+
+v32_migration="$root/db/migrations/v32_chat_message_reply.sql"
+test -s "$v32_migration" || fail "v32 reply migration is missing"
+v32_begin_line="$(grep -n -m1 -Fx 'BEGIN;' "$v32_migration" | cut -d: -f1 || true)"
+v32_add_column_line="$(grep -n -m1 -F 'ADD COLUMN reply_to_message_id' "$v32_migration" | cut -d: -f1 || true)"
+v32_fk_line="$(grep -n -m1 -F 'ADD CONSTRAINT fk_messages_reply_to_message' "$v32_migration" | cut -d: -f1 || true)"
+v32_commit_line="$(grep -n -m1 -Fx 'COMMIT;' "$v32_migration" | cut -d: -f1 || true)"
+test -n "$v32_begin_line" && test -n "$v32_add_column_line" && test -n "$v32_fk_line" && test -n "$v32_commit_line" \
+  && (( v32_begin_line < v32_add_column_line )) && (( v32_add_column_line < v32_fk_line )) && (( v32_fk_line < v32_commit_line )) \
+  || fail "v32 reply migration must atomically wrap column and foreign-key DDL"
 
 fake_bin="$work_dir/bin"
 capture_dir="$work_dir/capture"
@@ -85,18 +101,41 @@ test "$(cat "$capture_dir/password-transport")" = 'environment' \
 stdin_file="$capture_dir/stdin"
 grep -Fq "pg_advisory_lock" "$stdin_file" \
   || fail "session advisory lock is missing"
+grep -Fq "hashtextextended('ieum:admin-dashboard:v25-v26', 0)" "$stdin_file" \
+  || fail "migration helper must retain the deployed advisory-lock namespace"
+if grep -Fq "hashtextextended('ieum:admin-dashboard:v25-v32', 0)" "$stdin_file"; then
+  fail "migration helper must not split migration serialization onto a new advisory-lock namespace"
+fi
 grep -Fq "auth_version_contract_state" "$stdin_file" \
   || fail "auth_version preflight/final verification is missing"
 grep -Fq "admin_audit_contract_state" "$stdin_file" \
   || fail "audit schema preflight/final verification is missing"
+grep -Fq "KNOWLEDGE_RELATION_APPROVED" "$stdin_file" \
+  || fail "audit action verification must accept knowledge relation approval actions"
+grep -Fq "KNOWLEDGE_RELATION_REJECTED" "$stdin_file" \
+  || fail "audit action verification must accept knowledge relation rejection actions"
+grep -Fq "knowledge_relation_candidate" "$stdin_file" \
+  || fail "audit target verification must accept knowledge relation candidates"
+grep -Fq "message_type_contract_state" "$stdin_file" \
+  || fail "message type preflight/final verification is missing"
+grep -Fq "message_reply_contract_state" "$stdin_file" \
+  || fail "message reply preflight/final verification is missing"
 grep -Fq "partial or incompatible users.auth_version schema" "$stdin_file" \
   || fail "partial auth schema must fail explicitly"
 grep -Fq "partial or incompatible admin_audit_logs schema" "$stdin_file" \
   || fail "partial audit schema must fail explicitly"
+grep -Fq "partial or incompatible messages.message_type schema" "$stdin_file" \
+  || fail "partial message type schema must fail explicitly"
+grep -Fq "partial or incompatible messages.reply_to_message_id schema" "$stdin_file" \
+  || fail "partial message reply schema must fail explicitly"
 grep -Fq "apply_admin_audit_migration" "$stdin_file" \
   || fail "an exact existing audit schema must skip the non-idempotent v26 file"
 grep -Fq "apply_auth_version_migration" "$stdin_file" \
   || fail "an exact existing auth schema must skip the locking v25 file"
+grep -Fq "apply_message_type_migration" "$stdin_file" \
+  || fail "an exact existing message type schema must skip the non-idempotent v28 file"
+grep -Fq "apply_message_reply_migration" "$stdin_file" \
+  || fail "an exact existing message reply schema must skip the non-idempotent v32 file"
 grep -Fq "SET search_path = pg_catalog, public" "$stdin_file" \
   || fail "migration session must pin trusted catalog resolution before running qualified DDL"
 search_path_line="$(grep -n -m1 -F 'SET search_path = pg_catalog, public' "$stdin_file" | cut -d: -f1)"
@@ -139,6 +178,19 @@ for token in "${required_exact_catalog_tokens[@]}"; do
   grep -Fq "$token" "$stdin_file" \
     || fail "exact catalog verification is missing: $token"
 done
+required_message_type_catalog_tokens=(
+  "'public.messages'::regclass"
+  "attribute.atttypid = 'character varying'::regtype"
+  "attribute.atttypmod = 20"
+  "ck_messages_message_type"
+  "ck_messages_system_text_only"
+  "constraint_row.conkey"
+  "constraint_row.convalidated"
+)
+for token in "${required_message_type_catalog_tokens[@]}"; do
+  grep -Fq "$token" "$stdin_file" \
+    || fail "message type exact catalog verification is missing: $token"
+done
 if grep -Fq "indexdef LIKE" "$stdin_file"; then
   fail "index verification must not rely on permissive text matching"
 fi
@@ -150,16 +202,82 @@ v24_line="$(grep -n -m1 -F '\i db/migrations/v24_seed_report_policy_rules.sql' "
 v25_line="$(grep -n -m1 -F '\i db/migrations/v25_user_auth_version.sql' "$stdin_file" | cut -d: -f1 || true)"
 v26_line="$(grep -n -m1 -F '\i db/migrations/v26_admin_audit_logs.sql' "$stdin_file" | cut -d: -f1 || true)"
 v27_line="$(grep -n -m1 -F '\i db/migrations/v27_report_policy_sanction_durations.sql' "$stdin_file" | cut -d: -f1 || true)"
-test -n "$v24_line" && test -n "$v25_line" && test -n "$v26_line" && test -n "$v27_line" \
-	|| fail "all v24-v27 migrations must be applied"
+v28_line="$(grep -n -m1 -F '\i db/migrations/v28_chat_system_messages.sql' "$stdin_file" | cut -d: -f1 || true)"
+v29_line="$(grep -n -m1 -F '\i db/migrations/v29_meeting_schedule_details.sql' "$stdin_file" | cut -d: -f1 || true)"
+v30_line="$(grep -n -m1 -F '\i db/migrations/v30_report_schedule_target_enum.sql' "$stdin_file" | cut -d: -f1 || true)"
+v31_line="$(grep -n -m1 -F '\i db/migrations/v31_report_schedule_target.sql' "$stdin_file" | cut -d: -f1 || true)"
+v32_line="$(grep -n -m1 -F '\i db/migrations/v32_chat_message_reply.sql' "$stdin_file" | cut -d: -f1 || true)"
+v33_line="$(grep -n -m1 -F '\i db/migrations/v33_question_ai_ungrounded_answer.sql' "$stdin_file" | cut -d: -f1 || true)"
+v34_line="$(grep -n -m1 -F '\i db/migrations/v34_question_ai_ungrounded_answer_validate.sql' "$stdin_file" | cut -d: -f1 || true)"
+v35_line="$(grep -n -m1 -F '\i db/migrations/v35_knowledge_relation_candidates.sql' "$stdin_file" | cut -d: -f1 || true)"
+test -n "$v24_line" && test -n "$v25_line" && test -n "$v26_line" && test -n "$v27_line" && test -n "$v28_line" \
+  && test -n "$v29_line" && test -n "$v30_line" && test -n "$v31_line" && test -n "$v32_line" \
+  && test -n "$v33_line" && test -n "$v34_line" && test -n "$v35_line" \
+	|| fail "all v24-v35 migrations must be applied"
 (( v24_line < v27_line )) || fail "v24 must run before v27"
 (( v25_line < v26_line )) || fail "v25 must run before v26"
+(( v26_line < v28_line )) || fail "v26 must run before v28"
+(( v28_line < v29_line )) || fail "v28 must run before v29"
+(( v29_line < v30_line )) || fail "v29 must run before v30"
+(( v30_line < v31_line )) || fail "v30 must run before v31"
+(( v31_line < v32_line )) || fail "v31 must run before v32"
+(( v32_line < v33_line )) || fail "v32 must run before v33"
+(( v33_line < v34_line )) || fail "v33 must run before v34"
+(( v34_line < v35_line )) || fail "v34 must run before v35"
 report_policy_guard_line="$(grep -n -m1 -F '\if :apply_report_policy_migrations' "$stdin_file" | cut -d: -f1 || true)"
 test -n "$report_policy_guard_line" && (( report_policy_guard_line < v24_line )) \
 	|| fail "report policy migrations must be guarded by table presence"
 auth_guard_line="$(grep -n -m1 -F '\if :apply_auth_version_migration' "$stdin_file" | cut -d: -f1 || true)"
 test -n "$auth_guard_line" && (( auth_guard_line < v25_line )) \
   || fail "v25 must be guarded by the auth absent-state flag"
+message_type_guard_line="$(grep -n -m1 -F '\if :apply_message_type_migration' "$stdin_file" | cut -d: -f1 || true)"
+test -n "$message_type_guard_line" && (( message_type_guard_line < v28_line )) \
+  || fail "v28 must be guarded by the message type absent-state flag"
+schedule_details_guard_line="$(grep -n -m1 -F '\if :apply_meeting_schedule_details_migration' "$stdin_file" | cut -d: -f1 || true)"
+test -n "$schedule_details_guard_line" && (( schedule_details_guard_line < v29_line )) \
+  || fail "v29 must be guarded by missing meeting schedule detail columns"
+schedule_target_enum_guard_line="$(grep -n -m1 -F '\if :apply_schedule_report_target_enum_migration' "$stdin_file" | cut -d: -f1 || true)"
+test -n "$schedule_target_enum_guard_line" && (( schedule_target_enum_guard_line < v30_line )) \
+  || fail "v30 must be guarded by a missing schedule report target enum"
+schedule_target_guard_line="$(grep -n -m1 -F '\if :apply_schedule_report_target_migration' "$stdin_file" | cut -d: -f1 || true)"
+test -n "$schedule_target_guard_line" && (( schedule_target_guard_line < v31_line )) \
+  || fail "v31 must be guarded by a missing reports.schedule_id column"
+message_reply_guard_line="$(grep -n -m1 -F '\if :apply_message_reply_migration' "$stdin_file" | cut -d: -f1 || true)"
+test -n "$message_reply_guard_line" && (( message_reply_guard_line < v32_line )) \
+  || fail "v32 must be guarded by the reply column absent-state flag"
+question_ai_ungrounded_guard_line="$(grep -n -m1 -F '\if :apply_question_ai_ungrounded_migration' "$stdin_file" | cut -d: -f1 || true)"
+test -n "$question_ai_ungrounded_guard_line" && (( question_ai_ungrounded_guard_line < v33_line )) \
+  || fail "v33 must be guarded after its named grounding-status constraint exists"
+
+for workflow in "$root/.github/workflows/deploy-app-main.yml" "$root/.github/workflows/deploy-app-ai.yml"; do
+  for migration in v28_chat_system_messages v29_meeting_schedule_details v30_report_schedule_target_enum v31_report_schedule_target v32_chat_message_reply v33_question_ai_ungrounded_answer v34_question_ai_ungrounded_answer_validate v35_knowledge_relation_candidates; do
+    scp_line="$(grep -n -F "db/migrations/${migration}.sql" "$workflow" | grep -F 'scp ' | cut -d: -f1 || true)"
+    chmod_line="$(grep -n -F "${migration}.sql" "$workflow" | grep -F 'chmod 600' | cut -d: -f1 || true)"
+    test -n "$scp_line" || fail "workflow must copy ${migration}: $workflow"
+    test -n "$chmod_line" || fail "workflow must chmod ${migration}: $workflow"
+  done
+done
+
+for migration in \
+  db/migrations/v25_web_push_subscriptions.sql \
+  db/migrations/v26_web_push_session_cardinality.sql; do
+  grep -Fq "\\i $migration" "$stdin_file" \
+    || fail "Web Push migration is missing from the guarded migration helper: $migration"
+  grep -Fq "$migration" "$workflow" \
+    || fail "Web Push migration is missing from the app-main deployment copy path: $migration"
+  grep -Fq "$migration" "$ai_workflow" \
+    || fail "Web Push migration is missing from the app-ai deployment copy path: $migration"
+done
+web_push_base_line="$(grep -n -m1 -F '\i db/migrations/v25_web_push_subscriptions.sql' "$stdin_file" | cut -d: -f1 || true)"
+web_push_cardinality_line="$(grep -n -m1 -F '\i db/migrations/v26_web_push_session_cardinality.sql' "$stdin_file" | cut -d: -f1 || true)"
+web_push_base_guard_line="$(grep -n -m1 -F '\if :apply_web_push_subscription_base_migration' "$stdin_file" | cut -d: -f1 || true)"
+web_push_cardinality_guard_line="$(grep -n -m1 -F '\if :apply_web_push_session_cardinality_migration' "$stdin_file" | cut -d: -f1 || true)"
+test -n "$web_push_base_guard_line" && (( web_push_base_guard_line < web_push_base_line )) \
+  || fail "Web Push base migration must be guarded by table absence"
+test -n "$web_push_cardinality_guard_line" && (( web_push_cardinality_guard_line < web_push_cardinality_line )) \
+  || fail "Web Push session-cardinality migration must be guarded by its unique index"
+grep -Fxq 'WEB_PUSH_ALLOWED_ENDPOINT_HOSTS=fcm.googleapis.com,push.services.mozilla.com,push.apple.com,notify.windows.com' "$env_example" \
+  || fail "Web Push endpoint-host example must permit the Apple Push domain boundary"
 
 if PATH="$fake_bin:$PATH" \
   CAPTURE_DIR="$capture_dir" \

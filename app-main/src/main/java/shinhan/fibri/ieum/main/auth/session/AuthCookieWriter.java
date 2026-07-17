@@ -20,7 +20,7 @@ public class AuthCookieWriter {
 	) {
 		addCookie(response, "access_token", accessToken, "/", properties.accessTokenMaxAgeSeconds(), true);
 		addCookie(response, "refresh_token", refreshToken, "/api/v1/auth", properties.refreshTokenMaxAgeSeconds(), true);
-		addCookie(response, "csrf_token", csrfToken, "/", -1, false);
+		addCookie(response, "csrf_token", csrfToken, "/", properties.refreshTokenMaxAgeSeconds(), false);
 	}
 
 	public void writeExpiredAuthCookies(HttpServletResponse response) {

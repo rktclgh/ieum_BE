@@ -23,6 +23,7 @@ public class ChatInboundChannelInterceptor implements ChannelInterceptor {
 	private static final Logger log = LoggerFactory.getLogger(ChatInboundChannelInterceptor.class);
 
 	private static final Pattern ROOM_TOPIC_PATTERN = Pattern.compile("^/topic/rooms/(\\d+)$");
+	private static final Pattern USER_ROOM_MESSAGE_QUEUE_PATTERN = Pattern.compile("^/user/queue/rooms/(\\d+)$");
 	private static final Pattern SEND_DESTINATION_PATTERN = Pattern.compile("^/app/rooms/(\\d+)/send$");
 	private static final String USER_ERROR_QUEUE_DESTINATION = "/user/queue/errors";
 	private static final String USER_ROOM_LIST_QUEUE_DESTINATION = "/user/queue/rooms";
@@ -78,19 +79,21 @@ public class ChatInboundChannelInterceptor implements ChannelInterceptor {
 		if (principal == null || destination == null) {
 			return null;
 		}
-		Long roomId = parseRoomId(destination, ROOM_TOPIC_PATTERN).orElse(null);
+		Long topicRoomId = parseRoomId(destination, ROOM_TOPIC_PATTERN).orElse(null);
+		Long userRoomMessageQueueRoomId = parseRoomId(destination, USER_ROOM_MESSAGE_QUEUE_PATTERN).orElse(null);
+		Long roomId = topicRoomId != null ? topicRoomId : userRoomMessageQueueRoomId;
 		if (!hasActiveSession(principal)) {
 			sendError(principal, "INVALID_SESSION", "Chat session is invalid", roomId);
 			return null;
 		}
-		// 사용자 전용 큐는 Spring이 세션 소유자로 스코프한다. 새 개인 큐가 생겨도 구독
-		// 표면이 자동으로 넓어지지 않도록 허용된 두 목적지만 정확 일치로 제한한다.
+		// 오류·room-list 개인 큐는 Spring이 세션 소유자로 스코프한다. room message 개인 큐는
+		// 아래에서 정확한 room id와 active membership을 추가로 검증한다.
 		if (USER_ERROR_QUEUE_DESTINATION.equals(destination)
 			|| USER_ROOM_LIST_QUEUE_DESTINATION.equals(destination)) {
 			return message;
 		}
-		// 그 외 목적지(=/topic/**)는 default-deny — 정확히 /topic/rooms/{id} 이고 멤버일 때만 허용.
-		// 와일드카드(/topic/rooms/*, /topic/**) 구독으로 전체 방을 도청하는 우회를 차단한다.
+		// 그 외 목적지는 default-deny — room topic과 개인 room queue 모두 정확한 room id 및 active membership이 필요하다.
+		// 와일드카드(/topic/rooms/*, /user/queue/rooms/*) 구독으로 전체 방을 도청하는 우회를 차단한다.
 		if (roomId == null) {
 			sendError(principal, "NOT_ROOM_MEMBER", "Room subscription is not allowed", null);
 			return null;

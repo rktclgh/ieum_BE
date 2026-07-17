@@ -106,12 +106,24 @@ class PinRepositoryIntegrationTest {
 		jdbcTemplate.update(
 			"INSERT INTO meetings (pin_id, title, status, deleted_at) VALUES (7, 'outdated meeting', 'open'::meeting_status, NULL)"
 		);
-		insertSchedule(5L, "2026-07-01T19:00:00+09:00", "2026-07-01T23:59:59+09:00");
+		insertSchedule(5L, "2000-07-01T19:00:00+09:00", "2000-07-01T23:59:59+09:00");
 
 		insertPin(66L, "meeting", 127.55, 37.96);
 		jdbcTemplate.update(
 			"INSERT INTO meetings (pin_id, title, status, deleted_at) VALUES (8, 'unscheduled meeting', 'open'::meeting_status, NULL)"
 		);
+
+		insertPin(55L, "meeting", 127.6, 37.97);
+		jdbcTemplate.update(
+			"INSERT INTO meetings (pin_id, title, status, deleted_at) VALUES (9, 'closed meeting', 'closed'::meeting_status, NULL)"
+		);
+		insertSchedule(7L, "2099-07-14T19:00:00+09:00", "2099-07-14T23:59:59+09:00");
+
+		insertPin(44L, "meeting", 127.7, 37.98);
+		jdbcTemplate.update(
+			"INSERT INTO meetings (pin_id, title, status, deleted_at) VALUES (10, 'deleted meeting', 'open'::meeting_status, now())"
+		);
+		insertSchedule(8L, "2099-07-15T19:00:00+09:00", "2099-07-15T23:59:59+09:00");
 	}
 
 	@Test
@@ -126,8 +138,11 @@ class PinRepositoryIntegrationTest {
 			501
 		);
 
-		assertThat(rows).hasSize(2);
-		PinProjection meeting = rows.get(0);
+		assertThat(rows).hasSize(4);
+		PinProjection meeting = rows.stream()
+			.filter(row -> row.getPinId().equals(2L))
+			.findFirst()
+			.orElseThrow();
 		assertThat(meeting.getPinId()).isEqualTo(2L);
 		assertThat(meeting.getPinType()).isEqualTo("meeting");
 		assertThat(meeting.getTitle()).isEqualTo("alive meeting");
@@ -137,7 +152,10 @@ class PinRepositoryIntegrationTest {
 		assertThat(meeting.getMine()).isTrue();
 		assertThat(meeting.getCreatedAt()).isBeforeOrEqualTo(Instant.now());
 
-		PinProjection question = rows.get(1);
+		PinProjection question = rows.stream()
+			.filter(row -> row.getPinId().equals(1L))
+			.findFirst()
+			.orElseThrow();
 		assertThat(question.getPinId()).isEqualTo(1L);
 		assertThat(question.getPinType()).isEqualTo("question");
 		assertThat(question.getTitle()).isEqualTo("alive question");
@@ -146,7 +164,7 @@ class PinRepositoryIntegrationTest {
 	}
 
 	@Test
-	void findMapPinsExcludesMeetingWithoutSchedule() {
+	void findMapPinsIncludesOpenMeetingsWithoutActiveSchedules() {
 		List<PinProjection> rows = pinRepository.findMapPins(
 			42L,
 			null,
@@ -159,7 +177,7 @@ class PinRepositoryIntegrationTest {
 
 		assertThat(rows)
 			.extracting(PinProjection::getTitle)
-			.doesNotContain("unscheduled meeting");
+			.contains("unscheduled meeting", "outdated meeting");
 	}
 
 	@Test
@@ -167,7 +185,7 @@ class PinRepositoryIntegrationTest {
 		List<PinProjection> firstPage = pinRepository.findListPins(42L, null, null, 3);
 
 		assertThat(firstPage).extracting(PinProjection::getPinId)
-			.containsExactly(5L, 2L, 1L);
+			.containsExactly(8L, 7L, 5L);
 
 		List<PinProjection> afterCursor = pinRepository.findListPins(42L, null, 2L, 3);
 
@@ -177,16 +195,16 @@ class PinRepositoryIntegrationTest {
 
 	@Test
 	void findListPinsExecutesTypeFilter() {
-		List<PinProjection> rows = pinRepository.findListPins(42L, "meeting", null, 3);
+		List<PinProjection> rows = pinRepository.findListPins(42L, "meeting", null, 10);
 
-		assertThat(rows).hasSize(2);
+		assertThat(rows).hasSize(4);
 		assertThat(rows).extracting(PinProjection::getPinId)
-			.containsExactly(5L, 2L);
+			.containsExactly(8L, 7L, 5L, 2L);
 		assertThat(rows).allSatisfy(row -> assertThat(row.getPinType()).isEqualTo("meeting"));
 	}
 
 	@Test
-	void findPinsHideKickedAndOutdatedMeetings() {
+	void findMapPinsKeepClosedDeletedKickedAndBlockedMeetingsHidden() {
 		List<PinProjection> rows = pinRepository.findMapPins(
 			42L,
 			"meeting",
@@ -198,7 +216,17 @@ class PinRepositoryIntegrationTest {
 		);
 
 		assertThat(rows).extracting(PinProjection::getTitle)
-			.containsExactly("alive meeting");
+			.containsExactly("unscheduled meeting", "outdated meeting", "alive meeting")
+			.doesNotContain("closed meeting", "deleted meeting", "kicked meeting", "blocked meeting");
+	}
+
+	@Test
+	void findListPinsIncludesOpenMeetingsWithoutActiveSchedules() {
+		List<PinProjection> rows = pinRepository.findListPins(42L, "meeting", null, 10);
+
+		assertThat(rows).extracting(PinProjection::getTitle)
+			.contains("unscheduled meeting", "outdated meeting")
+			.doesNotContain("closed meeting", "deleted meeting", "kicked meeting", "blocked meeting");
 	}
 
 	private void createSchema() {

@@ -31,6 +31,8 @@ class LocalAnswerConfigurationTest {
 				assertThat(context).hasNotFailed();
 				assertThat(context).doesNotHaveBean(LocalAnswerGateway.class);
 				assertThat(context).doesNotHaveBean(LocalAnswerProperties.class);
+				assertThat(context).doesNotHaveBean(UngroundedAnswerGateway.class);
+				assertThat(context).doesNotHaveBean(UngroundedAnswerProperties.class);
 				assertThat(context).doesNotHaveBean(Client.class);
 			});
 	}
@@ -43,9 +45,16 @@ class LocalAnswerConfigurationTest {
 				assertThat(context).hasNotFailed();
 				assertThat(context).hasSingleBean(LocalAnswerGateway.class);
 				assertThat(context).hasSingleBean(LocalAnswerProperties.class);
+				assertThat(context).hasSingleBean(UngroundedAnswerGateway.class);
+				assertThat(context).hasSingleBean(UngroundedAnswerProperties.class);
 				LocalAnswerProperties properties = context.getBean(LocalAnswerProperties.class);
+				UngroundedAnswerProperties ungroundedProperties = context.getBean(
+					UngroundedAnswerProperties.class
+				);
 				assertThat(properties.maxTokens()).isEqualTo(1024);
 				assertThat(properties.modelTimeout()).isEqualTo(Duration.ofSeconds(30));
+				assertThat(ungroundedProperties.model()).isEqualTo("gemini-3.1-flash-lite");
+				assertThat(ungroundedProperties.modelTimeout()).isEqualTo(Duration.ofSeconds(30));
 				HttpOptions options = LocalAnswerConfiguration.geminiHttpOptions(properties);
 				assertThat(options.timeout()).contains(30_000);
 				assertThat(options.retryOptions()).isPresent();
@@ -80,7 +89,11 @@ class LocalAnswerConfigurationTest {
 			"app.ai.question-answer.generation.fallback-model=gemini-3.1-flash-lite",
 			"app.ai.gemini-api-key=test-key",
 			"app.ai.question-answer.generation.prompt-version=question-local-answer-v1",
-			"app.ai.question-answer.generation.model-timeout=30s"
+			"app.ai.question-answer.generation.model-timeout=30s",
+			"app.ai.question-answer.ungrounded.model=gemini-3.1-flash-lite",
+			"app.ai.question-answer.ungrounded.prompt-version=question-ungrounded-answer-v1",
+			"app.ai.question-answer.ungrounded.max-tokens=1024",
+			"app.ai.question-answer.ungrounded.model-timeout=30s"
 		};
 	}
 }

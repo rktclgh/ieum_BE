@@ -247,6 +247,68 @@ class NotificationRepositoryIntegrationTest {
 		assertThat(stored.getEventKey()).isEqualTo("answer-created:300");
 	}
 
+	@Test
+	void doesNotInsertAnotherAiAnswerNotificationForTheSameQuestionWithANewEventKey() {
+		NotificationEventRepository eventRepository = new NotificationEventRepository(jdbcTemplate);
+
+		var legacy = eventRepository.insertOnce(
+			1L,
+			NotificationType.question,
+			"새 답변",
+			"회원님의 질문에 답변이 달렸어요",
+			50L,
+			true,
+			"answer-created:300"
+		);
+		var replacement = eventRepository.insertOnce(
+			1L,
+			NotificationType.question,
+			"새 답변",
+			"회원님의 질문에 답변이 달렸어요",
+			50L,
+			true,
+			"ai-answer-created:question:50"
+		);
+
+		assertThat(legacy).isPresent();
+		assertThat(replacement).isEmpty();
+		assertThat(jdbcTemplate.queryForObject(
+			"SELECT count(*) FROM notifications WHERE user_id = 1 AND ref_id = 50 AND answer_is_ai = true",
+			Long.class
+		)).isEqualTo(1L);
+	}
+
+	@Test
+	void permitsHumanAnswerNotificationWhenAnAiAnswerNotificationAlreadyExistsForTheQuestion() {
+		NotificationEventRepository eventRepository = new NotificationEventRepository(jdbcTemplate);
+
+		var aiAnswer = eventRepository.insertOnce(
+			1L,
+			NotificationType.question,
+			"새 답변",
+			"회원님의 질문에 답변이 달렸어요",
+			50L,
+			true,
+			"ai-answer-created:question:50"
+		);
+		var humanAnswer = eventRepository.insertOnce(
+			1L,
+			NotificationType.question,
+			"새 답변",
+			"회원님의 질문에 답변이 달렸어요",
+			50L,
+			false,
+			"human-answer-created:301"
+		);
+
+		assertThat(aiAnswer).isPresent();
+		assertThat(humanAnswer).isPresent();
+		assertThat(jdbcTemplate.queryForObject(
+			"SELECT count(*) FROM notifications WHERE user_id = 1 AND ref_id = 50",
+			Long.class
+		)).isEqualTo(2L);
+	}
+
 	private long insertNotification(Long userId, String title, OffsetDateTime createdAt) {
 		return jdbcTemplate.queryForObject(
 			"""

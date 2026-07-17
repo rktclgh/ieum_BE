@@ -56,6 +56,7 @@ class StaticPageControllerTest {
 		"/admin/login",
 		"/admin/users",
 		"/admin/users/detail",
+		"/admin/knowledge",
 		"/admin/reports",
 		"/admin/reports/detail",
 		"/admin/inquiries"

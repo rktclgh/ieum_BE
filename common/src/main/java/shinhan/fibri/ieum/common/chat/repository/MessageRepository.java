@@ -2,6 +2,7 @@ package shinhan.fibri.ieum.common.chat.repository;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -17,6 +18,8 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 		SELECT message
 		FROM Message message
 		JOIN FETCH message.sender
+		LEFT JOIN FETCH message.replyTo replyTo
+		LEFT JOIN FETCH replyTo.sender
 		JOIN ChatMember member ON member.room = message.room AND member.user.id = :userId
 		WHERE message.room.id = :roomId
 		  AND member.leftAt IS NULL
@@ -34,6 +37,8 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 		SELECT message
 		FROM Message message
 		JOIN FETCH message.sender
+		LEFT JOIN FETCH message.replyTo replyTo
+		LEFT JOIN FETCH replyTo.sender
 		JOIN ChatMember member ON member.room = message.room AND member.user.id = :userId
 		WHERE message.room.id = :roomId
 		  AND member.leftAt IS NULL
@@ -93,6 +98,8 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 		FROM Message message
 		JOIN FETCH message.room
 		JOIN FETCH message.sender
+		LEFT JOIN FETCH message.replyTo replyTo
+		LEFT JOIN FETCH replyTo.sender
 		JOIN ChatMember member ON member.room = message.room AND member.user.id = :userId
 		WHERE message.room.id IN :roomIds
 		  AND member.leftAt IS NULL
@@ -120,6 +127,9 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 		SELECT member.user.id AS userId, message AS lastMessage
 		FROM ChatMember member
 		JOIN Message message ON message.room = member.room
+		JOIN FETCH message.sender
+		LEFT JOIN FETCH message.replyTo replyTo
+		LEFT JOIN FETCH replyTo.sender
 		WHERE member.room.id = :roomId
 		  AND member.user.id IN :userIds
 		  AND member.leftAt IS NULL
@@ -142,6 +152,15 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 		@Param("roomId") Long roomId,
 		@Param("userIds") List<Long> userIds
 	);
+
+	@Query("""
+		SELECT message
+		FROM Message message
+		JOIN FETCH message.room
+		JOIN FETCH message.sender
+		WHERE message.id = :messageId
+		""")
+	Optional<Message> findReplyTargetById(@Param("messageId") Long messageId);
 
 	@Query("""
 		SELECT message

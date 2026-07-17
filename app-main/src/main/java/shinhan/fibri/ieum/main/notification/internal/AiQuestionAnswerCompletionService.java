@@ -10,6 +10,7 @@ import shinhan.fibri.ieum.main.notification.service.NotificationPublisher;
 public class AiQuestionAnswerCompletionService {
 
 	private static final String COMPLETED = "completed";
+	static final String AI_ANSWER_EVENT_KEY_PREFIX = "ai-answer-created:question:";
 
 	private final AiQuestionAnswerCompletionRepository repository;
 	private final NotificationPublisher publisher;
@@ -52,7 +53,7 @@ public class AiQuestionAnswerCompletionService {
 				"회원님의 질문에 답변이 달렸어요",
 				questionId,
 				true,
-				"answer-created:" + answerId
+				AI_ANSWER_EVENT_KEY_PREFIX + questionId
 			);
 		}
 

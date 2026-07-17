@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.main.chat.service;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -12,6 +13,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.chat.domain.ChatMember;
 import shinhan.fibri.ieum.common.chat.domain.Message;
+import shinhan.fibri.ieum.common.chat.domain.MessageType;
 import shinhan.fibri.ieum.common.chat.domain.RoomType;
 import shinhan.fibri.ieum.common.chat.repository.ChatMemberRepository;
 import shinhan.fibri.ieum.common.chat.repository.MessageRepository;
@@ -38,18 +40,20 @@ public class ChatMessageService {
 		validatePayload(request);
 		ChatMember member = chatMemberRepository.findActiveByRoomIdAndUserId(roomId, principal.userId())
 			.orElseThrow(NotRoomMemberException::new);
+		Message replyTo = findReplyTarget(member, request.replyToMessageId());
 		restoreLeftMembersForReopenableRoom(member, principal.userId());
-		Message message = messageRepository.save(toMessage(member, request));
+		Message message = messageRepository.save(toMessage(member, request, replyTo));
 		List<Long> activeUserIds = chatMemberRepository.findActiveUserIdsByRoomId(roomId);
+		List<ChatMember> activeMembers = chatMemberRepository.findActiveByRoomIdAndUserIds(roomId, activeUserIds);
 		chatRoomListChangeEmitter.upsert(roomId, activeUserIds);
-		WsMessageEvent event = toEvent(message);
+		WsMessageEvent event = WsMessageEvent.from(message);
 		ChatPushTrigger pushTrigger = new ChatPushTrigger(
 			message.getId(),
 			message.getRoom().getId(),
 			message.getSender().getId()
 		);
-		publishAfterCommit(event, pushTrigger);
-		return ChatMessageResponse.from(message);
+		publishAfterCommit(event, activeMembers, pushTrigger);
+		return ChatMessageResponse.from(message, member.getVisibleAfterMessageId());
 	}
 
 	private void restoreLeftMembersForReopenableRoom(ChatMember senderMember, Long senderId) {
@@ -76,42 +80,50 @@ public class ChatMessageService {
 		}
 	}
 
-	private Message toMessage(ChatMember member, SendChatMessageRequest request) {
-		if (request.imageFileId() != null && (request.content() == null || request.content().isBlank())) {
-			return Message.image(member.getRoom(), member.getUser(), request.imageFileId());
+	private Message findReplyTarget(ChatMember member, Long replyToMessageId) {
+		if (replyToMessageId == null) {
+			return null;
 		}
-		return Message.text(member.getRoom(), member.getUser(), request.content());
+		Message target = messageRepository.findReplyTargetById(replyToMessageId)
+			.orElseThrow(() -> new InvalidChatMessageException("reply target must be a visible user message in this room"));
+		if (
+			target.getDeletedAt() != null
+				|| target.getMessageType() != MessageType.user
+				|| !Objects.equals(target.getRoom().getId(), member.getRoom().getId())
+				|| target.getId() <= member.getVisibleAfterMessageId()
+		) {
+			throw new InvalidChatMessageException("reply target must be a visible user message in this room");
+		}
+		return target;
 	}
 
-	private WsMessageEvent toEvent(Message message) {
-		ChatMessageResponse response = ChatMessageResponse.from(message);
-		return new WsMessageEvent(
-			response.messageId(),
-			response.roomId(),
-			response.senderId(),
-			response.senderNickname(),
-			response.content(),
-			response.imageUrl(),
-			response.createdAt()
-		);
+	private Message toMessage(ChatMember member, SendChatMessageRequest request, Message replyTo) {
+		if (request.imageFileId() != null && (request.content() == null || request.content().isBlank())) {
+			return Message.image(member.getRoom(), member.getUser(), request.imageFileId(), replyTo);
+		}
+		return Message.text(member.getRoom(), member.getUser(), request.content(), replyTo);
 	}
 
-	private void publishAfterCommit(WsMessageEvent event, ChatPushTrigger pushTrigger) {
+	private void publishAfterCommit(
+		WsMessageEvent event,
+		List<ChatMember> recipients,
+		ChatPushTrigger pushTrigger
+	) {
 		if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-			publish(event, pushTrigger);
+			publish(event, recipients, pushTrigger);
 			return;
 		}
 		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
 			@Override
 			public void afterCommit() {
-				publish(event, pushTrigger);
+				publish(event, recipients, pushTrigger);
 			}
 		});
 	}
 
-	private void publish(WsMessageEvent event, ChatPushTrigger pushTrigger) {
+	private void publish(WsMessageEvent event, List<ChatMember> recipients, ChatPushTrigger pushTrigger) {
 		try {
-			roomEventPublisher.publish(event);
+			roomEventPublisher.publishUserMessage(event, recipients);
 		}
 		catch (RuntimeException exception) {
 			log.warn(

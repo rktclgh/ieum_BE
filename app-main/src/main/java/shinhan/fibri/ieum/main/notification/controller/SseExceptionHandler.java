@@ -9,6 +9,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.CannotGetJdbcConnectionException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 import shinhan.fibri.ieum.main.notification.sse.SseAuthenticationRequiredException;
 
 @RestControllerAdvice(assignableTypes = SseController.class)
@@ -31,5 +32,10 @@ public class SseExceptionHandler {
 		);
 		return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
 			.build();
+	}
+
+	@ExceptionHandler(AsyncRequestTimeoutException.class)
+	public void handleAsyncRequestTimeout(AsyncRequestTimeoutException exception) {
+		log.debug("event=sse_async_timeout");
 	}
 }

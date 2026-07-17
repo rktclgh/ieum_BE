@@ -13,7 +13,7 @@ import java.util.Set;
 
 public final class WeightedRrfFusion {
 
-	public static final String RETRIEVAL_CONFIG_VERSION = "retrieval-v2-hybrid-kg1";
+	public static final String RETRIEVAL_CONFIG_VERSION = "retrieval-v3-hybrid-kg2";
 	private static final int CANONICAL_RRF_K = 60;
 	private static final double CANONICAL_VECTOR_WEIGHT = 0.6d;
 
@@ -138,6 +138,7 @@ public final class WeightedRrfFusion {
 			relation.distanceKm(),
 			vectorRank,
 			rankedRelation.rank(),
+			relation.relationConfidence(),
 			request
 		);
 		BigDecimal distanceKm = relation.distanceKm() == null

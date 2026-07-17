@@ -6,6 +6,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.FilterChain;
 import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
@@ -50,6 +51,34 @@ class JwtAuthenticationFilterTest {
 		assertThat(SecurityContextHolder.getContext().getAuthentication().getPrincipal()).isEqualTo(principal);
 		assertThat(SecurityContextHolder.getContext().getAuthentication().getDetails())
 			.isEqualTo(new AuthenticatedSessionDetails("session-42"));
+		verify(chain).doFilter(request, response);
+	}
+
+	@Test
+	void doFilterAuthenticatesBackendAsyncRedispatchWithValidAccessCookie() throws Exception {
+		SessionTokenValidator validator = mock(SessionTokenValidator.class);
+		JwtAuthenticationFilter filter = new JwtAuthenticationFilter(validator);
+		AuthenticatedUser principal = new AuthenticatedUser(
+			42L,
+			"user@example.com",
+			UserRole.user,
+			UserStatus.active
+		);
+		when(validator.validateSession("access-token"))
+			.thenReturn(Optional.of(new ValidatedAuthSession(principal, "session-42")));
+		MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/files/1");
+		request.setDispatcherType(DispatcherType.ASYNC);
+		request.setCookies(new MockCookie("access_token", "access-token"));
+		MockHttpServletResponse response = new MockHttpServletResponse();
+		FilterChain chain = mock(FilterChain.class);
+
+		filter.doFilter(request, response, chain);
+
+		assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
+		assertThat(SecurityContextHolder.getContext().getAuthentication().getPrincipal()).isEqualTo(principal);
+		assertThat(SecurityContextHolder.getContext().getAuthentication().getDetails())
+			.isEqualTo(new AuthenticatedSessionDetails("session-42"));
+		verify(validator).validateSession("access-token");
 		verify(chain).doFilter(request, response);
 	}
 

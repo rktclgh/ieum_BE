@@ -33,7 +33,7 @@ public record ChatRoomSummaryResponse(
 			member.getPinnedAt() != null,
 			member.isNotifyEnabled(),
 			unreadCount,
-			lastMessage == null ? null : ChatMessageResponse.from(lastMessage)
+			lastMessage == null ? null : ChatMessageResponse.from(lastMessage, member.getVisibleAfterMessageId())
 		);
 	}
 }

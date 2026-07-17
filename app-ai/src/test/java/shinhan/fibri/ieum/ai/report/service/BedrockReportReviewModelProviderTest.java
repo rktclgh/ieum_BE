@@ -45,7 +45,7 @@ class BedrockReportReviewModelProviderTest {
 		ReportModelReviewOutput output = provider.review(preparedReview(), policySnapshot());
 
 		assertThat(provider.provider()).isEqualTo("bedrock");
-		assertThat(provider.model()).isEqualTo("amazon.nova-lite-v1:0");
+		assertThat(provider.model()).isEqualTo("apac.amazon.nova-lite-v1:0");
 		assertThat(output.matchedRules()).singleElement().satisfies(match -> {
 			assertThat(match.ruleCode()).isEqualTo("TEXT-SPAM-001");
 			assertThat(match.evidenceMessageIds()).containsExactly(8L);
@@ -135,8 +135,8 @@ class BedrockReportReviewModelProviderTest {
 	private ReportModelProperties properties() {
 		return new ReportModelProperties(
 			"gemini-3.1-flash-lite",
-			"amazon.nova-lite-v1:0",
-			"ap-southeast-2",
+			"apac.amazon.nova-lite-v1:0",
+			"ap-northeast-2",
 			Duration.ofSeconds(30),
 			"report-review-v1"
 		);

@@ -3,6 +3,7 @@ package shinhan.fibri.ieum.main.chat.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -12,6 +13,7 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,11 +32,13 @@ class ChatRoomLifecycleServiceTest {
 	private final ChatRoomRepository chatRoomRepository = org.mockito.Mockito.mock(ChatRoomRepository.class);
 	private final ChatMemberRepository chatMemberRepository = org.mockito.Mockito.mock(ChatMemberRepository.class);
 	private final ChatRoomListChangeEmitter chatRoomListChangeEmitter = org.mockito.Mockito.mock(ChatRoomListChangeEmitter.class);
+	private final ChatSystemMessageService chatSystemMessageService = org.mockito.Mockito.mock(ChatSystemMessageService.class);
 	private final ChatRoomLifecycleService service = new ChatRoomLifecycleService(
 		userRepository,
 		chatRoomRepository,
 		chatMemberRepository,
-		chatRoomListChangeEmitter
+		chatRoomListChangeEmitter,
+		chatSystemMessageService
 	);
 
 	@Test
@@ -166,6 +170,32 @@ class ChatRoomLifecycleServiceTest {
 		assertThatThrownBy(() -> service.removeMember(100L, 42L))
 			.isInstanceOf(shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException.class);
 
+		verify(chatRoomListChangeEmitter, never()).remove(any(), any());
+	}
+
+	@Test
+	void removeGroupMemberWithDepartureMessageLeavesMemberAtSameTimeAsRecordedSystemMessage() {
+		User user = user(42L, "member@example.com", "민지");
+		ChatRoom room = room(ChatRoom.group(7L), 100L);
+		ChatMember member = ChatMember.join(room, user);
+		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(member));
+
+		service.removeGroupMemberWithDepartureMessage(100L, 42L);
+
+		ArgumentCaptor<OffsetDateTime> leftAtCaptor = ArgumentCaptor.forClass(OffsetDateTime.class);
+		verify(chatSystemMessageService).recordMeetingDeparture(eq(room), eq(user), leftAtCaptor.capture());
+		assertThat(member.getLeftAt()).isEqualTo(leftAtCaptor.getValue());
+		verify(chatRoomListChangeEmitter).remove(100L, List.of(42L));
+	}
+
+	@Test
+	void removeGroupMemberWithDepartureMessageDoesNotEmitWhenActiveMemberIsMissing() {
+		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.removeGroupMemberWithDepartureMessage(100L, 42L))
+			.isInstanceOf(shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException.class);
+
+		verify(chatSystemMessageService, never()).recordMeetingDeparture(any(), any(), any());
 		verify(chatRoomListChangeEmitter, never()).remove(any(), any());
 	}
 

@@ -77,9 +77,9 @@ class QuestionAnalyzerConfigurationTest {
 	}
 
 	@Test
-	void failsFastWhenQuestionBedrockTransportViolatesTheSydneyContract() {
+	void failsFastWhenQuestionBedrockTransportViolatesTheSeoulContract() {
 		for (String invalidProperty : List.of(
-			"app.ai.question-answer.analyzer.bedrock-region=ap-northeast-2",
+			"app.ai.question-answer.analyzer.bedrock-region=ap-southeast-2",
 			"app.ai.question-answer.analyzer.model-timeout=31s"
 		)) {
 			contextRunner
@@ -93,7 +93,7 @@ class QuestionAnalyzerConfigurationTest {
 	@Test
 	void failsFastWhenTheEffectiveSpringAiTransportOverridesTheValidatedContract() {
 		for (String invalidProperty : List.of(
-			"spring.ai.bedrock.aws.region=ap-northeast-2",
+			"spring.ai.bedrock.aws.region=ap-southeast-2",
 			"spring.ai.bedrock.aws.timeout=31s"
 		)) {
 			contextRunner
@@ -121,9 +121,9 @@ class QuestionAnalyzerConfigurationTest {
 			"app.ai.question-answer.analyzer.model=amazon.nova-micro-v1:0",
 			"app.ai.question-answer.analyzer.analysis-version=question-query-analysis-v1",
 			"app.ai.question-answer.analyzer.max-tokens=512",
-			"app.ai.question-answer.analyzer.bedrock-region=ap-southeast-2",
+			"app.ai.question-answer.analyzer.bedrock-region=ap-northeast-2",
 			"app.ai.question-answer.analyzer.model-timeout=30s",
-			"spring.ai.bedrock.aws.region=ap-southeast-2",
+			"spring.ai.bedrock.aws.region=ap-northeast-2",
 			"spring.ai.bedrock.aws.timeout=30s"
 		};
 	}

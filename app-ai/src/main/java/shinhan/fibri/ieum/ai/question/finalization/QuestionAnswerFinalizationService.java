@@ -49,6 +49,25 @@ public class QuestionAnswerFinalizationService {
 		return new QuestionAnswerFinalizationResult(fence.questionId(), null);
 	}
 
+	@Transactional
+	public QuestionAnswerFinalizationResult completeUngrounded(
+		UngroundedQuestionAnswerFinalization command
+	) {
+		Objects.requireNonNull(command, "command must not be null");
+		QuestionTaskFence fence = command.fence();
+		lockCurrentFence(fence);
+		if (!repository.lockActiveQuestion(fence.questionId())) {
+			cancelCurrentFence(fence);
+			return new QuestionAnswerFinalizationResult(fence.questionId(), null);
+		}
+
+		long answerId = repository.insertAnswerIfActive(fence.questionId(), command.content());
+		if (!repository.completeUngrounded(command, answerId)) {
+			throw stale(fence);
+		}
+		return new QuestionAnswerFinalizationResult(fence.questionId(), answerId);
+	}
+
 	private void lockCurrentFence(QuestionTaskFence fence) {
 		if (!repository.lockCurrentFence(fence)) {
 			throw stale(fence);

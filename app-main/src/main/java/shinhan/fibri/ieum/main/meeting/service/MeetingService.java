@@ -49,6 +49,7 @@ import shinhan.fibri.ieum.main.meeting.dto.MeetingParticipantItem;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingParticipantsResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingScheduleItem;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingSchedulesResponse;
+import shinhan.fibri.ieum.main.meeting.dto.ManageMeetingScheduleRequest;
 import shinhan.fibri.ieum.main.meeting.exception.HostCannotLeaveException;
 import shinhan.fibri.ieum.main.meeting.exception.InvalidMeetingRequestException;
 import shinhan.fibri.ieum.main.meeting.exception.KickedMemberException;
@@ -164,7 +165,16 @@ public class MeetingService {
 			"open".equals(detail.getStatus()) && nextSchedule.isPresent(),
 			nextSchedule.map(schedule -> toScheduleItem(
 				schedule,
-				canDeleteSchedule(principal, detail.getHostUserId(), participant, schedule)
+				detail.getTitle(),
+				meetingPinLocationName(detail),
+				scheduleCapabilities(
+					principal,
+					detail.getHostUserId(),
+					participant,
+					"one_time".equals(detail.getType()),
+					schedule,
+					now
+				)
 			)).orElse(null),
 			recurrenceRule,
 			detail.getStatus(),
@@ -215,16 +225,36 @@ public class MeetingService {
 		ensureMeetingMemberOrHost(principal, meeting);
 		OffsetDateTime resolvedFrom = resolveRangeFrom(from);
 		OffsetDateTime resolvedTo = resolveRangeTo(resolvedFrom, to);
-		List<MeetingScheduleItem> items = meetingScheduleRepository
-			.findSchedulesInRange(meetingId, resolvedFrom, resolvedTo, SCHEDULE_QUERY_LIMIT)
+		Optional<MeetingParticipant> participant = participantRepository
+			.findByIdMeetingIdAndIdUserId(meetingId, principal.userId());
+		List<MeetingSchedule> schedules = meetingScheduleRepository
+			.findSchedulesInRange(meetingId, resolvedFrom, resolvedTo, SCHEDULE_QUERY_LIMIT);
+		String fallbackLocationName = schedules.stream().anyMatch(schedule -> schedule.getLocationName() == null)
+			? meetingRepository.findDetailById(meetingId).map(this::meetingPinLocationName).orElse(null)
+			: null;
+		List<MeetingScheduleItem> items = schedules
 			.stream()
 			.map(schedule -> toScheduleItem(
 				schedule,
-				isScheduleOperator(principal, meeting.getHostId())
-					|| Objects.equals(schedule.getCreatedBy(), principal.userId())
+				meeting.getTitle(),
+				fallbackLocationName,
+				scheduleCapabilities(
+					principal,
+					meeting.getHostId(),
+					participant,
+					meeting.getType() == MeetingType.one_time,
+					schedule,
+					OffsetDateTime.now()
+				)
 			))
 			.toList();
 		return new MeetingSchedulesResponse(items);
+	}
+
+	private String meetingPinLocationName(MeetingDetailProjection detail) {
+		return detail.getLabel() == null || detail.getLabel().isBlank()
+			? detail.getAddress()
+			: detail.getLabel();
 	}
 
 	@Transactional(readOnly = true)
@@ -247,15 +277,14 @@ public class MeetingService {
 	public JoinMeetingResponse join(AuthenticatedUser principal, Long meetingId) {
 		Meeting meeting = meetingRepository.findActiveByIdForUpdate(meetingId)
 			.orElseThrow(MeetingNotFoundException::new);
-		OffsetDateTime now = OffsetDateTime.now();
-		Optional<MeetingParticipant> participant = participantRepository.findByIdMeetingIdAndIdUserId(
+		Optional<MeetingParticipant> participant = participantRepository.findByIdMeetingIdAndIdUserIdForUpdate(
 			meetingId,
 			principal.userId()
 		);
 		if (participant.map(row -> row.getStatus() == ParticipantStatus.kicked).orElse(false)) {
 			throw new KickedMemberException();
 		}
-		if (meeting.getStatus() != MeetingStatus.open || !meetingScheduleRepository.existsActiveSchedule(meetingId, now)) {
+		if (meeting.getStatus() != MeetingStatus.open) {
 			throw new MeetingNotOpenException();
 		}
 		Long roomId = meetingRepository.findGroupRoomIdByMeetingId(meetingId)
@@ -323,6 +352,73 @@ public class MeetingService {
 	}
 
 	@Transactional
+	public CreateMeetingScheduleResponse addManagedSchedule(
+		AuthenticatedUser principal,
+		Long meetingId,
+		ManageMeetingScheduleRequest request
+	) {
+		validateManagedScheduleWindow(request);
+		Meeting meeting = meetingRepository.findActiveByIdForUpdate(meetingId)
+			.orElseThrow(MeetingNotFoundException::new);
+		ensureJoinedMeetingMember(meetingId, principal.userId());
+		ensureOneTimeScheduleMutation(meeting);
+		MeetingSchedule schedule = meetingScheduleRepository.save(MeetingSchedule.createManaged(
+			meetingId,
+			principal.userId(),
+			request.title(),
+			request.locationName(),
+			request.startsAt(),
+			request.endsAt(),
+			MeetingScheduleTimePolicy.visibleUntil(request.startsAt()),
+			meetingScheduleRepository.findMaxSequenceNoByMeetingId(meetingId) + 1
+		));
+		refreshMeetingAtCache(meeting);
+		return new CreateMeetingScheduleResponse(schedule.getId());
+	}
+
+	@Transactional
+	public MeetingScheduleItem updateManagedSchedule(
+		AuthenticatedUser principal,
+		Long meetingId,
+		Long scheduleId,
+		ManageMeetingScheduleRequest request
+	) {
+		validateManagedScheduleWindow(request);
+		Meeting meeting = meetingRepository.findActiveByIdForUpdate(meetingId)
+			.orElseThrow(MeetingNotFoundException::new);
+		ensureMeetingMemberOrHost(principal, meeting);
+		ensureOneTimeScheduleMutation(meeting);
+		MeetingSchedule schedule = meetingScheduleRepository
+			.findByIdAndMeetingIdAndDeletedAtIsNull(scheduleId, meetingId)
+			.orElseThrow(ScheduleNotFoundException::new);
+		if (!Objects.equals(schedule.getCreatedBy(), principal.userId())) {
+			throw new SchedulePermissionDeniedException();
+		}
+		ensureFutureScheduled(schedule);
+		schedule.update(
+			request.title(),
+			request.locationName(),
+			request.startsAt(),
+			request.endsAt(),
+			MeetingScheduleTimePolicy.visibleUntil(request.startsAt())
+		);
+		refreshMeetingAtCache(meeting);
+		return toScheduleItem(
+			schedule,
+			meeting.getTitle(),
+			null,
+			scheduleCapabilities(
+				principal,
+				meeting.getHostId(),
+				participantRepository.findByIdMeetingIdAndIdUserId(meetingId, principal.userId()),
+				meeting.getType() == MeetingType.one_time,
+				schedule,
+				OffsetDateTime.now()
+			)
+		);
+	}
+
+	@Transactional
 	public void cancelSchedule(AuthenticatedUser principal, Long meetingId, Long scheduleId) {
 		Meeting meeting = meetingRepository.findActiveByIdForUpdate(meetingId)
 			.orElseThrow(MeetingNotFoundException::new);
@@ -336,13 +432,13 @@ public class MeetingService {
 		if (!operator && !Objects.equals(schedule.getCreatedBy(), principal.userId())) {
 			throw new SchedulePermissionDeniedException();
 		}
+		ensureFutureScheduled(schedule);
 		try {
 			schedule.cancel();
 		} catch (IllegalStateException exception) {
 			throw new ScheduleNotCancellableException();
 		}
-		meetingScheduleRepository.findNextActiveStartsAt(meetingId, OffsetDateTime.now())
-			.ifPresentOrElse(meeting::updateMeetingAtCache, meeting::clearMeetingAtCache);
+		refreshMeetingAtCache(meeting);
 	}
 
 	private void ensureJoinedMeetingMember(Long meetingId, Long userId) {
@@ -358,6 +454,39 @@ public class MeetingService {
 
 	private boolean isScheduleOperator(AuthenticatedUser principal, Long hostId) {
 		return hostId.equals(principal.userId()) || principal.role() == UserRole.admin;
+	}
+
+	private void ensureOneTimeScheduleMutation(Meeting meeting) {
+		if (meeting.getType() == MeetingType.recurring) {
+			throw new InvalidMeetingRequestException(
+				"VALIDATION_FAILED",
+				"type",
+				"recurring schedule is managed by recurrenceRule"
+			);
+		}
+	}
+
+	private void validateManagedScheduleWindow(ManageMeetingScheduleRequest request) {
+		if (request == null || request.startsAt() == null) {
+			throw new InvalidMeetingRequestException("VALIDATION_FAILED", "startsAt", "startsAt is required");
+		}
+		if (!request.startsAt().isAfter(OffsetDateTime.now())) {
+			throw new InvalidMeetingRequestException("VALIDATION_FAILED", "startsAt", "startsAt must be in the future");
+		}
+		if (request.endsAt() != null && !request.endsAt().isAfter(request.startsAt())) {
+			throw new InvalidMeetingRequestException("VALIDATION_FAILED", "endsAt", "endsAt must be after startsAt");
+		}
+	}
+
+	private void ensureFutureScheduled(MeetingSchedule schedule) {
+		if (schedule.getStatus() != MeetingScheduleStatus.scheduled || !schedule.getStartsAt().isAfter(OffsetDateTime.now())) {
+			throw new ScheduleNotCancellableException();
+		}
+	}
+
+	private void refreshMeetingAtCache(Meeting meeting) {
+		meetingScheduleRepository.findNextActiveStartsAt(meeting.getId(), OffsetDateTime.now())
+			.ifPresentOrElse(meeting::updateMeetingAtCache, meeting::clearMeetingAtCache);
 	}
 
 	private boolean canDeleteSchedule(
@@ -380,7 +509,7 @@ public class MeetingService {
 	}
 
 	private void ensureMeetingMemberOrHost(AuthenticatedUser principal, Meeting meeting) {
-		if (meeting.getHostId().equals(principal.userId())) {
+		if (isScheduleOperator(principal, meeting.getHostId())) {
 			return;
 		}
 		Optional<MeetingParticipant> participant = participantRepository.findByIdMeetingIdAndIdUserId(
@@ -647,14 +776,14 @@ public class MeetingService {
 			throw new HostCannotLeaveException();
 		}
 		MeetingParticipant participant = participantRepository
-			.findByIdMeetingIdAndIdUserId(meetingId, principal.userId())
+			.findByIdMeetingIdAndIdUserIdForUpdate(meetingId, principal.userId())
 			.filter(row -> row.getStatus() == ParticipantStatus.joined)
 			.orElseThrow(ParticipantNotFoundException::new);
 		Long roomId = meetingRepository.findGroupRoomIdByMeetingId(meetingId)
 			.orElseThrow(MeetingNotFoundException::new);
 		participant.leave();
 		try {
-			chatRoomLifecycle.removeMember(roomId, principal.userId());
+			chatRoomLifecycle.removeGroupMemberWithDepartureMessage(roomId, principal.userId());
 		} catch (NotRoomMemberException ignored) {
 			// meeting_participants is the source of truth; tolerate older chat-only leave history.
 		}
@@ -671,14 +800,14 @@ public class MeetingService {
 			throw new InvalidMeetingRequestException("VALIDATION_FAILED", "userId", "Host cannot be kicked");
 		}
 		MeetingParticipant participant = participantRepository
-			.findByIdMeetingIdAndIdUserId(meetingId, request.userId())
+			.findByIdMeetingIdAndIdUserIdForUpdate(meetingId, request.userId())
 			.filter(row -> row.getStatus() == ParticipantStatus.joined)
 			.orElseThrow(ParticipantNotFoundException::new);
 		Long roomId = meetingRepository.findGroupRoomIdByMeetingId(meetingId)
 			.orElseThrow(MeetingNotFoundException::new);
 		participant.kick();
 		try {
-			chatRoomLifecycle.removeMember(roomId, request.userId());
+			chatRoomLifecycle.removeGroupMemberWithDepartureMessage(roomId, request.userId());
 		} catch (NotRoomMemberException ignored) {
 			// meeting_participants is the source of truth; tolerate older chat-only leave history.
 		}
@@ -767,15 +896,47 @@ public class MeetingService {
 		return resolvedTo;
 	}
 
-	private MeetingScheduleItem toScheduleItem(MeetingSchedule schedule, boolean canDelete) {
+	private MeetingScheduleItem toScheduleItem(
+		MeetingSchedule schedule,
+		String fallbackTitle,
+		String fallbackLocationName,
+		ScheduleCapabilities capabilities
+	) {
 		return new MeetingScheduleItem(
 			schedule.getId(),
+			schedule.getTitle() == null ? fallbackTitle : schedule.getTitle(),
+			schedule.getLocationName() == null ? fallbackLocationName : schedule.getLocationName(),
 			toResponseTime(schedule.getStartsAt()),
 			toResponseTime(schedule.getEndsAt()),
 			schedule.getStatus().name(),
 			schedule.getCreatedBy(),
-			canDelete && schedule.getStatus() == MeetingScheduleStatus.scheduled
+			capabilities.canEdit(),
+			capabilities.canDelete(),
+			capabilities.canReport()
 		);
+	}
+
+	private ScheduleCapabilities scheduleCapabilities(
+		AuthenticatedUser principal,
+		Long hostId,
+		Optional<MeetingParticipant> participant,
+		boolean oneTimeScheduleManagement,
+		MeetingSchedule schedule,
+		OffsetDateTime now
+	) {
+		boolean futureScheduled = schedule.getStatus() == MeetingScheduleStatus.scheduled
+			&& schedule.getStartsAt().isAfter(now);
+		boolean own = Objects.equals(schedule.getCreatedBy(), principal.userId());
+		boolean joinedOrOperator = isScheduleOperator(principal, hostId)
+			|| participant.map(row -> row.getStatus() == ParticipantStatus.joined).orElse(false);
+		return new ScheduleCapabilities(
+			oneTimeScheduleManagement && futureScheduled && joinedOrOperator && own,
+			futureScheduled && joinedOrOperator && (own || isScheduleOperator(principal, hostId)),
+			futureScheduled && joinedOrOperator && !own && schedule.getCreatedBy() != null
+		);
+	}
+
+	private record ScheduleCapabilities(boolean canEdit, boolean canDelete, boolean canReport) {
 	}
 
 	private MeetingCalendarItem toCalendarItem(AuthenticatedUser principal, MeetingCalendarProjection row) {

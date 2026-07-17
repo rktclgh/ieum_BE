@@ -10,12 +10,15 @@ import static org.mockito.Mockito.when;
 
 import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeoutException;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -30,12 +33,15 @@ import shinhan.fibri.ieum.ai.question.repository.ClaimedQuestionTask;
 import shinhan.fibri.ieum.ai.question.repository.QuestionTaskWorkRepository;
 import shinhan.fibri.ieum.ai.question.webgrounding.QuestionWebGroundingUnavailableException;
 import shinhan.fibri.ieum.ai.question.webgrounding.WebGroundingFailureCode;
+import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
+import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.core.exception.SdkServiceException;
 
 class QuestionAnswerTaskProcessorTest {
 
 	private final QuestionTaskWorkRepository repository = mock(QuestionTaskWorkRepository.class);
 	private final QuestionAnswerOrchestrator orchestrator = mock(QuestionAnswerOrchestrator.class);
+	private final List<ListAppender<ILoggingEvent>> capturedLogAppenders = new ArrayList<>();
 	private final QuestionAnswerTaskProcessor processor = new QuestionAnswerTaskProcessor(
 		repository,
 		orchestrator,
@@ -43,6 +49,16 @@ class QuestionAnswerTaskProcessorTest {
 		Duration.ofMinutes(2),
 		5
 	);
+
+	@AfterEach
+	void stopLogCapture() {
+		Logger logger = (Logger) LoggerFactory.getLogger(QuestionAnswerTaskProcessor.class);
+		for (ListAppender<ILoggingEvent> appender : capturedLogAppenders) {
+			logger.detachAppender(appender);
+			appender.stop();
+		}
+		capturedLogAppenders.clear();
+	}
 
 	@Test
 	void claimsTheQueuedQuestionIdAndHandsTheClaimToTheOrchestratorOnce() {
@@ -88,11 +104,20 @@ class QuestionAnswerTaskProcessorTest {
 	}
 
 	@Test
-	void logsOnlyTheAllowlistedFailureWhenRetryIsScheduled() {
+	void logsSafeFailureDiagnosticsWithTheRootCauseAndSourceWhenRetryIsScheduled() {
 		ClaimedQuestionTask claim = claim(1);
+		IllegalArgumentException rootCause = new IllegalArgumentException("safe root message");
+		rootCause.setStackTrace(new StackTraceElement[] {
+			new StackTraceElement(
+				"shinhan.fibri.ieum.ai.question.analysis.BedrockNovaQuestionQueryAnalyzer",
+				"analyze",
+				"BedrockNovaQuestionQueryAnalyzer.java",
+				83
+			)
+		});
 		when(repository.claimByQuestionId(42L, "worker-1", Duration.ofMinutes(2), 5))
 			.thenReturn(Optional.of(claim));
-		doThrow(new RuntimeException("raw provider response secret"))
+		doThrow(new RuntimeException("raw provider response secret", rootCause))
 			.when(orchestrator).process(claim);
 		when(repository.markRetry(
 			42L,
@@ -107,9 +132,39 @@ class QuestionAnswerTaskProcessorTest {
 
 		assertThat(messages(logs))
 			.anyMatch(message -> message.contains(
+				"event=question_answer_processing_failed questionId=42 workerId=worker-1 attempts=1 failure=UNEXPECTED_TRANSIENT exceptionType=java.lang.RuntimeException rootCauseType=java.lang.IllegalArgumentException rootCauseSource=shinhan.fibri.ieum.ai.question.analysis.BedrockNovaQuestionQueryAnalyzer#analyze:83 providerErrorCode=none httpStatus=none"
+			))
+			.anyMatch(message -> message.contains(
 				"event=question_answer_retry_scheduled questionId=42 workerId=worker-1 attempts=1 failure=UNEXPECTED_TRANSIENT retryDelayMs=10000"
 			))
 			.noneMatch(message -> message.contains("raw provider response secret"));
+	}
+
+	@Test
+	void logsTheSafeWebGroundingProviderMetadataForQuotaFailures() {
+		ClaimedQuestionTask claim = claim(1);
+		QuestionWebGroundingUnavailableException failure = new QuestionWebGroundingUnavailableException(
+			WebGroundingFailureCode.rate_limited
+		);
+		when(repository.claimByQuestionId(42L, "worker-1", Duration.ofMinutes(2), 5))
+			.thenReturn(Optional.of(claim));
+		doThrow(failure).when(orchestrator).process(claim);
+		when(repository.markRetry(
+			42L,
+			"worker-1",
+			claim.leaseToken(),
+			Duration.ofSeconds(10),
+			QuestionTaskFailure.WEB_GROUNDING_RATE_LIMITED
+		)).thenReturn(true);
+		ListAppender<ILoggingEvent> logs = captureLogs();
+
+		processor.process(42L);
+
+		assertThat(messages(logs))
+			.anyMatch(message -> message.contains(
+				"event=question_answer_provider_failure questionId=42 workerId=worker-1 attempts=1 stage=web_grounding provider=gemini_google_search httpStatus=429 failure=WEB_GROUNDING_RATE_LIMITED"
+			))
+			.noneMatch(message -> message.contains("raw provider response"));
 	}
 
 	@Test
@@ -273,6 +328,77 @@ class QuestionAnswerTaskProcessorTest {
 	}
 
 	@Test
+	void marksProvider403AsPermanentConfigurationAndLogsTheAwsErrorCode() {
+		ClaimedQuestionTask claim = claim(1);
+		AwsServiceException failure = AwsServiceException.builder()
+			.statusCode(403)
+			.awsErrorDetails(AwsErrorDetails.builder().errorCode("AccessDeniedException").build())
+			.build();
+		failure.setStackTrace(new StackTraceElement[0]);
+		when(repository.claimByQuestionId(42L, "worker-1", Duration.ofMinutes(2), 5))
+			.thenReturn(Optional.of(claim));
+		doThrow(failure).when(orchestrator).process(claim);
+		ListAppender<ILoggingEvent> logs = captureLogs();
+
+		processor.process(42L);
+
+		verify(repository).markDead(
+			42L,
+			"worker-1",
+			claim.leaseToken(),
+			QuestionTaskFailure.PERMANENT_CONFIGURATION
+		);
+		assertThat(messages(logs)).anyMatch(message -> message.contains(
+			"failure=PERMANENT_CONFIGURATION exceptionType=software.amazon.awssdk.awscore.exception.AwsServiceException rootCauseType=software.amazon.awssdk.awscore.exception.AwsServiceException"
+		) && message.contains("providerErrorCode=AccessDeniedException httpStatus=403"));
+	}
+
+	@Test
+	void classifiesForbiddenServiceCauseAheadOfGenerationFailure() {
+		QuestionGenerationUnavailableException generationFailure = new QuestionGenerationUnavailableException(
+			LocalAnswerProviderFailureCode.invalid_output,
+			LocalAnswerProviderFailureCode.rate_limited
+		);
+		generationFailure.initCause(SdkServiceException.builder().statusCode(403).build());
+
+		assertDeadClassification(generationFailure, QuestionTaskFailure.PERMANENT_CONFIGURATION);
+	}
+
+	@Test
+	void classifiesForbiddenServiceCauseAheadOfEmbeddingFailure() {
+		EmbeddingUnavailableException embeddingFailure = new EmbeddingUnavailableException("raw embedding payload");
+		embeddingFailure.initCause(SdkServiceException.builder().statusCode(401).build());
+
+		assertDeadClassification(embeddingFailure, QuestionTaskFailure.PERMANENT_CONFIGURATION);
+	}
+
+	@Test
+	void logsSafeFailureDiagnosticsWhenRootCauseStackTraceIsNull() {
+		ClaimedQuestionTask claim = claim(1);
+		NullStackTraceRuntimeException rootCause = new NullStackTraceRuntimeException();
+		when(repository.claimByQuestionId(42L, "worker-1", Duration.ofMinutes(2), 5))
+			.thenReturn(Optional.of(claim));
+		doThrow(new RuntimeException("raw provider response secret", rootCause))
+			.when(orchestrator).process(claim);
+		when(repository.markRetry(
+			42L,
+			"worker-1",
+			claim.leaseToken(),
+			Duration.ofSeconds(10),
+			QuestionTaskFailure.UNEXPECTED_TRANSIENT
+		)).thenReturn(true);
+		ListAppender<ILoggingEvent> logs = captureLogs();
+
+		processor.process(42L);
+
+		assertThat(messages(logs))
+			.anyMatch(message -> message.contains(
+				"rootCauseType=shinhan.fibri.ieum.ai.question.service.QuestionAnswerTaskProcessorTest$NullStackTraceRuntimeException rootCauseSource=none"
+			))
+			.noneMatch(message -> message.contains("raw provider response secret"));
+	}
+
+	@Test
 	void classifiesDualProviderTimeoutWithoutUsingProviderPayloads() {
 		assertGenerationFailureClassification(
 			LocalAnswerProviderFailureCode.timeout,
@@ -358,7 +484,7 @@ class QuestionAnswerTaskProcessorTest {
 	@ParameterizedTest
 	@CsvSource({
 		"timeout, PROVIDER_TIMEOUT",
-		"rate_limited, PROVIDER_RATE_LIMITED",
+		"rate_limited, WEB_GROUNDING_RATE_LIMITED",
 		"provider_unavailable, PROVIDER_UNAVAILABLE",
 		"permanent_configuration, PERMANENT_CONFIGURATION"
 	})
@@ -375,7 +501,7 @@ class QuestionAnswerTaskProcessorTest {
 	@ParameterizedTest
 	@CsvSource({
 		"timeout, PROVIDER_TIMEOUT",
-		"rate_limited, PROVIDER_RATE_LIMITED",
+		"rate_limited, WEB_GROUNDING_RATE_LIMITED",
 		"provider_unavailable, PROVIDER_UNAVAILABLE",
 		"permanent_configuration, PERMANENT_CONFIGURATION"
 	})
@@ -563,14 +689,14 @@ class QuestionAnswerTaskProcessorTest {
 
 	private ListAppender<ILoggingEvent> captureLogs() {
 		Logger logger = (Logger) LoggerFactory.getLogger(QuestionAnswerTaskProcessor.class);
-		logger.detachAndStopAllAppenders();
 		ListAppender<ILoggingEvent> appender = new ListAppender<>();
 		appender.start();
 		logger.addAppender(appender);
+		capturedLogAppenders.add(appender);
 		return appender;
 	}
 
-	private java.util.List<String> messages(ListAppender<ILoggingEvent> appender) {
+	private List<String> messages(ListAppender<ILoggingEvent> appender) {
 		return appender.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
 	}
 
@@ -658,6 +784,24 @@ class QuestionAnswerTaskProcessorTest {
 		);
 	}
 
+	private void assertDeadClassification(RuntimeException exception, QuestionTaskFailure failure) {
+		ClaimedQuestionTask claim = claim(1);
+		when(repository.claimByQuestionId(42L, "worker-1", Duration.ofMinutes(2), 5))
+			.thenReturn(Optional.of(claim));
+		doThrow(exception).when(orchestrator).process(claim);
+
+		processor.process(42L);
+
+		verify(repository).markDead(42L, "worker-1", claim.leaseToken(), failure);
+		verify(repository, never()).markRetry(
+			org.mockito.ArgumentMatchers.anyLong(),
+			org.mockito.ArgumentMatchers.anyString(),
+			org.mockito.ArgumentMatchers.any(),
+			org.mockito.ArgumentMatchers.any(),
+			org.mockito.ArgumentMatchers.any()
+		);
+	}
+
 	private enum StaleFailure {
 		CHECKPOINT {
 			@Override
@@ -680,6 +824,14 @@ class QuestionAnswerTaskProcessorTest {
 		@Override
 		public synchronized Throwable getCause() {
 			return this;
+		}
+	}
+
+	private static final class NullStackTraceRuntimeException extends RuntimeException {
+
+		@Override
+		public StackTraceElement[] getStackTrace() {
+			return null;
 		}
 	}
 }

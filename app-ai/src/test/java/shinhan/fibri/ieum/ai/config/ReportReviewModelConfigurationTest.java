@@ -42,7 +42,7 @@ class ReportReviewModelConfigurationTest {
 				"app.ai.gemini-api-key=test-gemini-key",
 				"app.ai.report.gemini-model=gemini-3.1-flash-lite",
 				"app.ai.report.nova-model=amazon.nova-lite-v1:0",
-				"app.ai.report.bedrock-region=ap-southeast-2",
+				"app.ai.report.bedrock-region=ap-northeast-2",
 				"app.ai.report.model-timeout=30s",
 				"app.ai.report.prompt-version=report-review-v1"
 			)

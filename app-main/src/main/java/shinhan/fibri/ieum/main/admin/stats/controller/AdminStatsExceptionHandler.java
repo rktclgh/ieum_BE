@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import shinhan.fibri.ieum.main.admin.stats.exception.InvalidStatsBucketException;
 import shinhan.fibri.ieum.main.admin.stats.exception.InvalidStatsRangeException;
 import shinhan.fibri.ieum.main.auth.dto.AuthErrorResponse;
 
@@ -27,6 +28,16 @@ public class AdminStatsExceptionHandler {
 				"INVALID_STATS_RANGE",
 				exception.getMessage(),
 				List.of(new AuthErrorResponse.FieldError("range", exception.getMessage()))
+			));
+	}
+
+	@ExceptionHandler(InvalidStatsBucketException.class)
+	public ResponseEntity<AuthErrorResponse> handleInvalidStatsBucket(InvalidStatsBucketException exception) {
+		return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+			.body(new AuthErrorResponse(
+				"INVALID_STATS_BUCKET",
+				exception.getMessage(),
+				List.of(new AuthErrorResponse.FieldError("bucket", exception.getMessage()))
 			));
 	}
 

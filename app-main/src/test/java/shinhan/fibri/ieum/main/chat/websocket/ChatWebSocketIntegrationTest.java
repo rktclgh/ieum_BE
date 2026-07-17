@@ -43,6 +43,7 @@ import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.auth.repository.UserAuthState;
 import shinhan.fibri.ieum.common.chat.domain.RoomType;
+import shinhan.fibri.ieum.common.chat.domain.MessageType;
 import shinhan.fibri.ieum.common.chat.repository.ChatMemberRepository;
 import shinhan.fibri.ieum.main.admin.content.service.ContentPurgeService;
 import shinhan.fibri.ieum.main.auth.session.AuthSession;
@@ -156,12 +157,24 @@ class ChatWebSocketIntegrationTest {
 				roomId,
 				42L,
 				"user",
+				"/api/v1/files/11111111-1111-1111-1111-111111111111",
+				MessageType.user,
 				request.content(),
 				null,
 				OffsetDateTime.parse("2026-07-08T12:00:00+09:00")
 			);
 			Thread.ofPlatform().start(() -> roomEventPublisher.publish(event));
-			return new ChatMessageResponse(501L, roomId, 42L, "user", request.content(), null, event.createdAt());
+			return new ChatMessageResponse(
+				501L,
+				roomId,
+				42L,
+				"user",
+				"/api/v1/files/11111111-1111-1111-1111-111111111111",
+				MessageType.user,
+				request.content(),
+				null,
+				event.createdAt()
+			);
 		}).when(chatMessageService).send(any(), any(), any());
 	}
 
@@ -179,6 +192,37 @@ class ChatWebSocketIntegrationTest {
 		assertThat(message).isNotNull();
 		assertThat(message.roomId()).isEqualTo(100L);
 		assertThat(message.content()).isEqualTo("hello");
+		assertThat(message.senderProfileImageUrl()).isEqualTo("/api/v1/files/11111111-1111-1111-1111-111111111111");
+		assertThat(message.messageType()).isEqualTo(MessageType.user);
+		session.disconnect();
+	}
+
+	@Test
+	void websocketPublisherSerializesSystemDepartureMessageToSubscribedRoom() throws Exception {
+		StompSession session = connect();
+		BlockingQueue<WsMessageEvent> messages = new LinkedBlockingQueue<>();
+		session.subscribe("/topic/rooms/100", frameHandler(WsMessageEvent.class, messages));
+		awaitSubscriptionRegistration("/topic/rooms/100");
+
+		Thread.ofPlatform().start(() -> roomEventPublisher.publish(new WsMessageEvent(
+			502L,
+			100L,
+			42L,
+			"민지",
+			null,
+			MessageType.system,
+			"민지님이 모임을 떠났습니다",
+			null,
+			OffsetDateTime.parse("2026-07-16T12:00:00+09:00")
+		)));
+
+		WsMessageEvent message = messages.poll(3, TimeUnit.SECONDS);
+		assertThat(message).isNotNull();
+		assertThat(message.senderId()).isEqualTo(42L);
+		assertThat(message.senderNickname()).isEqualTo("민지");
+		assertThat(message.messageType()).isEqualTo(MessageType.system);
+		assertThat(message.content()).isEqualTo("민지님이 모임을 떠났습니다");
+		assertThat(message.imageUrl()).isNull();
 		session.disconnect();
 	}
 

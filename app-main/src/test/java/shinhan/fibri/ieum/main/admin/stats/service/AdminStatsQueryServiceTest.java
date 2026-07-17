@@ -11,16 +11,22 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import shinhan.fibri.ieum.main.admin.stats.dto.AdminStatsOverviewResponse;
 import shinhan.fibri.ieum.main.admin.stats.dto.ContentStatsResponse;
 import shinhan.fibri.ieum.main.admin.stats.dto.ReportStatsResponse;
+import shinhan.fibri.ieum.main.admin.stats.dto.StatsOverviewRequest;
 import shinhan.fibri.ieum.main.admin.stats.dto.StatsRangeRequest;
 import shinhan.fibri.ieum.main.admin.stats.dto.UserStatsResponse;
 import shinhan.fibri.ieum.main.admin.stats.exception.InvalidStatsRangeException;
 import shinhan.fibri.ieum.main.admin.stats.repository.AdminStatsQueryRepository;
 import shinhan.fibri.ieum.main.admin.stats.repository.AdminStatsQueryRepository.AnswerStatsRow;
+import shinhan.fibri.ieum.main.admin.stats.repository.AdminStatsQueryRepository.DailyStatsRow;
+import shinhan.fibri.ieum.main.admin.stats.repository.AdminStatsQueryRepository.QueueStatsRow;
 import shinhan.fibri.ieum.main.admin.stats.repository.AdminStatsQueryRepository.ReportStatsRow;
+import shinhan.fibri.ieum.main.admin.stats.repository.AdminStatsQueryRepository.SummaryStatsRow;
 
 class AdminStatsQueryServiceTest {
 
@@ -124,5 +130,48 @@ class AdminStatsQueryServiceTest {
 		assertThat(response.confirmedCount()).isEqualTo(3);
 		assertThat(response.dismissedCount()).isEqualTo(2);
 		assertThat(response.sanctionCount()).isEqualTo(7);
+	}
+
+	@Test
+	void overviewUsesKstRangeZeroFilledDailySpineHumanAcceptedRateAndCurrentQueues() {
+		OffsetDateTime fromTs = OffsetDateTime.parse("2026-07-01T00:00:00+09:00");
+		OffsetDateTime toTs = OffsetDateTime.parse("2026-07-04T00:00:00+09:00");
+		when(repository.getOverviewSummary(fromTs, toTs)).thenReturn(new SummaryStatsRow(
+			3L, 2L, 1L, 4L, 10L, 4L, 6L, 7L, 8L, 9L, 5L
+		));
+		when(repository.findDailyStats(fromTs, toTs)).thenReturn(List.of(
+			new DailyStatsRow(LocalDate.of(2026, 7, 1), 1L, 2L, 3L, 4L, 1L, 5L, 6L, 7L, 8L, 9L),
+			new DailyStatsRow(LocalDate.of(2026, 7, 3), 10L, 20L, 30L, 40L, 10L, 50L, 60L, 70L, 80L, 90L)
+		));
+		when(repository.getCurrentQueues()).thenReturn(new QueueStatsRow(11L, 12L, 13L, 14L));
+
+		AdminStatsOverviewResponse response = service.getOverview(new StatsOverviewRequest(
+			LocalDate.of(2026, 7, 1),
+			LocalDate.of(2026, 7, 3),
+			"day"
+		));
+
+		assertThat(response.from()).isEqualTo(LocalDate.of(2026, 7, 1));
+		assertThat(response.to()).isEqualTo(LocalDate.of(2026, 7, 3));
+		assertThat(response.bucket()).isEqualTo("day");
+		assertThat(response.summary().acceptedRate()).isEqualTo(0.4);
+		assertThat(response.summary().acceptedHumanAnswerCount()).isEqualTo(4);
+		assertThat(response.summary().humanAnswerCount()).isEqualTo(10);
+		assertThat(response.series()).hasSize(3);
+		assertThat(response.series()).extracting("date")
+			.containsExactly(
+				LocalDate.of(2026, 7, 1),
+				LocalDate.of(2026, 7, 2),
+				LocalDate.of(2026, 7, 3)
+			);
+		assertThat(response.series().get(1).signupCount()).isZero();
+		assertThat(response.series().get(1).humanAnswerCount()).isZero();
+		assertThat(response.queues().pendingReportCount()).isEqualTo(11);
+		assertThat(response.queues().retryReportCount()).isEqualTo(12);
+		assertThat(response.queues().deadReportCount()).isEqualTo(13);
+		assertThat(response.queues().pendingInquiryCount()).isEqualTo(14);
+		verify(repository).getOverviewSummary(fromTs, toTs);
+		verify(repository).findDailyStats(fromTs, toTs);
+		verify(repository).getCurrentQueues();
 	}
 }

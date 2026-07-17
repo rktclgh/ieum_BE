@@ -42,6 +42,50 @@ class AiQuestionTaskConstraintIntegrationTest {
 	}
 
 	@Test
+	void allowsUngroundedCompletionWithPromptVersionAndNoEvidence() {
+		Long answerId = insertAiAnswer(jdbc, questionId);
+
+		jdbc.sql("""
+			UPDATE ai_question_tasks
+			SET status='completed',
+			    completed_at=now(),
+			    embedding=array_fill(0.0::real, ARRAY[768])::vector,
+			    embedding_model='gemini-embedding-2',
+			    answer_id=:answerId,
+			    answer_outcome='ungrounded',
+			    generation_provider='gemini',
+			    generation_model='gemini-3.1-flash-lite',
+			    prompt_version='question-ungrounded-answer-v1',
+			    grounding_status='ungrounded',
+			    evidence='[]'::jsonb
+			WHERE question_id = :questionId
+			""").param("questionId", questionId).param("answerId", answerId).update();
+	}
+
+	@Test
+	void rejectsUngroundedCompletionWithoutPromptVersion() {
+		Long answerId = insertAiAnswer(jdbc, questionId);
+
+		assertThatThrownBy(() -> jdbc.sql("""
+			UPDATE ai_question_tasks
+			SET status='completed',
+			    completed_at=now(),
+			    embedding=array_fill(0.0::real, ARRAY[768])::vector,
+			    embedding_model='gemini-embedding-2',
+			    answer_id=:answerId,
+			    answer_outcome='ungrounded',
+			    generation_provider='gemini',
+			    generation_model='gemini-3.1-flash-lite',
+			    prompt_version=NULL,
+			    grounding_status='ungrounded',
+			    evidence='[]'::jsonb
+			WHERE question_id = :questionId
+			""").param("questionId", questionId).param("answerId", answerId).update())
+			.isInstanceOf(DataAccessException.class)
+			.hasMessageContaining("ck_ai_question_tasks_completed");
+	}
+
+	@Test
 	void rejectsProcessingWithoutFencingToken() {
 		assertThatThrownBy(() -> jdbc.sql("""
 			UPDATE ai_question_tasks
@@ -73,5 +117,13 @@ class AiQuestionTaskConstraintIntegrationTest {
 			VALUES (:questionId)
 			""").param("questionId", insertedQuestionId).update();
 		return insertedQuestionId;
+	}
+
+	private static Long insertAiAnswer(JdbcClient jdbc, Long questionId) {
+		return jdbc.sql("""
+			INSERT INTO answers (question_id, author_id, is_ai, content)
+			VALUES (:questionId, NULL, TRUE, 'AI answer')
+			RETURNING answer_id
+			""").param("questionId", questionId).query(Long.class).single();
 	}
 }

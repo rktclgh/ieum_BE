@@ -12,7 +12,7 @@ public record ReportModelProperties(
 	String promptVersion
 ) {
 
-	private static final String BEDROCK_NOVA_REGION = "ap-southeast-2";
+	private static final String BEDROCK_NOVA_REGION = "ap-northeast-2";
 
 	public ReportModelProperties {
 		geminiModel = required(geminiModel, "geminiModel");

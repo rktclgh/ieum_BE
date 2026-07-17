@@ -26,7 +26,23 @@ public class AdminAuditLogWriter {
 		AdminAuditAction.REPORT_DISMISSED,
 		new AuditContract("report", Set.of("previousDecision", "newDecision")),
 		AdminAuditAction.INQUIRY_ANSWERED,
-		new AuditContract("inquiry", Set.of("answerLength"))
+		new AuditContract("inquiry", Set.of("answerLength")),
+		AdminAuditAction.KNOWLEDGE_RELATION_APPROVED,
+		new AuditContract("knowledge_relation_candidate", Set.of(
+			"sourceId",
+			"relationId",
+			"previousStatus",
+			"newStatus",
+			"version"
+		)),
+		AdminAuditAction.KNOWLEDGE_RELATION_REJECTED,
+		new AuditContract("knowledge_relation_candidate", Set.of(
+			"sourceId",
+			"previousStatus",
+			"newStatus",
+			"version",
+			"reason"
+		))
 	);
 
 	private final JdbcClient jdbc;

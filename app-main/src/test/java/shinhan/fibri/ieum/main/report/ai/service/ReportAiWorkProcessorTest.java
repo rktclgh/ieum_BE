@@ -74,8 +74,8 @@ class ReportAiWorkProcessorTest {
 		verify(resultApplier).apply(claimed, response);
 		assertThat(messages(logs))
 			.contains("event=report_ai_claimed reportId=900 attemptId=22222222-2222-2222-2222-222222222222 workerId=worker-a attempts=1")
-			.contains("event=report_ai_call_started reportId=900 attemptId=22222222-2222-2222-2222-222222222222 workerId=worker-a attempts=1")
-			.anyMatch(message -> message.contains("event=report_ai_call_succeeded reportId=900")
+			.contains("event=report_ai_call_started stage=remote_review reportId=900 attemptId=22222222-2222-2222-2222-222222222222 workerId=worker-a attempts=1")
+			.anyMatch(message -> message.contains("event=report_ai_call_succeeded stage=remote_review reportId=900")
 				&& message.contains("durationMs="))
 			.anyMatch(message -> message.contains("event=report_ai_completed reportId=900")
 				&& message.contains("decision=suspend") && message.contains("sanctioned=true")
@@ -107,9 +107,35 @@ class ReportAiWorkProcessorTest {
 		);
 		assertThat(messages(logs)).anyMatch(message -> message.contains("event=report_ai_retry_scheduled")
 			&& message.contains("errorCode=REPORT_AI_TRANSPORT_FAILURE"));
-		assertThat(messages(logs)).anyMatch(message -> message.contains("event=report_ai_call_failed reportId=900")
+		assertThat(messages(logs)).anyMatch(message -> message.contains("event=report_ai_call_failed stage=remote_review reportId=900")
+			&& message.contains("stage=remote_review")
 			&& message.contains("failureType=ResourceAccessException") && message.contains("durationMs="));
 		assertThat(messages(logs)).noneMatch(message -> message.contains("secret internal URL"));
+	}
+
+	@Test
+	void logsTheResultApplyStageWhenAutomaticSanctionPersistenceFails() {
+		ClaimedReport claimed = claimed(1);
+		ReportReviewRequest request = mock(ReportReviewRequest.class);
+		ReportReviewResponse response = mock(ReportReviewResponse.class);
+		when(repository.claimNext(any(), any(), eq(5))).thenReturn(Optional.of(claimed));
+		when(requestFactory.create(claimed)).thenReturn(request);
+		when(aiServiceClient.review(request)).thenReturn(response);
+		when(resultApplier.apply(claimed, response))
+			.thenThrow(new IllegalStateException("sanction database detail must not leak"));
+		when(repository.markRetry(
+			eq(900L), eq(claimed.attemptId()), eq(OffsetDateTime.ofInstant(NOW.plusSeconds(10), ZoneOffset.UTC)),
+			eq("REPORT_AI_UNEXPECTED_FAILURE"), eq("Report AI processing failed")
+		)).thenReturn(true);
+		ListAppender<ILoggingEvent> logs = captureLogs();
+
+		assertThat(processor.processNext()).isTrue();
+
+		assertThat(messages(logs))
+			.anyMatch(message -> message.contains(
+				"event=report_ai_result_apply_failed stage=result_apply reportId=900"
+			) && message.contains("failureType=IllegalStateException"))
+			.noneMatch(message -> message.contains("sanction database detail must not leak"));
 	}
 
 	@Test

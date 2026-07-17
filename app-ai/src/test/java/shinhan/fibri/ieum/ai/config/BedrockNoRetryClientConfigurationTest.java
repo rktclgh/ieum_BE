@@ -31,7 +31,7 @@ class BedrockNoRetryClientConfigurationTest {
 		)
 		.withPropertyValues(
 			"spring.ai.model.chat=bedrock-converse",
-			"spring.ai.bedrock.aws.region=ap-southeast-2",
+			"spring.ai.bedrock.aws.region=ap-northeast-2",
 			"spring.ai.bedrock.aws.access-key=test-access-key",
 			"spring.ai.bedrock.aws.secret-key=test-secret-key",
 			"spring.ai.bedrock.aws.timeout=30s",
@@ -47,7 +47,8 @@ class BedrockNoRetryClientConfigurationTest {
 		featureOffRunner
 			.withPropertyValues(
 				"app.ai.features.question-answer-enabled=false",
-				"app.ai.features.report-review-enabled=false"
+				"app.ai.features.report-review-enabled=false",
+				"app.ai.features.accepted-answer-relation-candidates-enabled=false"
 			)
 			.run(context -> {
 				assertThat(context).hasNotFailed();
@@ -69,8 +70,8 @@ class BedrockNoRetryClientConfigurationTest {
 				BedrockRuntimeClient syncClient = context.getBean(BedrockRuntimeClient.class);
 				BedrockRuntimeAsyncClient asyncClient = context.getBean(BedrockRuntimeAsyncClient.class);
 
-				assertSingleAttemptSydneyTransport(syncClient);
-				assertSingleAttemptSydneyTransport(asyncClient);
+				assertSingleAttemptSeoulTransport(syncClient);
+				assertSingleAttemptSeoulTransport(asyncClient);
 
 				BedrockProxyChatModel chatModel = context.getBean(BedrockProxyChatModel.class);
 				assertThat(ReflectionTestUtils.getField(chatModel, "bedrockRuntimeClient"))
@@ -89,13 +90,28 @@ class BedrockNoRetryClientConfigurationTest {
 			)
 			.run(context -> {
 				assertThat(context).hasNotFailed();
-				assertSingleAttemptSydneyTransport(context.getBean(BedrockRuntimeClient.class));
-				assertSingleAttemptSydneyTransport(context.getBean(BedrockRuntimeAsyncClient.class));
+				assertSingleAttemptSeoulTransport(context.getBean(BedrockRuntimeClient.class));
+				assertSingleAttemptSeoulTransport(context.getBean(BedrockRuntimeAsyncClient.class));
 			});
 	}
 
-	private void assertSingleAttemptSydneyTransport(BedrockRuntimeClient client) {
-		assertThat(client.serviceClientConfiguration().region()).isEqualTo(Region.AP_SOUTHEAST_2);
+	@Test
+	void acceptedAnswerRelationCandidatesFeatureAloneUsesTheSingleAttemptClients() {
+		springAiRunner
+			.withPropertyValues(
+				"app.ai.features.question-answer-enabled=false",
+				"app.ai.features.report-review-enabled=false",
+				"app.ai.features.accepted-answer-relation-candidates-enabled=true"
+			)
+			.run(context -> {
+				assertThat(context).hasNotFailed();
+				assertSingleAttemptSeoulTransport(context.getBean(BedrockRuntimeClient.class));
+				assertSingleAttemptSeoulTransport(context.getBean(BedrockRuntimeAsyncClient.class));
+			});
+	}
+
+	private void assertSingleAttemptSeoulTransport(BedrockRuntimeClient client) {
+		assertThat(client.serviceClientConfiguration().region()).isEqualTo(Region.AP_NORTHEAST_2);
 		assertThat(client.serviceClientConfiguration().overrideConfiguration().apiCallTimeout())
 			.contains(Duration.ofSeconds(30));
 		assertThat(client.serviceClientConfiguration().overrideConfiguration().retryStrategy())
@@ -103,8 +119,8 @@ class BedrockNoRetryClientConfigurationTest {
 			.contains(1);
 	}
 
-	private void assertSingleAttemptSydneyTransport(BedrockRuntimeAsyncClient client) {
-		assertThat(client.serviceClientConfiguration().region()).isEqualTo(Region.AP_SOUTHEAST_2);
+	private void assertSingleAttemptSeoulTransport(BedrockRuntimeAsyncClient client) {
+		assertThat(client.serviceClientConfiguration().region()).isEqualTo(Region.AP_NORTHEAST_2);
 		assertThat(client.serviceClientConfiguration().overrideConfiguration().apiCallTimeout())
 			.contains(Duration.ofSeconds(30));
 		assertThat(client.serviceClientConfiguration().overrideConfiguration().retryStrategy())

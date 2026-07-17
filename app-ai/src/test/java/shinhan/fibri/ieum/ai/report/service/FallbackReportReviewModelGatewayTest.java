@@ -70,11 +70,41 @@ class FallbackReportReviewModelGatewayTest {
 		FallbackReportReviewModelGateway gateway = new FallbackReportReviewModelGateway(primary, fallback, "report-review-v1");
 
 		assertThatThrownBy(() -> gateway.review(prepared(), emptySnapshot(), this::evaluation))
-			.isInstanceOf(ReportReviewModelGatewayException.class)
-			.hasMessageContaining("failed");
+			.isInstanceOfSatisfying(ReportReviewModelGatewayException.class, exception ->
+				assertThat(exception.providerAttempts())
+					.extracting(
+						ReportReviewProviderAttempt::provider,
+						ReportReviewProviderAttempt::model,
+						ReportReviewProviderAttempt::outcome,
+						ReportReviewProviderAttempt::errorCode
+					)
+					.containsExactly(
+						org.assertj.core.groups.Tuple.tuple(
+							"bedrock",
+							"amazon.nova-lite-v1:0",
+							"failure",
+							ReportReviewProviderErrorCode.timeout
+						),
+						org.assertj.core.groups.Tuple.tuple(
+							"gemini",
+							"gemini-3.1-flash-lite",
+							"failure",
+							ReportReviewProviderErrorCode.server_error
+						)
+					)
+			);
 
 		assertThat(primary.calls).isEqualTo(1);
 		assertThat(fallback.calls).isEqualTo(1);
+	}
+
+	@Test
+	void treatsMissingProviderAttemptsAsEmptyMetadata() {
+		ReportReviewModelGatewayException exception = new ReportReviewModelGatewayException(
+			(List<ReportReviewProviderAttempt>) null
+		);
+
+		assertThat(exception.providerAttempts()).isEmpty();
 	}
 
 	private ReportPolicyEvaluationResult evaluation(ReportModelReviewOutput output) {

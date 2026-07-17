@@ -36,12 +36,13 @@ public class S3FileStorage implements FileStorage {
 	}
 
 	@Override
-	public URI createPresignedPutUrl(String key, String contentType, Long sizeBytes, Duration ttl) {
+	public URI createPresignedPutUrl(String key, String contentType, Duration ttl) {
+		validateObjectKey(key);
+		validateTtl(ttl);
 		PutObjectRequest putObjectRequest = PutObjectRequest.builder()
 			.bucket(bucket)
 			.key(key)
 			.contentType(contentType)
-			.contentLength(sizeBytes)
 			.build();
 		PutObjectPresignRequest presignRequest = PutObjectPresignRequest.builder()
 			.signatureDuration(ttl)

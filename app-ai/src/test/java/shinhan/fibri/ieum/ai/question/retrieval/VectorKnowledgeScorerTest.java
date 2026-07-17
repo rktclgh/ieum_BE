@@ -27,7 +27,7 @@ class VectorKnowledgeScorerTest {
 			retrievedAt
 		);
 
-		assertThat(evidence.semanticScore()).isEqualByComparingTo("0.620000");
+		assertThat(evidence.semanticScore()).isEqualByComparingTo("0.670000");
 		assertThat(evidence.geoScore()).isEqualByComparingTo("0.500000");
 		assertThat(evidence.finalScore()).isEqualByComparingTo(expectedFinalScore);
 		assertThat(evidence.finalScore().scale()).isEqualTo(6);
@@ -116,9 +116,9 @@ class VectorKnowledgeScorerTest {
 		);
 
 		assertThat(evidence).isInstanceOf(KnowledgeEvidence.class);
-		assertThat(evidence.semanticScore()).isEqualByComparingTo("0.611290");
+		assertThat(evidence.semanticScore()).isEqualByComparingTo("0.663710");
 		assertThat(evidence.geoScore()).isEqualByComparingTo("0.500000");
-		assertThat(evidence.finalScore()).isEqualByComparingTo("0.605726");
+		assertThat(evidence.finalScore()).isEqualByComparingTo("0.655524");
 		assertThat(evidence.relationId()).isNull();
 	}
 
@@ -211,20 +211,20 @@ class VectorKnowledgeScorerTest {
 
 	private static Stream<Arguments> queryScopeScores() {
 		return Stream.of(
-			Arguments.of(GeoScope.general, "0.614000"),
-			Arguments.of(GeoScope.regional, "0.596000"),
-			Arguments.of(GeoScope.local, "0.584000"),
-			Arguments.of(GeoScope.place_specific, "0.572000")
+			Arguments.of(GeoScope.general, "0.661500"),
+			Arguments.of(GeoScope.regional, "0.636000"),
+			Arguments.of(GeoScope.local, "0.619000"),
+			Arguments.of(GeoScope.place_specific, "0.602000")
 		);
 	}
 
 	private static Stream<Arguments> authorityScores() {
 		return Stream.of(
-			Arguments.of("curated", "government", "0.640000"),
-			Arguments.of("curated", "public_agency", "0.640000"),
-			Arguments.of("curated", "community", "0.620000"),
-			Arguments.of("verified_external", null, "0.630000"),
-			Arguments.of("accepted_human_answer", null, "0.610000")
+			Arguments.of("curated", "government", "0.740000"),
+			Arguments.of("curated", "public_agency", "0.740000"),
+			Arguments.of("curated", "community", "0.670000"),
+			Arguments.of("verified_external", null, "0.705000"),
+			Arguments.of("accepted_human_answer", null, "0.495000")
 		);
 	}
 }

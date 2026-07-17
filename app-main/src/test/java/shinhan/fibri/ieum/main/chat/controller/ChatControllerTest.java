@@ -37,6 +37,7 @@ import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.chat.domain.RoomType;
+import shinhan.fibri.ieum.common.chat.domain.MessageType;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
 import shinhan.fibri.ieum.main.chat.dto.ChatCursorPage;
 import shinhan.fibri.ieum.main.chat.dto.ChatMessageResponse;
@@ -170,6 +171,8 @@ class ChatControllerTest {
 					100L,
 					77L,
 					"friend",
+					null,
+					MessageType.user,
 					"hello",
 					null,
 					OffsetDateTime.parse("2026-07-08T12:00:00+09:00")
@@ -184,11 +187,13 @@ class ChatControllerTest {
 			.andExpect(jsonPath("$[0].roomType", is("direct")))
 			.andExpect(jsonPath("$[0].pinned", is(true)))
 			.andExpect(jsonPath("$[0].unreadCount", is(3)))
-			.andExpect(jsonPath("$[0].lastMessage.content", is("hello")));
+			.andExpect(jsonPath("$[0].lastMessage.content", is("hello")))
+			.andExpect(jsonPath("$[0].lastMessage.messageType", is("user")));
 	}
 
 	@Test
 	void getRoomReturnsDetail() throws Exception {
+		String counterpartProfileImageUrl = "/api/v1/files/123e4567-e89b-12d3-a456-426614174000";
 		when(chatService.getRoom(any(AuthenticatedUser.class), eq(100L)))
 			.thenReturn(new ChatRoomDetailResponse(
 				100L,
@@ -198,14 +203,17 @@ class ChatControllerTest {
 				null,
 				false,
 				true,
-				List.of(new ChatRoomMemberResponse(77L, "friend", null, "US"))
+				List.of(new ChatRoomMemberResponse(77L, "friend", counterpartProfileImageUrl, "US")),
+				new ChatRoomMemberResponse(77L, "friend", counterpartProfileImageUrl, "US")
 			));
 
 		mockMvc.perform(get("/api/v1/chat/rooms/{roomId}", 100L).with(authenticated()))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.roomId", is(100)))
 			.andExpect(jsonPath("$.members[0].userId", is(77)))
-			.andExpect(jsonPath("$.members[0].nationality", is("US")));
+			.andExpect(jsonPath("$.members[0].nationality", is("US")))
+			.andExpect(jsonPath("$.counterpart.userId", is(77)))
+			.andExpect(jsonPath("$.counterpart.profileImageUrl", is(counterpartProfileImageUrl)));
 	}
 
 	@Test
@@ -217,6 +225,8 @@ class ChatControllerTest {
 					100L,
 					77L,
 					"friend",
+					"/api/v1/files/11111111-1111-1111-1111-111111111111",
+					MessageType.user,
 					"hello",
 					null,
 					OffsetDateTime.parse("2026-07-08T12:00:00+09:00")
@@ -228,8 +238,10 @@ class ChatControllerTest {
 				.param("cursor", "cursor")
 				.param("size", "2")
 				.with(authenticated()))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.items[0].messageId", is(501)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.items[0].messageId", is(501)))
+				.andExpect(jsonPath("$.items[0].senderProfileImageUrl", is("/api/v1/files/11111111-1111-1111-1111-111111111111")))
+			.andExpect(jsonPath("$.items[0].messageType", is("user")))
 			.andExpect(jsonPath("$.nextCursor", is("next")));
 	}
 

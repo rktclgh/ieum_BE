@@ -42,6 +42,16 @@ class AdminDashboardMigrationHelperIntegrationTest {
 		dataSource = CanonicalPostgresContainer.dataSource(DATABASE);
 		jdbc = JdbcClient.create(dataSource);
 		jdbc.sql("CREATE TABLE users (user_id BIGSERIAL PRIMARY KEY)").update();
+		jdbc.sql("""
+			CREATE TABLE messages (
+				message_id BIGSERIAL PRIMARY KEY,
+				room_id BIGINT NOT NULL,
+				sender_id BIGINT NOT NULL,
+				content TEXT,
+				image_file_id UUID,
+				CHECK (content IS NOT NULL OR image_file_id IS NOT NULL)
+			)
+			""").update();
 		copyMigrationFiles();
 	}
 
@@ -481,8 +491,38 @@ class AdminDashboardMigrationHelperIntegrationTest {
 			0644
 		);
 		copyToContainer(
+			"db/migrations/v25_web_push_subscriptions.sql",
+			CONTAINER_ROOT + "/db/migrations/v25_web_push_subscriptions.sql",
+			0644
+		);
+		copyToContainer(
 			"db/migrations/v26_admin_audit_logs.sql",
 			CONTAINER_ROOT + "/db/migrations/v26_admin_audit_logs.sql",
+			0644
+		);
+		copyToContainer(
+			"db/migrations/v26_web_push_session_cardinality.sql",
+			CONTAINER_ROOT + "/db/migrations/v26_web_push_session_cardinality.sql",
+			0644
+		);
+		copyToContainer(
+			"db/migrations/v28_chat_system_messages.sql",
+			CONTAINER_ROOT + "/db/migrations/v28_chat_system_messages.sql",
+			0644
+		);
+		copyToContainer(
+			"db/migrations/v29_meeting_schedule_details.sql",
+			CONTAINER_ROOT + "/db/migrations/v29_meeting_schedule_details.sql",
+			0644
+		);
+		copyToContainer(
+			"db/migrations/v30_report_schedule_target_enum.sql",
+			CONTAINER_ROOT + "/db/migrations/v30_report_schedule_target_enum.sql",
+			0644
+		);
+		copyToContainer(
+			"db/migrations/v31_report_schedule_target.sql",
+			CONTAINER_ROOT + "/db/migrations/v31_report_schedule_target.sql",
 			0644
 		);
 		String pgPass = "127.0.0.1:5432:%s:%s:%s%n".formatted(

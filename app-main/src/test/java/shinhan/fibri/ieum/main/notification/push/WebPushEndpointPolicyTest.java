@@ -30,6 +30,16 @@ class WebPushEndpointPolicyTest {
 		assertThat(policy.validate(endpoint).toString()).isEqualTo(endpoint);
 	}
 
+	@Test
+	void acceptsAppleWebPushSubdomainAndRejectsLookalikeHost() {
+		WebPushEndpointPolicy applePolicy = new WebPushEndpointPolicy(Set.of("push.apple.com"));
+
+		assertThat(applePolicy.validate("https://web.push.apple.com/message/123").toString())
+			.isEqualTo("https://web.push.apple.com/message/123");
+		assertThatThrownBy(() -> applePolicy.validate("https://notpush.apple.com/message/123"))
+			.isInstanceOf(IllegalArgumentException.class);
+	}
+
 	@ParameterizedTest
 	@ValueSource(strings = {
 		"https://push.example.test.evil.example/message/123",

@@ -21,6 +21,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import org.springframework.jdbc.CannotGetJdbcConnectionException;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
@@ -80,6 +81,17 @@ class SseControllerTest {
 
 		mockMvc.perform(get("/api/v1/sse/subscribe").accept(MediaType.TEXT_EVENT_STREAM))
 			.andExpect(status().isServiceUnavailable())
+			.andExpect(content().string(""));
+	}
+
+	@Test
+	void doesNotRenderJsonWhenAnSseRequestTimesOut() throws Exception {
+		when(subscriptionService.subscribe("access-token")).thenThrow(new AsyncRequestTimeoutException());
+
+		mockMvc.perform(get("/api/v1/sse/subscribe")
+				.cookie(new Cookie("access_token", "access-token"))
+				.accept(MediaType.TEXT_EVENT_STREAM))
+			.andExpect(status().isOk())
 			.andExpect(content().string(""));
 	}
 

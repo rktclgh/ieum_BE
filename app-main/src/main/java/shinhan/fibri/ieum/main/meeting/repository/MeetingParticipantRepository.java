@@ -1,8 +1,11 @@
 package shinhan.fibri.ieum.main.meeting.repository;
 
+import jakarta.persistence.LockModeType;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingParticipant;
@@ -12,6 +15,18 @@ import shinhan.fibri.ieum.main.meeting.domain.ParticipantStatus;
 public interface MeetingParticipantRepository extends JpaRepository<MeetingParticipant, MeetingParticipantId> {
 
 	Optional<MeetingParticipant> findByIdMeetingIdAndIdUserId(Long meetingId, Long userId);
+
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("""
+		SELECT participant
+		FROM MeetingParticipant participant
+		WHERE participant.id.meetingId = :meetingId
+		  AND participant.id.userId = :userId
+		""")
+	Optional<MeetingParticipant> findByIdMeetingIdAndIdUserIdForUpdate(
+		@Param("meetingId") Long meetingId,
+		@Param("userId") Long userId
+	);
 
 	long countByIdMeetingIdAndStatus(Long meetingId, ParticipantStatus status);
 

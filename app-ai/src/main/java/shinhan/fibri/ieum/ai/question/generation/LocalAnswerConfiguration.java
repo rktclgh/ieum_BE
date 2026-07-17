@@ -19,6 +19,7 @@ import shinhan.fibri.ieum.ai.config.GeminiApiKeyProperties;
 @ConditionalOnProperty(prefix = "app.ai.features", name = "question-answer-enabled", havingValue = "true")
 @EnableConfigurationProperties({
 	LocalAnswerProperties.class,
+	UngroundedAnswerProperties.class,
 	GeminiApiKeyProperties.class
 })
 public class LocalAnswerConfiguration {
@@ -70,6 +71,15 @@ public class LocalAnswerConfiguration {
 			properties,
 			Clock.systemUTC()
 		);
+	}
+
+	@Bean
+	UngroundedAnswerGateway ungroundedAnswerGateway(
+		@Qualifier("localAnswerGeminiClient") Client geminiClient,
+		UngroundedAnswerProperties properties,
+		ObjectMapper objectMapper
+	) {
+		return new GeminiUngroundedAnswerGateway(geminiClient, properties, objectMapper);
 	}
 
 	@Bean

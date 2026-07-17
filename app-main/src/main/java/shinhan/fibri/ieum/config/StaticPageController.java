@@ -32,6 +32,7 @@ public class StaticPageController {
 		"/admin/login", "/admin/login/",
 		"/admin/users", "/admin/users/",
 		"/admin/users/detail", "/admin/users/detail/",
+		"/admin/knowledge", "/admin/knowledge/",
 		"/admin/reports", "/admin/reports/",
 		"/admin/reports/detail", "/admin/reports/detail/",
 		"/admin/inquiries", "/admin/inquiries/"

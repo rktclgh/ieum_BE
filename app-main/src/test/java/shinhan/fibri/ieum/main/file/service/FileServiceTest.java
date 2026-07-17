@@ -225,7 +225,7 @@ class FileServiceTest {
 		private boolean failDelete;
 
 		@Override
-		public URI createPresignedPutUrl(String key, String contentType, Long sizeBytes, Duration ttl) {
+		public URI createPresignedPutUrl(String key, String contentType, Duration ttl) {
 			presigned.add(key);
 			events.add("presign:" + key);
 			return URI.create("https://storage.example/" + key);
