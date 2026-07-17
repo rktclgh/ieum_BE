@@ -36,8 +36,6 @@ public class JdbcKnowledgeGraphRepository implements KnowledgeGraphRepository {
 		          AND accepted_answer.author_id IS NOT NULL
 		          AND btrim(accepted_answer.content) <> ''
 		          AND accepted_question.question_id = ks.question_id
-		          AND accepted_question.deleted_at IS NULL
-		          AND accepted_pin.deleted_at IS NULL
 		          AND accepted_pin.pin_type = 'question'
 		    )
 		)
