@@ -22,6 +22,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -204,13 +205,37 @@ class DefaultQuestionAnswerOrchestratorTest {
 		when(fixture.analyzer.analyze(any())).thenThrow(new IllegalStateException("provider failure"));
 		ListAppender<ILoggingEvent> logs = captureLogs();
 
-		assertThatThrownBy(() -> fixture.orchestrator.process(fixture.task))
-			.isInstanceOf(IllegalStateException.class)
-			.hasMessage("provider failure");
+		try {
+			assertThatThrownBy(() -> fixture.orchestrator.process(fixture.task))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessage("provider failure");
 
-		assertThat(messages(logs)).anyMatch(message -> message.contains(
-			"event=question_answer_stage_started questionId=" + fixture.task.questionId() + " stage=analyzing"
-		));
+			assertThat(messages(logs)).anyMatch(message -> message.contains(
+				"event=question_answer_stage_started questionId=" + fixture.task.questionId() + " stage=analyzing"
+			));
+		}
+		finally {
+			releaseLogs(logs);
+		}
+	}
+
+	@Test
+	void logCaptureDoesNotDetachExistingAppenders() {
+		Logger logger = orchestratorLogger();
+		ListAppender<ILoggingEvent> existing = new ListAppender<>();
+		existing.setName("preexisting-test-appender");
+		existing.start();
+		logger.addAppender(existing);
+
+		ListAppender<ILoggingEvent> captured = captureLogs();
+		try {
+			assertThat(appenderNames(logger)).contains("preexisting-test-appender");
+		}
+		finally {
+			releaseLogs(captured);
+			logger.detachAppender(existing);
+			existing.stop();
+		}
 	}
 
 	@Test
@@ -336,6 +361,75 @@ class DefaultQuestionAnswerOrchestratorTest {
 		assertThat(finalization.getValue().context().fallbackReason())
 			.isEqualTo("web_grounding_rate_limited");
 		verify(fixture.callbackWake).wake(fixture.task.questionId());
+	}
+
+	@Test
+	void refreshesWebLeaseBeforeGeneratingUngroundedAnswerAfterWebFailure() {
+		Fixture fixture = new Fixture();
+		fixture.localEvidenceInsufficient();
+		fixture.enableWebGrounding();
+		when(fixture.webGroundingGateway.ground(any(), any())).thenThrow(
+			new QuestionWebGroundingUnavailableException(WebGroundingFailureCode.rate_limited)
+		);
+
+		fixture.newOrchestrator(Fixture.LEASE, true).process(fixture.task);
+
+		InOrder order = inOrder(
+			fixture.checkpointService,
+			fixture.webGroundingGateway,
+			fixture.ungroundedAnswerGateway
+		);
+		order.verify(fixture.checkpointService).guardAndAdvance(
+			fixture.task,
+			QuestionTaskStage.RETRIEVING,
+			QuestionTaskStage.WEB_GROUNDING,
+			Fixture.LEASE
+		);
+		order.verify(fixture.webGroundingGateway).ground(
+			same(fixture.webPrompt),
+			eq(Duration.ofSeconds(45))
+		);
+		order.verify(fixture.checkpointService).guardCurrentStage(
+			fixture.task,
+			QuestionTaskStage.WEB_GROUNDING,
+			Fixture.LEASE
+		);
+		order.verify(fixture.ungroundedAnswerGateway).generate(
+			same(fixture.webPrompt),
+			eq(Duration.ofSeconds(30))
+		);
+	}
+
+	@Test
+	void regeneratesUngroundedAnswerInsteadOfPersistingRejectedLocalAnswer() {
+		Fixture fixture = new Fixture();
+		GroundingValidationResult first = fixture.validation(false, "0.25");
+		GroundingValidationResult second = fixture.validation(false, "0.44");
+		GeneratedAnswer repaired = fixture.answerWithFallback(
+			"근거 검증에서 탈락한 로컬 답변",
+			"gemini",
+			"gemini-3.1-flash-lite",
+			"repair-v1",
+			"provider_fallback"
+		);
+		when(fixture.groundingGateway.validate(any(), any())).thenReturn(first, second);
+		when(fixture.groundingGateway.repair(any(), same(first.validation()), any())).thenReturn(repaired);
+
+		fixture.newOrchestrator(Fixture.LEASE, true).process(fixture.task);
+
+		verify(fixture.ungroundedAnswerGateway).generate(
+			same(fixture.webPrompt),
+			eq(Duration.ofSeconds(30))
+		);
+		ArgumentCaptor<UngroundedQuestionAnswerFinalization> finalization = ArgumentCaptor.forClass(
+			UngroundedQuestionAnswerFinalization.class
+		);
+		verify(fixture.finalizationService).completeUngrounded(finalization.capture());
+		assertThat(finalization.getValue().content()).isEqualTo(fixture.ungroundedAnswer.content());
+		assertThat(finalization.getValue().content()).isNotEqualTo(repaired.answer());
+		assertThat(finalization.getValue().context().promptVersion())
+			.isEqualTo("question-ungrounded-answer-v1");
+		assertThat(finalization.getValue().context().fallbackReason()).isEqualTo("web_grounding_disabled");
 	}
 
 	@Test
@@ -746,16 +840,32 @@ class DefaultQuestionAnswerOrchestratorTest {
 	}
 
 	private ListAppender<ILoggingEvent> captureLogs() {
-		Logger logger = (Logger) LoggerFactory.getLogger(DefaultQuestionAnswerOrchestrator.class);
-		logger.detachAndStopAllAppenders();
+		Logger logger = orchestratorLogger();
 		ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		appender.setName("orchestrator-test-log-capture");
 		appender.start();
 		logger.addAppender(appender);
 		return appender;
 	}
 
+	private void releaseLogs(ListAppender<ILoggingEvent> appender) {
+		Logger logger = orchestratorLogger();
+		logger.detachAppender(appender);
+		appender.stop();
+	}
+
 	private List<String> messages(ListAppender<ILoggingEvent> appender) {
 		return appender.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
+	}
+
+	private Logger orchestratorLogger() {
+		return (Logger) LoggerFactory.getLogger(DefaultQuestionAnswerOrchestrator.class);
+	}
+
+	private List<String> appenderNames(Logger logger) {
+		List<String> names = new ArrayList<>();
+		logger.iteratorForAppenders().forEachRemaining(appender -> names.add(appender.getName()));
+		return names;
 	}
 
 	private static final class Fixture {

@@ -155,7 +155,7 @@ public class QuestionAnswerTaskProcessor {
 
 	private String rootCauseSource(Throwable rootCause) {
 		StackTraceElement[] stackTrace = rootCause.getStackTrace();
-		if (stackTrace.length == 0) {
+		if (stackTrace == null || stackTrace.length == 0) {
 			return "none";
 		}
 		StackTraceElement source = stackTrace[0];
@@ -313,6 +313,9 @@ public class QuestionAnswerTaskProcessor {
 		}
 		if (explicitFailure != null) {
 			return explicitFailure;
+		}
+		if (providerFailure == QuestionTaskFailure.PERMANENT_CONFIGURATION) {
+			return providerFailure;
 		}
 		if (embeddingUnavailable) {
 			return QuestionTaskFailure.EMBEDDING_UNAVAILABLE;

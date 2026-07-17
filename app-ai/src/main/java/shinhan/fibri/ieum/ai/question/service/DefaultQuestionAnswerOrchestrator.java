@@ -510,22 +510,9 @@ public class DefaultQuestionAnswerOrchestrator implements QuestionAnswerOrchestr
 			task.questionId(),
 			fallbackReason
 		);
-		if (rejectedLocalAnswer != null) {
-			completeUngrounded(
-				task,
-				currentStage,
-				embedding,
-				analysis,
-				retrievalConfigVersion,
-				rejectedLocalAnswer.answer(),
-				rejectedLocalAnswer.provider(),
-				rejectedLocalAnswer.model(),
-				rejectedLocalAnswer.promptVersion(),
-				fallbackReason
-			);
+		if (cancelled(checkpointService.guardCurrentStage(task, currentStage, leaseExtension))) {
 			return;
 		}
-
 		logStageStarted(task, "ungrounded_generating");
 		UngroundedAnswer answer = ungroundedAnswerGateway.generate(prompt, answerTimeout);
 		completeUngrounded(

@@ -516,6 +516,7 @@ CREATE TABLE ai_question_tasks (
                 AND answer_id IS NOT NULL
                 AND generation_provider IS NOT NULL
                 AND generation_model IS NOT NULL
+                AND prompt_version IS NOT NULL
                 AND grounding_status = 'ungrounded'
                 AND jsonb_array_length(evidence) = 0)
         )

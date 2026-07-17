@@ -1295,6 +1295,16 @@ SELECT (
 \if :apply_message_reply_migration
 \i db/migrations/v32_chat_message_reply.sql
 \endif
+SELECT NOT EXISTS (
+  SELECT 1
+  FROM pg_constraint
+  WHERE conrelid = 'public.ai_question_tasks'::regclass
+    AND conname = 'ck_ai_question_tasks_grounding_status'
+) AS apply_question_ai_ungrounded_migration \gset
+\if :apply_question_ai_ungrounded_migration
+\i db/migrations/v33_question_ai_ungrounded_answer.sql
+\endif
+\i db/migrations/v34_question_ai_ungrounded_answer_validate.sql
 
 DO $verify$
 BEGIN

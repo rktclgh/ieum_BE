@@ -33,7 +33,7 @@ ALTER TABLE public.ai_question_tasks
             'grounded',
             'insufficient_evidence',
             'ungrounded'
-        ));
+        )) NOT VALID;
 
 ALTER TABLE public.ai_question_tasks
     DROP CONSTRAINT ck_ai_question_tasks_answer_outcome,
@@ -43,7 +43,7 @@ ALTER TABLE public.ai_question_tasks
             'web_grounded',
             'insufficient_evidence',
             'ungrounded'
-        ));
+        )) NOT VALID;
 
 ALTER TABLE public.ai_question_tasks
     DROP CONSTRAINT ck_ai_question_tasks_completed,
@@ -67,9 +67,10 @@ ALTER TABLE public.ai_question_tasks
                     AND answer_id IS NOT NULL
                     AND generation_provider IS NOT NULL
                     AND generation_model IS NOT NULL
+                    AND prompt_version IS NOT NULL
                     AND grounding_status = 'ungrounded'
                     AND jsonb_array_length(evidence) = 0)
             )
-        ));
+        )) NOT VALID;
 
 COMMIT;
