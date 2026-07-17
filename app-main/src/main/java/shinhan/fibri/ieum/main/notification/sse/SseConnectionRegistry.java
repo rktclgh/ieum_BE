@@ -59,7 +59,7 @@ public class SseConnectionRegistry {
 		);
 		connection.setState(state);
 		emitter.onCompletion(() -> remove(connection));
-		emitter.onTimeout(() -> remove(connection));
+		emitter.onTimeout(connection::close);
 		emitter.onError(error -> remove(connection));
 
 		AtomicReference<Connection> evictedReference = new AtomicReference<>();

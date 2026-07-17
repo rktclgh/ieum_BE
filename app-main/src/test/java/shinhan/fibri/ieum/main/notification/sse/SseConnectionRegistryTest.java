@@ -86,21 +86,32 @@ class SseConnectionRegistryTest {
 	}
 
 	@Test
-	void removesConnectionWhenEmitterCompletesOrTimesOutOrErrors() {
+	void removesConnectionWhenEmitterCompletesOrErrors() {
 		SseConnectionRegistry registry = registry(5);
 		FakeConnection completed = new FakeConnection();
-		FakeConnection timedOut = new FakeConnection();
 		FakeConnection errored = new FakeConnection();
 		registry.register(42L, "sid-1", completed);
-		registry.register(42L, "sid-2", timedOut);
-		registry.register(42L, "sid-3", errored);
+		registry.register(42L, "sid-2", errored);
 
 		completed.fireCompletion();
-		timedOut.fireTimeout();
 		errored.fireError(new IllegalStateException("connection failed"));
 
 		assertThat(registry.isOnline(42L)).isFalse();
 		assertThat(registry.onlineUserIds()).isEmpty();
+	}
+
+	@Test
+	void completesTimedOutEmitterBeforeRemovingConnection() {
+		SseConnectionRegistry registry = registry(5);
+		FakeConnection timedOut = new FakeConnection();
+		registry.register(42L, "sid-timeout", timedOut);
+
+		timedOut.fireTimeout();
+		timedOut.fireTimeout();
+
+		assertThat(timedOut.completeCount).isEqualTo(1);
+		assertThat(registry.connectionCount(42L)).isZero();
+		assertThat(registry.isOnline(42L)).isFalse();
 	}
 
 	@Test

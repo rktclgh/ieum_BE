@@ -1,5 +1,6 @@
 package shinhan.fibri.ieum.config;
 
+import jakarta.servlet.DispatcherType;
 import java.util.Arrays;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -44,6 +45,7 @@ public class SecurityConfig {
 				.accessDeniedHandler(jsonAccessDeniedHandler)
 			)
 			.authorizeHttpRequests(authorize -> authorize
+				.dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
 				.requestMatchers(HttpMethod.GET, "/api/places/**").permitAll()
 				.requestMatchers(HttpMethod.POST, InternalAiCallbackEndpoint.SECURITY_PATTERN).permitAll()
 				.requestMatchers(
