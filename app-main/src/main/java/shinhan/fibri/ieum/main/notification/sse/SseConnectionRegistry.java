@@ -54,7 +54,7 @@ public class SseConnectionRegistry {
 		SseEmitterState state = new SseEmitterState(
 			properties.durableQueuePerEmitter(),
 			executor,
-			event -> send(emitter, event),
+			event -> send(connection, event),
 			() -> closeAndRemove(connection)
 		);
 		connection.setState(state);
@@ -194,7 +194,9 @@ public class SseConnectionRegistry {
 
 	private void closeAndRemove(Connection connection) {
 		try {
-			connection.emitter.complete();
+			if (connection.shouldCompleteOnClose()) {
+				connection.emitter.complete();
+			}
 		} finally {
 			remove(connection);
 		}
@@ -215,10 +217,12 @@ public class SseConnectionRegistry {
 		}
 	}
 
-	private void send(SseEmitterConnection emitter, OutboundEvent event) {
+	private void send(Connection connection, OutboundEvent event) {
 		try {
-			emitter.send(event);
+			connection.emitter.send(event);
 		} catch (IOException exception) {
+			connection.skipCompletionOnClose();
+			remove(connection);
 			throw new UncheckedIOException(exception);
 		}
 	}
@@ -228,6 +232,7 @@ public class SseConnectionRegistry {
 		private final Long userId;
 		private final String sessionId;
 		private final SseEmitterConnection emitter;
+		private final AtomicBoolean completeOnClose = new AtomicBoolean(true);
 		private SseEmitterState state;
 
 		private Connection(Long userId, String sessionId, SseEmitterConnection emitter) {
@@ -246,6 +251,14 @@ public class SseConnectionRegistry {
 
 		private void close() {
 			state.close();
+		}
+
+		private boolean shouldCompleteOnClose() {
+			return completeOnClose.get();
+		}
+
+		private void skipCompletionOnClose() {
+			completeOnClose.set(false);
 		}
 
 		private boolean matches(String sessionId, SseEmitter target) {
