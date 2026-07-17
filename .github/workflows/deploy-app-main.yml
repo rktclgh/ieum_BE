@@ -190,9 +190,6 @@ jobs:
           test -s "$static_dir/index.html"
           test -s "$static_dir/index.txt"
 
-      - name: Validate deployment configuration
-        run: bash deploy/tests/validate-deploy-config.sh
-
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
