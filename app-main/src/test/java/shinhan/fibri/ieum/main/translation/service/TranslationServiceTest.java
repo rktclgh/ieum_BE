@@ -45,23 +45,31 @@ class TranslationServiceTest {
 	}
 
 	@Test
-	void rejectsBlankTextBeforeProvider() {
-		when(rateLimiter.tryAcquire(42L)).thenReturn(true);
-
+	void rejectsBlankTextBeforeRateLimitOrProvider() {
 		assertThatThrownBy(() -> service.translate(principal(), "   ", TargetLanguage.KO))
 			.isInstanceOf(TranslationNotAvailableException.class);
 
+		verify(rateLimiter, never()).tryAcquire(any());
 		verify(translationClient, never()).translate(any(), any());
 	}
 
 	@Test
-	void rejectsTooLongTextBeforeProvider() {
-		when(rateLimiter.tryAcquire(42L)).thenReturn(true);
+	void rejectsNullTextBeforeRateLimitOrProvider() {
+		assertThatThrownBy(() -> service.translate(principal(), null, TargetLanguage.KO))
+			.isInstanceOf(TranslationNotAvailableException.class);
+
+		verify(rateLimiter, never()).tryAcquire(any());
+		verify(translationClient, never()).translate(any(), any());
+	}
+
+	@Test
+	void rejectsTooLongTextBeforeRateLimitOrProvider() {
 		String longText = "가".repeat(5_001);
 
 		assertThatThrownBy(() -> service.translate(principal(), longText, TargetLanguage.KO))
 			.isInstanceOf(TranslationNotAvailableException.class);
 
+		verify(rateLimiter, never()).tryAcquire(any());
 		verify(translationClient, never()).translate(any(), any());
 	}
 

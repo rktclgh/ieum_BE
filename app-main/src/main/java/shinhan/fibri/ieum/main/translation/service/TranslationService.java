@@ -22,10 +22,10 @@ public class TranslationService {
 	) {
 		Long userId = requirePrincipal(principal).userId();
 		TargetLanguage normalizedTarget = Objects.requireNonNull(targetLanguage, "targetLanguage must not be null");
+		String translationText = requireTranslatableText(text);
 		if (!rateLimiter.tryAcquire(userId)) {
 			throw new TranslationRateLimitedException();
 		}
-		String translationText = requireTranslatableText(text);
 		ProviderTranslationResult result = translationClient.translate(translationText, normalizedTarget);
 		return new TranslationResponse(result.translatedText());
 	}

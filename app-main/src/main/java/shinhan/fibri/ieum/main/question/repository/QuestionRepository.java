@@ -142,9 +142,6 @@ public interface QuestionRepository extends JpaRepository<Question, Long> {
 	@Query("select q from Question q where q.id = :questionId")
 	Optional<Question> findActiveByIdForShare(@Param("questionId") Long questionId);
 
-	@Query("select q from Question q where q.id = :questionId and q.deletedAt IS NULL")
-	Optional<Question> findActiveByIdForTranslation(@Param("questionId") Long questionId);
-
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select q from Question q where q.id = :questionId")
 	Optional<Question> findByIdForUpdate(@Param("questionId") Long questionId);
