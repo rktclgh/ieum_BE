@@ -3,6 +3,7 @@ package shinhan.fibri.ieum.main.admin.knowledge.repository;
 import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Types;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -220,7 +221,7 @@ public class JdbcKnowledgeRelationCandidateAdminRepository {
 			ORDER BY candidate.candidate_id DESC
 			LIMIT :limit
 			""")
-			.param("cursorId", cursorId)
+			.param("cursorId", cursorId, Types.BIGINT)
 			.param("status", status)
 			.param("limit", limit)
 			.query(this::mapListRow)
