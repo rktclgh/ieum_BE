@@ -222,7 +222,6 @@ public class SseConnectionRegistry {
 			connection.emitter.send(event);
 		} catch (IOException exception) {
 			connection.skipCompletionOnClose();
-			remove(connection);
 			throw new UncheckedIOException(exception);
 		}
 	}
