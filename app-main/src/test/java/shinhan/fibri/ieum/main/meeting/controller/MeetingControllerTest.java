@@ -9,6 +9,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -64,6 +65,9 @@ import shinhan.fibri.ieum.main.meeting.exception.ScheduleNotFoundException;
 import shinhan.fibri.ieum.main.meeting.exception.SchedulePermissionDeniedException;
 import shinhan.fibri.ieum.main.meeting.service.MeetingService;
 import shinhan.fibri.ieum.main.pin.dto.LocationSnapshot;
+import shinhan.fibri.ieum.main.report.domain.ReportReason;
+import shinhan.fibri.ieum.main.report.dto.CreateReportResponse;
+import shinhan.fibri.ieum.main.report.service.MeetingScheduleReportService;
 
 @WebMvcTest(MeetingController.class)
 @AutoConfigureMockMvc(addFilters = false)
@@ -75,10 +79,14 @@ class MeetingControllerTest {
 	@Autowired
 	private MeetingService meetingService;
 
+	@Autowired
+	private MeetingScheduleReportService scheduleReportService;
+
 	@AfterEach
 	void clearSecurityContext() {
 		SecurityContextHolder.clearContext();
 		reset(meetingService);
+		reset(scheduleReportService);
 	}
 
 	@Test
@@ -456,7 +464,7 @@ class MeetingControllerTest {
 
 	@Test
 	void addScheduleReturnsCreatedScheduleId() throws Exception {
-		when(meetingService.addSchedule(
+		when(meetingService.addManagedSchedule(
 			any(AuthenticatedUser.class),
 			org.mockito.ArgumentMatchers.eq(3L),
 			any()
@@ -467,6 +475,8 @@ class MeetingControllerTest {
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
+					  "title": "용산 와인바에서 봅시다",
+					  "locationName": "용산역 1번 출구",
 					  "startsAt": "2099-07-10T19:00:00+09:00",
 					  "endsAt": "2099-07-10T20:00:00+09:00"
 					}
@@ -478,21 +488,18 @@ class MeetingControllerTest {
 	}
 
 	@Test
-	void addScheduleMapsScheduleAlreadyExistsToConflict() throws Exception {
-		when(meetingService.addSchedule(any(AuthenticatedUser.class), org.mockito.ArgumentMatchers.eq(3L), any()))
-			.thenThrow(new ScheduleAlreadyExistsException());
-
+	void addScheduleRequiresManagedDisplayDetails() throws Exception {
 		mockMvc.perform(post("/api/v1/meetings/{meetingId}/schedules", 3L)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("{\"startsAt\":\"2099-07-10T19:00:00+09:00\"}")
 				.with(authenticated()))
-			.andExpect(status().isConflict())
-			.andExpect(jsonPath("$.code", is("SCHEDULE_ALREADY_EXISTS")));
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")));
 	}
 
 	@Test
 	void addScheduleMapsInvalidTimeWindowToValidationFailed() throws Exception {
-		when(meetingService.addSchedule(any(AuthenticatedUser.class), org.mockito.ArgumentMatchers.eq(3L), any()))
+		when(meetingService.addManagedSchedule(any(AuthenticatedUser.class), org.mockito.ArgumentMatchers.eq(3L), any()))
 			.thenThrow(new InvalidMeetingRequestException(
 				"VALIDATION_FAILED",
 				"endsAt",
@@ -503,6 +510,8 @@ class MeetingControllerTest {
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
+					  "title": "용산 와인바에서 봅시다",
+					  "locationName": "용산역 1번 출구",
 					  "startsAt": "2099-07-10T19:00:00+09:00",
 					  "endsAt": "2099-07-10T19:00:00+09:00"
 					}
@@ -516,15 +525,78 @@ class MeetingControllerTest {
 
 	@Test
 	void addScheduleMapsNotMeetingMemberToForbidden() throws Exception {
-		when(meetingService.addSchedule(any(AuthenticatedUser.class), org.mockito.ArgumentMatchers.eq(3L), any()))
+		when(meetingService.addManagedSchedule(any(AuthenticatedUser.class), org.mockito.ArgumentMatchers.eq(3L), any()))
 			.thenThrow(new NotMeetingMemberException());
 
 		mockMvc.perform(post("/api/v1/meetings/{meetingId}/schedules", 3L)
 				.contentType(MediaType.APPLICATION_JSON)
-				.content("{\"startsAt\":\"2099-07-10T19:00:00+09:00\"}")
+				.content("""
+					{
+					  "title": "용산 와인바에서 봅시다",
+					  "locationName": "용산역 1번 출구",
+					  "startsAt": "2099-07-10T19:00:00+09:00"
+					}
+					""")
 				.with(authenticated()))
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.code", is("NOT_MEETING_MEMBER")));
+	}
+
+	@Test
+	void updateScheduleReturnsTheCurrentServerCapabilities() throws Exception {
+		when(meetingService.updateManagedSchedule(
+			any(AuthenticatedUser.class),
+			org.mockito.ArgumentMatchers.eq(3L),
+			org.mockito.ArgumentMatchers.eq(31L),
+			any()
+		)).thenReturn(new MeetingScheduleItem(
+			31L,
+			"수정 일정",
+			"수정 장소",
+			OffsetDateTime.parse("2099-07-11T19:00:00+09:00"),
+			null,
+			"scheduled",
+			42L,
+			true,
+			true,
+			false
+		));
+
+		mockMvc.perform(patch("/api/v1/meetings/{meetingId}/schedules/{scheduleId}", 3L, 31L)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "title": "수정 일정",
+					  "locationName": "수정 장소",
+					  "startsAt": "2099-07-11T19:00:00+09:00"
+					}
+					""")
+				.with(authenticated()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.title", is("수정 일정")))
+			.andExpect(jsonPath("$.locationName", is("수정 장소")))
+			.andExpect(jsonPath("$.canEdit", is(true)))
+			.andExpect(jsonPath("$.canDelete", is(true)))
+			.andExpect(jsonPath("$.canReport", is(false)));
+	}
+
+	@Test
+	void reportScheduleCreatesManualReviewRecord() throws Exception {
+		when(scheduleReportService.create(
+			any(AuthenticatedUser.class),
+			org.mockito.ArgumentMatchers.eq(3L),
+			org.mockito.ArgumentMatchers.eq(31L),
+			org.mockito.ArgumentMatchers.eq(ReportReason.spam),
+			org.mockito.ArgumentMatchers.eq("광고성 일정입니다")
+		)).thenReturn(new CreateReportResponse(91L));
+
+		mockMvc.perform(post("/api/v1/meetings/{meetingId}/schedules/{scheduleId}/report", 3L, 31L)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"reason\":\"spam\",\"detail\":\"광고성 일정입니다\"}")
+				.with(authenticated()))
+			.andExpect(status().isCreated())
+			.andExpect(header().string(HttpHeaders.LOCATION, "/api/v1/reports/91"))
+			.andExpect(jsonPath("$.reportId", is(91)));
 	}
 
 	@Test
@@ -764,6 +836,12 @@ class MeetingControllerTest {
 		@Primary
 		MeetingService meetingService() {
 			return mock(MeetingService.class);
+		}
+
+		@Bean
+		@Primary
+		MeetingScheduleReportService meetingScheduleReportService() {
+			return mock(MeetingScheduleReportService.class);
 		}
 
 		@Bean

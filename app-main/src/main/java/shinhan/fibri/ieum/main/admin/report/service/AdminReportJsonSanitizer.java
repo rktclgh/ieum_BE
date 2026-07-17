@@ -19,6 +19,10 @@ public class AdminReportJsonSanitizer {
 	private static final String[] ANSWER_FIELDS = {
 		"answerId", "authorId", "isAi", "content", "imageFileIds", "createdAt"
 	};
+	private static final String[] SCHEDULE_ROOT_FIELDS = {"schemaVersion", "targetType"};
+	private static final String[] SCHEDULE_FIELDS = {
+		"scheduleId", "meetingId", "createdByUserId", "title", "locationName", "startsAt", "endsAt", "status"
+	};
 	private static final String[] AI_RESULT_FIELDS = {
 		"category", "severity", "evidence", "matchedRules", "policySnapshot",
 		"modelVersion", "promptVersion", "fallbackUsed"
@@ -35,9 +39,11 @@ public class AdminReportJsonSanitizer {
 		if (source == null || targetType == null) {
 			return null;
 		}
-		return targetType == ReportTargetType.message
-			? sanitizeMessageSnapshot(source)
-			: sanitizeAnswerSnapshot(source);
+		return switch (targetType) {
+			case message -> sanitizeMessageSnapshot(source);
+			case answer -> sanitizeAnswerSnapshot(source);
+			case schedule -> sanitizeScheduleSnapshot(source);
+		};
 	}
 
 	public JsonNode sanitizeAiResult(String rawJson) {
@@ -63,6 +69,13 @@ public class AdminReportJsonSanitizer {
 		ObjectNode safe = objectMapper.createObjectNode();
 		copyFields(source, safe, ANSWER_ROOT_FIELDS);
 		copyObject(source, safe, "reported", ANSWER_FIELDS);
+		return safe;
+	}
+
+	private ObjectNode sanitizeScheduleSnapshot(ObjectNode source) {
+		ObjectNode safe = objectMapper.createObjectNode();
+		copyFields(source, safe, SCHEDULE_ROOT_FIELDS);
+		copyObject(source, safe, "reported", SCHEDULE_FIELDS);
 		return safe;
 	}
 

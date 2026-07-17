@@ -15,10 +15,40 @@ public record ChatMessageResponse(
 	MessageType messageType,
 	String content,
 	String imageUrl,
-	OffsetDateTime createdAt
+	OffsetDateTime createdAt,
+	ChatReplyPreview replyTo
 ) {
 
+	public ChatMessageResponse(
+		Long messageId,
+		Long roomId,
+		Long senderId,
+		String senderNickname,
+		String senderProfileImageUrl,
+		MessageType messageType,
+		String content,
+		String imageUrl,
+		OffsetDateTime createdAt
+	) {
+		this(
+			messageId,
+			roomId,
+			senderId,
+			senderNickname,
+			senderProfileImageUrl,
+			messageType,
+			content,
+			imageUrl,
+			createdAt,
+			null
+		);
+	}
+
 	public static ChatMessageResponse from(Message message) {
+		return from(message, Long.MIN_VALUE);
+	}
+
+	public static ChatMessageResponse from(Message message, long visibleAfterMessageId) {
 		return new ChatMessageResponse(
 			message.getId(),
 			message.getRoom().getId(),
@@ -28,8 +58,17 @@ public record ChatMessageResponse(
 			message.getMessageType(),
 			message.getContent(),
 			imageUrl(message.getImageFileId()),
-			message.getCreatedAt()
+			message.getCreatedAt(),
+			replyPreview(message, visibleAfterMessageId)
 		);
+	}
+
+	private static ChatReplyPreview replyPreview(Message message, long visibleAfterMessageId) {
+		Message replyTo = message.getReplyTo();
+		if (replyTo == null || (replyTo.getId() != null && replyTo.getId() <= visibleAfterMessageId)) {
+			return null;
+		}
+		return ChatReplyPreview.from(replyTo);
 	}
 
 	private static String imageUrl(UUID imageFileId) {

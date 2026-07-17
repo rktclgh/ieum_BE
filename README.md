@@ -152,6 +152,12 @@ EC2-2(AI) ──publish──▶ 메시징(Redis pub/sub 등) ──subscribe─
 
 AI 결과를 실시간으로 전달하는 기능을 만들 때는 이 경로(메시지 브로커)를 통해야 함을 유의하세요. (도입 시 브로커 접속 정보도 환경변수로 주입)
 
+### 채팅 WebSocket 수신 계약
+
+- 일반 사용자 메시지는 `/user/queue/rooms/{roomId}`로 해당 방의 active member에게 개별 전송한다. 클라이언트는 이 queue를 구독해야 한다.
+- 모임 이탈 같은 system 메시지는 기존 `/topic/rooms/{roomId}` broadcast를 유지한다.
+- 두 경로의 payload는 `WsMessageEvent`다. 답장 parent가 수신자의 `visibleAfterMessageId` 이전이면 메시지 자체는 전달하되 `replyTo`는 `null`이다. 클라이언트는 `replyTo=null`을 답장이 없었다는 영속 상태로 해석하면 안 된다.
+
 ---
 
 ## 8. 기술 스택
@@ -170,5 +176,4 @@ AI 결과를 실시간으로 전달하는 기능을 만들 때는 이 경로(메
 
 멀티모듈이므로 루트의 `build.gradle.kts` 를 Gradle 프로젝트로 열면 3개 모듈이 자동 인식됩니다.
 구조 변경 후 모듈이 안 잡히면 **Gradle 툴윈도우 → Reload All Gradle Projects** (필요 시 File → Invalidate Caches) 로 재임포트하세요.
-
 

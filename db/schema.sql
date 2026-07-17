@@ -112,7 +112,7 @@ CREATE TYPE friendship_status AS ENUM ('pending', 'accepted', 'blocked');
 CREATE TYPE room_type AS ENUM ('direct', 'group', 'question');
 CREATE TYPE report_reason AS ENUM ('spam', 'ad', 'abuse', 'obscene', 'harassment', 'etc');
 CREATE TYPE report_status AS ENUM ('pending', 'ai_reviewed', 'confirmed', 'dismissed');
-CREATE TYPE report_target_type AS ENUM ('message', 'answer');
+CREATE TYPE report_target_type AS ENUM ('message', 'answer', 'schedule');
 CREATE TYPE ai_recommendation AS ENUM ('temporary_suspend', 'hold', 'dismiss'); -- AI 권고(명령 아님)
 CREATE TYPE ai_report_decision AS ENUM ('suspend', 'hold', 'normal');
 CREATE TYPE sanction_type AS ENUM ('temporary', 'permanent');
@@ -704,6 +704,8 @@ CREATE TABLE meeting_schedules (
     schedule_id BIGSERIAL PRIMARY KEY,
     meeting_id BIGINT NOT NULL REFERENCES meetings(meeting_id) ON DELETE CASCADE,
     created_by BIGINT REFERENCES users(user_id) ON DELETE SET NULL,       -- [v25] 최초 작성자. 하드 삭제 시 일정은 보존
+    title VARCHAR(100),                                                    -- [v29] 채팅에서 작성한 일정별 제목
+    location_name VARCHAR(200),                                           -- [v29] 채팅에서 작성한 일정별 장소명
     starts_at TIMESTAMPTZ NOT NULL,
     ends_at TIMESTAMPTZ,
     visible_until TIMESTAMPTZ NOT NULL,
@@ -805,9 +807,12 @@ CREATE TABLE messages (
     sender_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     content TEXT,
     image_file_id UUID REFERENCES files(file_id) ON DELETE SET NULL,
+    reply_to_message_id BIGINT,
     message_type VARCHAR(16) NOT NULL DEFAULT 'user',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     deleted_at TIMESTAMPTZ,
+    CONSTRAINT fk_messages_reply_to_message
+        FOREIGN KEY (reply_to_message_id) REFERENCES messages(message_id) ON DELETE SET NULL,
     CHECK (content IS NOT NULL OR image_file_id IS NOT NULL),
     CONSTRAINT ck_messages_message_type CHECK (message_type IN ('user', 'system')),
     CONSTRAINT ck_messages_system_text_only CHECK (
@@ -826,6 +831,7 @@ CREATE TABLE reports (
     target_type report_target_type NOT NULL DEFAULT 'message',
     message_id BIGINT REFERENCES messages(message_id) ON DELETE SET NULL,
     answer_id BIGINT,
+    schedule_id BIGINT,
     reported_user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
     reason report_reason NOT NULL,
     detail TEXT,
@@ -855,15 +861,24 @@ CREATE TABLE reports (
     CHECK (status NOT IN ('confirmed', 'dismissed') OR resolved_by IS NOT NULL),
     CONSTRAINT fk_reports_answer
         FOREIGN KEY (answer_id) REFERENCES answers(answer_id) ON DELETE SET NULL,
+    CONSTRAINT fk_reports_schedule
+        FOREIGN KEY (schedule_id) REFERENCES meeting_schedules(schedule_id) ON DELETE SET NULL,
     CONSTRAINT ck_reports_target_xor CHECK (
-        (target_type = 'message' AND answer_id IS NULL)
-        OR (target_type = 'answer' AND message_id IS NULL)
+        (target_type = 'message' AND answer_id IS NULL AND schedule_id IS NULL)
+        OR (target_type = 'answer' AND message_id IS NULL AND schedule_id IS NULL)
+        OR (target_type = 'schedule' AND message_id IS NULL AND answer_id IS NULL)
     ),
     CONSTRAINT ck_reports_message_reported_user CHECK (
         target_type <> 'message' OR reported_user_id IS NOT NULL
     ),
     CONSTRAINT ck_reports_answer_manual_only CHECK (
         target_type <> 'answer' OR ai_review_state = 'cancelled'
+    ),
+    CONSTRAINT ck_reports_schedule_manual_only CHECK (
+        target_type <> 'schedule' OR ai_review_state = 'cancelled'
+    ),
+    CONSTRAINT ck_reports_schedule_reported_user CHECK (
+        target_type <> 'schedule' OR reported_user_id IS NOT NULL
     ),
     CONSTRAINT ck_reports_context_hash CHECK (context_hash ~ '^[0-9a-f]{64}$'),
     CONSTRAINT ck_reports_ai_attempts CHECK (ai_attempts BETWEEN 0 AND 5),
@@ -897,6 +912,7 @@ AS $function$
 DECLARE
     v_answer_is_ai BOOLEAN;
     v_answer_author_id BIGINT;
+    v_schedule_creator_id BIGINT;
     v_allowed_target_delete BOOLEAN;
 BEGIN
     IF TG_OP = 'UPDATE' THEN
@@ -932,11 +948,26 @@ BEGIN
                     USING ERRCODE = '23514', CONSTRAINT = 'ck_reports_target_xor';
             END IF;
         END IF;
+
+        IF NEW.schedule_id IS DISTINCT FROM OLD.schedule_id THEN
+            v_allowed_target_delete :=
+                OLD.target_type = 'schedule'
+                AND OLD.schedule_id IS NOT NULL
+                AND NEW.schedule_id IS NULL
+                AND NOT EXISTS (
+                    SELECT 1 FROM meeting_schedules WHERE schedule_id = OLD.schedule_id
+                );
+            IF NOT v_allowed_target_delete THEN
+                RAISE EXCEPTION 'report schedule target may only be cleared by target deletion'
+                    USING ERRCODE = '23514', CONSTRAINT = 'ck_reports_target_xor';
+            END IF;
+        END IF;
     END IF;
 
     IF TG_OP = 'INSERT' AND (
         (NEW.target_type = 'message' AND NEW.message_id IS NULL)
         OR (NEW.target_type = 'answer' AND NEW.answer_id IS NULL)
+        OR (NEW.target_type = 'schedule' AND NEW.schedule_id IS NULL)
     ) THEN
         RAISE EXCEPTION 'report selected target is required at creation'
             USING ERRCODE = '23514', CONSTRAINT = 'ck_reports_target_xor';
@@ -960,12 +991,27 @@ BEGIN
         END IF;
     END IF;
 
+    IF NEW.target_type = 'schedule' AND NEW.schedule_id IS NOT NULL THEN
+        SELECT created_by
+          INTO v_schedule_creator_id
+          FROM meeting_schedules
+         WHERE schedule_id = NEW.schedule_id;
+
+        IF FOUND AND (
+            v_schedule_creator_id IS NULL
+            OR NEW.reported_user_id IS DISTINCT FROM v_schedule_creator_id
+        ) THEN
+            RAISE EXCEPTION 'reported user must match the schedule creator'
+                USING ERRCODE = '23514', CONSTRAINT = 'ck_reports_schedule_reported_user';
+        END IF;
+    END IF;
+
     RETURN NEW;
 END;
 $function$;
 
 CREATE TRIGGER trg_reports_target_integrity
-BEFORE INSERT OR UPDATE OF target_type, message_id, answer_id, reported_user_id
+BEFORE INSERT OR UPDATE OF target_type, message_id, answer_id, schedule_id, reported_user_id
 ON reports
 FOR EACH ROW
 EXECUTE FUNCTION enforce_report_target_integrity();
@@ -973,6 +1019,7 @@ EXECUTE FUNCTION enforce_report_target_integrity();
 CREATE INDEX idx_reports_status ON reports(status, created_at DESC);
 CREATE INDEX idx_reports_reported_user ON reports(reported_user_id);
 CREATE INDEX idx_reports_answer ON reports(answer_id) WHERE answer_id IS NOT NULL;
+CREATE INDEX idx_reports_schedule ON reports(schedule_id) WHERE schedule_id IS NOT NULL;
 CREATE INDEX idx_reports_ai_due ON reports(ai_next_attempt_at, created_at, report_id)
     WHERE ai_review_state IN ('pending', 'retry');
 CREATE INDEX idx_reports_ai_expired_lease ON reports(ai_lease_until, report_id)

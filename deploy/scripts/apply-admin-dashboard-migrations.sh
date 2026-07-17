@@ -332,6 +332,117 @@ BEGIN
 END
 $function$;
 
+CREATE OR REPLACE FUNCTION pg_temp.message_reply_contract_state()
+RETURNS text
+LANGUAGE plpgsql
+AS $function$
+DECLARE
+  column_count integer;
+  constraint_count integer;
+  reply_to_attnum smallint;
+  message_id_attnum smallint;
+  column_exact boolean;
+  constraint_exact boolean;
+BEGIN
+  IF to_regclass('public.messages') IS NULL THEN
+    RETURN 'mismatch';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_class table_class
+    JOIN pg_namespace table_namespace ON table_namespace.oid = table_class.relnamespace
+    WHERE table_class.oid = 'public.messages'::regclass
+      AND table_namespace.nspname = 'public'
+      AND table_class.relkind = 'r'
+      AND table_class.relpersistence = 'p'
+      AND NOT table_class.relispartition
+  ) THEN
+    RETURN 'mismatch';
+  END IF;
+
+  SELECT count(*)
+  INTO column_count
+  FROM pg_attribute
+  WHERE attrelid = 'public.messages'::regclass
+    AND attname = 'reply_to_message_id'
+    AND attnum > 0
+    AND NOT attisdropped;
+
+  SELECT count(*)
+  INTO constraint_count
+  FROM pg_constraint
+  WHERE conrelid = 'public.messages'::regclass
+    AND conname = 'fk_messages_reply_to_message';
+
+  IF column_count = 0 THEN
+    RETURN CASE
+      WHEN constraint_count = 0 THEN 'absent'
+      ELSE 'mismatch'
+    END;
+  END IF;
+
+  IF constraint_count <> 1 THEN
+    RETURN 'mismatch';
+  END IF;
+
+  SELECT attnum
+  INTO reply_to_attnum
+  FROM pg_attribute
+  WHERE attrelid = 'public.messages'::regclass
+    AND attname = 'reply_to_message_id'
+    AND attnum > 0
+    AND NOT attisdropped;
+
+  SELECT attnum
+  INTO message_id_attnum
+  FROM pg_attribute
+  WHERE attrelid = 'public.messages'::regclass
+    AND attname = 'message_id'
+    AND attnum > 0
+    AND NOT attisdropped;
+
+  SELECT count(*) = 1
+    AND bool_and(
+      attribute.atttypid = 'bigint'::regtype
+      AND attribute.atttypmod = -1
+      AND NOT attribute.attnotnull
+      AND attribute.attgenerated = ''
+      AND attribute.attidentity = ''
+      AND NOT attribute.atthasdef
+    )
+  INTO column_exact
+  FROM pg_attribute attribute
+  WHERE attribute.attrelid = 'public.messages'::regclass
+    AND attribute.attname = 'reply_to_message_id'
+    AND attribute.attnum > 0
+    AND NOT attribute.attisdropped;
+
+  SELECT count(*) = 1
+    AND bool_and(
+      constraint_row.contype = 'f'
+      AND constraint_row.convalidated
+      AND NOT constraint_row.condeferrable
+      AND NOT constraint_row.condeferred
+      AND constraint_row.conkey = ARRAY[reply_to_attnum]
+      AND constraint_row.confrelid = 'public.messages'::regclass
+      AND constraint_row.confkey = ARRAY[message_id_attnum]
+      AND constraint_row.confmatchtype = 's'
+      AND constraint_row.confupdtype = 'a'
+      AND constraint_row.confdeltype = 'n'
+    )
+  INTO constraint_exact
+  FROM pg_constraint constraint_row
+  WHERE constraint_row.conrelid = 'public.messages'::regclass
+    AND constraint_row.conname = 'fk_messages_reply_to_message';
+
+  RETURN CASE
+    WHEN column_exact AND constraint_exact THEN 'exact'
+    ELSE 'mismatch'
+  END;
+END
+$function$;
+
 CREATE OR REPLACE FUNCTION pg_temp.admin_audit_contract_state()
 RETURNS text
 LANGUAGE plpgsql
@@ -966,6 +1077,15 @@ END
 $function$;
 
 DO $preflight$
+DECLARE
+  schedule_title_exists boolean;
+  schedule_location_exists boolean;
+  schedule_target_enum_exists boolean;
+  report_schedule_id_exists boolean;
+  report_schedule_fk_exists boolean;
+  report_schedule_constraints_exist boolean;
+  report_schedule_index_exists boolean;
+  report_schedule_trigger_exists boolean;
 BEGIN
   IF pg_temp.auth_version_contract_state() = 'mismatch' THEN
     RAISE EXCEPTION 'partial or incompatible users.auth_version schema';
@@ -973,11 +1093,116 @@ BEGIN
   IF pg_temp.message_type_contract_state() = 'mismatch' THEN
     RAISE EXCEPTION 'partial or incompatible messages.message_type schema';
   END IF;
+  IF pg_temp.message_reply_contract_state() = 'mismatch' THEN
+    RAISE EXCEPTION 'partial or incompatible messages.reply_to_message_id schema';
+  END IF;
   IF pg_temp.admin_audit_contract_state() = 'mismatch' THEN
     RAISE EXCEPTION 'partial or incompatible admin_audit_logs schema';
   END IF;
   IF pg_temp.web_push_subscription_contract_state() = 'mismatch' THEN
     RAISE EXCEPTION 'partial or incompatible web_push_subscriptions schema';
+  END IF;
+
+  IF to_regclass('public.meeting_schedules') IS NOT NULL THEN
+    SELECT
+      EXISTS (
+        SELECT 1
+        FROM pg_attribute
+        WHERE attrelid = to_regclass('public.meeting_schedules')
+          AND attname = 'title'
+          AND attnum > 0
+          AND NOT attisdropped
+      ),
+      EXISTS (
+        SELECT 1
+        FROM pg_attribute
+        WHERE attrelid = to_regclass('public.meeting_schedules')
+          AND attname = 'location_name'
+          AND attnum > 0
+          AND NOT attisdropped
+      )
+    INTO schedule_title_exists, schedule_location_exists;
+
+    IF schedule_title_exists <> schedule_location_exists THEN
+      RAISE EXCEPTION 'partial or incompatible meeting_schedules detail schema';
+    END IF;
+  END IF;
+
+  SELECT EXISTS (
+    SELECT 1
+    FROM pg_enum
+    WHERE enumtypid = to_regtype('public.report_target_type')
+      AND enumlabel = 'schedule'
+  )
+  INTO schedule_target_enum_exists;
+
+  SELECT EXISTS (
+    SELECT 1
+    FROM pg_attribute
+    WHERE attrelid = to_regclass('public.reports')
+      AND attname = 'schedule_id'
+      AND attnum > 0
+      AND NOT attisdropped
+  )
+  INTO report_schedule_id_exists;
+
+  IF NOT schedule_target_enum_exists AND report_schedule_id_exists THEN
+    RAISE EXCEPTION 'partial or incompatible reports schedule target schema';
+  END IF;
+
+  IF schedule_target_enum_exists AND report_schedule_id_exists THEN
+    SELECT EXISTS (
+      SELECT 1
+      FROM pg_constraint
+      WHERE conrelid = to_regclass('public.reports')
+        AND conname = 'fk_reports_schedule'
+        AND contype = 'f'
+        AND convalidated
+        AND confrelid = to_regclass('public.meeting_schedules')
+        AND confdeltype = 'n'
+    )
+    INTO report_schedule_fk_exists;
+
+    SELECT count(*) = 3
+      AND bool_and(convalidated)
+    INTO report_schedule_constraints_exist
+    FROM pg_constraint
+    WHERE conrelid = to_regclass('public.reports')
+      AND conname IN (
+        'ck_reports_target_xor',
+        'ck_reports_schedule_manual_only',
+        'ck_reports_schedule_reported_user'
+      );
+
+    SELECT EXISTS (
+      SELECT 1
+      FROM pg_index index_row
+      JOIN pg_class index_class ON index_class.oid = index_row.indexrelid
+      WHERE index_row.indrelid = to_regclass('public.reports')
+        AND index_class.relname = 'idx_reports_schedule'
+        AND index_row.indisvalid
+    )
+    INTO report_schedule_index_exists;
+
+    SELECT EXISTS (
+      SELECT 1
+      FROM pg_trigger trigger_row
+      JOIN pg_proc function_row ON function_row.oid = trigger_row.tgfoid
+      WHERE trigger_row.tgrelid = to_regclass('public.reports')
+        AND trigger_row.tgname = 'trg_reports_target_integrity'
+        AND NOT trigger_row.tgisinternal
+        AND position('schedule_id' IN pg_get_functiondef(function_row.oid)) > 0
+    )
+    INTO report_schedule_trigger_exists;
+
+    IF NOT (
+      report_schedule_fk_exists
+      AND report_schedule_constraints_exist
+      AND report_schedule_index_exists
+      AND report_schedule_trigger_exists
+    ) THEN
+      RAISE EXCEPTION 'partial or incompatible reports schedule target schema';
+    END IF;
   END IF;
 END
 $preflight$;
@@ -987,6 +1212,37 @@ SELECT pg_temp.auth_version_contract_state() = 'absent' AS apply_auth_version_mi
 SELECT pg_temp.admin_audit_contract_state() = 'absent' AS apply_admin_audit_migration \gset
 SELECT pg_temp.web_push_subscription_contract_state() = 'absent' AS apply_web_push_subscription_base_migration \gset
 SELECT pg_temp.message_type_contract_state() = 'absent' AS apply_message_type_migration \gset
+SELECT (
+  to_regclass('public.meeting_schedules') IS NOT NULL
+  AND (
+    NOT EXISTS (
+      SELECT 1
+      FROM pg_attribute
+      WHERE attrelid = to_regclass('public.meeting_schedules')
+        AND attname = 'title'
+        AND attnum > 0
+        AND NOT attisdropped
+    )
+    OR NOT EXISTS (
+      SELECT 1
+      FROM pg_attribute
+      WHERE attrelid = to_regclass('public.meeting_schedules')
+        AND attname = 'location_name'
+        AND attnum > 0
+        AND NOT attisdropped
+    )
+  )
+) AS apply_meeting_schedule_details_migration \gset
+SELECT (
+  to_regtype('public.report_target_type') IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1
+    FROM pg_enum
+    WHERE enumtypid = to_regtype('public.report_target_type')
+      AND enumlabel = 'schedule'
+  )
+) AS apply_schedule_report_target_enum_migration \gset
+SELECT pg_temp.message_reply_contract_state() = 'absent' AS apply_message_reply_migration \gset
 
 \if :apply_report_policy_migrations
 \i db/migrations/v24_seed_report_policy_rules.sql
@@ -1009,6 +1265,36 @@ SELECT pg_temp.web_push_subscription_contract_state() = 'base' AS apply_web_push
 \if :apply_message_type_migration
 \i db/migrations/v28_chat_system_messages.sql
 \endif
+\if :apply_meeting_schedule_details_migration
+\i db/migrations/v29_meeting_schedule_details.sql
+\endif
+\if :apply_schedule_report_target_enum_migration
+\i db/migrations/v30_report_schedule_target_enum.sql
+\endif
+SELECT (
+  to_regclass('public.reports') IS NOT NULL
+  AND to_regclass('public.meeting_schedules') IS NOT NULL
+  AND EXISTS (
+    SELECT 1
+    FROM pg_enum
+    WHERE enumtypid = to_regtype('public.report_target_type')
+      AND enumlabel = 'schedule'
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM pg_attribute
+    WHERE attrelid = to_regclass('public.reports')
+      AND attname = 'schedule_id'
+      AND attnum > 0
+      AND NOT attisdropped
+  )
+) AS apply_schedule_report_target_migration \gset
+\if :apply_schedule_report_target_migration
+\i db/migrations/v31_report_schedule_target.sql
+\endif
+\if :apply_message_reply_migration
+\i db/migrations/v32_chat_message_reply.sql
+\endif
 
 DO $verify$
 BEGIN
@@ -1017,6 +1303,9 @@ BEGIN
   END IF;
   IF pg_temp.message_type_contract_state() <> 'exact' THEN
     RAISE EXCEPTION 'messages.message_type schema verification failed';
+  END IF;
+  IF pg_temp.message_reply_contract_state() <> 'exact' THEN
+    RAISE EXCEPTION 'messages.reply_to_message_id schema verification failed';
   END IF;
   IF pg_temp.admin_audit_contract_state() <> 'exact' THEN
     RAISE EXCEPTION 'admin_audit_logs schema verification failed';

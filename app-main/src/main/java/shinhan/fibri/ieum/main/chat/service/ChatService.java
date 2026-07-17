@@ -171,7 +171,7 @@ public class ChatService {
 		String cursor,
 		Integer size
 	) {
-		findActiveMember(roomId, principal.userId());
+		ChatMember member = findActiveMember(roomId, principal.userId());
 		int pageSize = normalizeMessagePageSize(size);
 		ChatMessageCursor decodedCursor = ChatMessageCursor.decode(cursor);
 		PageRequest pageRequest = PageRequest.of(0, pageSize + 1);
@@ -183,7 +183,12 @@ public class ChatService {
 		boolean hasNext = messages.size() > pageSize;
 		List<Message> pageItems = messages.stream().limit(pageSize).toList();
 		String nextCursor = hasNext ? ChatMessageCursor.encode(pageItems.getLast()) : null;
-		return new ChatCursorPage<>(pageItems.stream().map(ChatMessageResponse::from).toList(), nextCursor);
+		return new ChatCursorPage<>(
+			pageItems.stream()
+				.map(message -> ChatMessageResponse.from(message, member.getVisibleAfterMessageId()))
+				.toList(),
+			nextCursor
+		);
 	}
 
 	@Transactional

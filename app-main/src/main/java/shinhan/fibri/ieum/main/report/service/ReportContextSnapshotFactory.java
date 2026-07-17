@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
 import shinhan.fibri.ieum.common.chat.domain.Message;
 import shinhan.fibri.ieum.main.answer.domain.Answer;
 import shinhan.fibri.ieum.main.answer.domain.AnswerImage;
+import shinhan.fibri.ieum.main.meeting.domain.MeetingSchedule;
 import shinhan.fibri.ieum.main.report.domain.ReportContextSnapshot;
 import shinhan.fibri.ieum.main.report.domain.ReportTargetType;
 
@@ -20,6 +21,7 @@ public class ReportContextSnapshotFactory {
 
 	private static final int MESSAGE_SCHEMA_VERSION = 1;
 	private static final int ANSWER_SCHEMA_VERSION = 1;
+	private static final int SCHEDULE_SCHEMA_VERSION = 1;
 
 	private final ObjectMapper objectMapper;
 	private final JdbcClient jdbc;
@@ -69,6 +71,20 @@ public class ReportContextSnapshotFactory {
 		}
 	}
 
+	public ReportContextSnapshot createSchedule(MeetingSchedule schedule) {
+		MeetingSchedule target = Objects.requireNonNull(schedule, "schedule must not be null");
+		ScheduleContextSnapshotPayload payload = new ScheduleContextSnapshotPayload(
+			SCHEDULE_SCHEMA_VERSION,
+			ReportTargetType.schedule,
+			ScheduleContext.from(target)
+		);
+		try {
+			return canonicalizeAndHash(objectMapper.writeValueAsString(payload));
+		} catch (JsonProcessingException exception) {
+			throw new IllegalStateException("Failed to serialize schedule report context snapshot", exception);
+		}
+	}
+
 	private ReportContextSnapshot canonicalizeAndHash(String serializedSnapshot) {
 		return jdbc.sql("""
 			SELECT canonical.json,
@@ -95,6 +111,39 @@ public class ReportContextSnapshotFactory {
 		Long questionId,
 		AnswerContext reported
 	) {
+	}
+
+	private record ScheduleContextSnapshotPayload(
+		int schemaVersion,
+		ReportTargetType targetType,
+		ScheduleContext reported
+	) {
+	}
+
+	@JsonInclude(JsonInclude.Include.ALWAYS)
+	private record ScheduleContext(
+		Long scheduleId,
+		Long meetingId,
+		Long createdByUserId,
+		String title,
+		String locationName,
+		OffsetDateTime startsAt,
+		OffsetDateTime endsAt,
+		String status
+	) {
+
+		private static ScheduleContext from(MeetingSchedule schedule) {
+			return new ScheduleContext(
+				schedule.getId(),
+				schedule.getMeetingId(),
+				schedule.getCreatedBy(),
+				schedule.getTitle(),
+				schedule.getLocationName(),
+				schedule.getStartsAt(),
+				schedule.getEndsAt(),
+				schedule.getStatus().name()
+			);
+		}
 	}
 
 	@JsonInclude(JsonInclude.Include.ALWAYS)

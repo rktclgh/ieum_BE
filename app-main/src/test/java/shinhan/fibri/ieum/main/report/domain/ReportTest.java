@@ -11,6 +11,7 @@ import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.chat.domain.ChatRoom;
 import shinhan.fibri.ieum.common.chat.domain.Message;
 import shinhan.fibri.ieum.main.answer.domain.Answer;
+import shinhan.fibri.ieum.main.meeting.domain.MeetingSchedule;
 
 class ReportTest {
 
@@ -91,6 +92,31 @@ class ReportTest {
 		Report report = Report.answerReport(user, answer, user, ReportReason.etc, null, SNAPSHOT);
 
 		assertThat(report.getReporter()).isSameAs(report.getReportedUser());
+	}
+
+	@Test
+	void scheduleReportStoresScheduleOwnerAndSkipsAiReview() {
+		User reporter = user(42L, "reporter");
+		User owner = user(77L, "owner");
+		MeetingSchedule schedule = MeetingSchedule.createManaged(
+			3L,
+			77L,
+			"용산 와인바에서 봅시다",
+			"용산역 1번 출구",
+			OffsetDateTime.parse("2099-07-20T19:00:00+09:00"),
+			null,
+			OffsetDateTime.parse("2099-07-20T23:59:59+09:00"),
+			1
+		);
+
+		Report report = Report.scheduleReport(reporter, schedule, owner, ReportReason.spam, "detail", SNAPSHOT);
+
+		assertThat(report.getTargetType()).isEqualTo(ReportTargetType.schedule);
+		assertThat(report.getSchedule()).isSameAs(schedule);
+		assertThat(report.getMessage()).isNull();
+		assertThat(report.getAnswer()).isNull();
+		assertThat(report.getReportedUser()).isSameAs(owner);
+		assertThat(report.getAiReviewState()).isEqualTo(ReportAiReviewState.cancelled);
 	}
 
 	private User user(Long id, String nickname) {

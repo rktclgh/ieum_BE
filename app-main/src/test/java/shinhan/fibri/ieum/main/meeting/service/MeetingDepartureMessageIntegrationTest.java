@@ -34,6 +34,7 @@ import javax.sql.DataSource;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
+import shinhan.fibri.ieum.common.chat.domain.ChatMember;
 import shinhan.fibri.ieum.common.chat.domain.MessageType;
 import shinhan.fibri.ieum.main.chat.dto.ChatMessageResponse;
 import shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException;
@@ -447,6 +448,11 @@ class MeetingDepartureMessageIntegrationTest {
 		@Override
 		public void publish(WsMessageEvent event) {
 			events.add(event);
+		}
+
+		@Override
+		public void publishUserMessage(WsMessageEvent event, List<ChatMember> recipients) {
+			recipients.forEach(ignored -> events.add(event));
 		}
 
 		List<WsMessageEvent> events() {

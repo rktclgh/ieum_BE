@@ -31,26 +31,28 @@ class AdminReportRepositoryIntegrationTest {
 
 	@BeforeEach
 	void seedRows() {
-		jdbc.update("TRUNCATE TABLE reports, users");
+		jdbc.update("TRUNCATE TABLE reports, meeting_schedules, users");
 		jdbc.update("INSERT INTO users(user_id, nickname) VALUES (1, 'reporter'), (2, 'reported')");
-		insertReport(1, "message", 101L, null, 2L, "spam", "pending", "pending", null, null,
+		insertReport(1, "message", 101L, null, null, 2L, "spam", "pending", "pending", null, null,
 			"2026-07-14T10:00:00.123456789+09:00", "{\"reported\":{\"messageId\":101}}");
-		insertReport(2, "answer", null, 202L, 2L, "abuse", "ai_reviewed", "completed", "suspend",
+		insertReport(2, "answer", null, 202L, null, 2L, "abuse", "ai_reviewed", "completed", "suspend",
 			new BigDecimal("0.9100"), "2026-07-14T10:00:00.123456789+09:00",
 			"{\"reported\":{\"answerId\":202,\"isAi\":false}}");
-		insertReport(3, "answer", null, 203L, null, "etc", "dismissed", "cancelled", "normal", null,
+		insertReport(3, "answer", null, 203L, null, null, "etc", "dismissed", "cancelled", "normal", null,
 			"2026-07-14T11:00:00.000000001+09:00", "{\"reported\":{\"answerId\":203,\"isAi\":true}}");
-		insertReport(4, "message", null, null, 2L, "harassment", "pending", "retry", null, null,
+		insertReport(4, "message", null, null, null, 2L, "harassment", "pending", "retry", null, null,
 			"2026-07-14T12:00:00.000000002+09:00", "{\"reported\":{\"messageId\":404}}");
-		insertReport(5, "answer", null, null, 2L, "obscene", "pending", "cancelled", null, null,
+		insertReport(5, "answer", null, null, null, 2L, "obscene", "pending", "cancelled", null, null,
 			"2026-07-14T13:00:00.000000003+09:00", "{\"reported\":{\"answerId\":505,\"isAi\":false}}");
+		insertReport(6, "schedule", null, null, 606L, 2L, "ad", "pending", "cancelled", null, null,
+			"2026-07-14T14:00:00.000000004+09:00", "{\"reported\":{\"scheduleId\":606}}");
 	}
 
 	@Test
 	void nullFiltersExecuteAgainstNativeEnumsWithoutPostgres42P18() {
 		List<AdminReportListRow> rows = repository.findReports(null, null, null, null, 10);
 
-		assertThat(rows).extracting(AdminReportListRow::reportId).containsExactly(5L, 4L, 3L, 2L, 1L);
+		assertThat(rows).extracting(AdminReportListRow::reportId).containsExactly(6L, 5L, 4L, 3L, 2L, 1L);
 	}
 
 	@Test
@@ -79,6 +81,18 @@ class AdminReportRepositoryIntegrationTest {
 		assertThat(row(rows, 4L).targetDeleted()).isTrue();
 		assertThat(row(rows, 5L).targetId()).isEqualTo(505L);
 		assertThat(row(rows, 5L).targetDeleted()).isTrue();
+		assertThat(row(rows, 6L).targetType()).isEqualTo("schedule");
+		assertThat(row(rows, 6L).targetId()).isEqualTo(606L);
+		assertThat(row(rows, 6L).targetDeleted()).isFalse();
+	}
+
+	@Test
+	void marksSoftDeletedScheduleTargetAsDeleted() {
+		jdbc.update("INSERT INTO meeting_schedules(schedule_id, deleted_at) VALUES (606, now())");
+
+		AdminReportListRow schedule = row(repository.findReports(null, null, null, null, 10), 6L);
+
+		assertThat(schedule.targetDeleted()).isTrue();
 	}
 
 	@Test
@@ -89,8 +103,8 @@ class AdminReportRepositoryIntegrationTest {
 
 		List<AdminReportListRow> second = repository.findReports(null, null, null, cursor, 4);
 
-		assertThat(first).extracting(AdminReportListRow::reportId).containsExactly(5L, 4L, 3L, 2L);
-		assertThat(second).extracting(AdminReportListRow::reportId).containsExactly(1L);
+		assertThat(first).extracting(AdminReportListRow::reportId).containsExactly(6L, 5L, 4L, 3L);
+		assertThat(second).extracting(AdminReportListRow::reportId).containsExactly(2L, 1L);
 		assertThat(first.stream().map(AdminReportListRow::reportId))
 			.doesNotContainAnyElementsOf(second.stream().map(AdminReportListRow::reportId).toList());
 	}
@@ -106,7 +120,7 @@ class AdminReportRepositoryIntegrationTest {
 	}
 
 	private static void createSchema() {
-		jdbc.execute("CREATE TYPE report_target_type AS ENUM ('message', 'answer')");
+		jdbc.execute("CREATE TYPE report_target_type AS ENUM ('message', 'answer', 'schedule')");
 		jdbc.execute("CREATE TYPE report_reason AS ENUM ('spam', 'ad', 'abuse', 'obscene', 'harassment', 'etc')");
 		jdbc.execute("CREATE TYPE report_status AS ENUM ('pending', 'ai_reviewed', 'confirmed', 'dismissed')");
 		jdbc.execute("CREATE TYPE ai_job_status AS ENUM ('pending', 'processing', 'retry', 'completed', 'cancelled', 'dead')");
@@ -118,6 +132,7 @@ class AdminReportRepositoryIntegrationTest {
 				nickname VARCHAR(50) NOT NULL
 			)
 			""");
+		jdbc.execute("CREATE TABLE meeting_schedules(schedule_id BIGINT PRIMARY KEY, deleted_at TIMESTAMPTZ)");
 		jdbc.execute("""
 			CREATE TABLE reports (
 				report_id BIGINT PRIMARY KEY,
@@ -125,6 +140,7 @@ class AdminReportRepositoryIntegrationTest {
 				target_type report_target_type NOT NULL,
 				message_id BIGINT,
 				answer_id BIGINT,
+				schedule_id BIGINT,
 				reported_user_id BIGINT REFERENCES users(user_id),
 				reason report_reason NOT NULL,
 				status report_status NOT NULL,
@@ -144,6 +160,7 @@ class AdminReportRepositoryIntegrationTest {
 		String targetType,
 		Long messageId,
 		Long answerId,
+		Long scheduleId,
 		Long reportedUserId,
 		String reason,
 		String status,
@@ -156,15 +173,15 @@ class AdminReportRepositoryIntegrationTest {
 		jdbc.update(
 			"""
 				INSERT INTO reports(
-					report_id, reporter_id, target_type, message_id, answer_id, reported_user_id,
+					 report_id, reporter_id, target_type, message_id, answer_id, schedule_id, reported_user_id,
 					reason, status, ai_review_state, ai_recommendation, ai_decision, ai_confidence,
 					ai_reviewed_at, context_snapshot, created_at
-				) VALUES (?, 1, ?::report_target_type, ?, ?, ?, ?::report_reason, ?::report_status,
+				) VALUES (?, 1, ?::report_target_type, ?, ?, ?, ?, ?::report_reason, ?::report_status,
 					?::ai_job_status, CASE WHEN ? = 'suspend' THEN 'temporary_suspend'::ai_recommendation ELSE NULL END,
 					?::ai_report_decision, ?, CASE WHEN CAST(? AS varchar) IS NULL THEN NULL ELSE ?::timestamptz END,
 					?::jsonb, ?::timestamptz)
 				""",
-			id, targetType, messageId, answerId, reportedUserId, reason, status, aiReviewState,
+			id, targetType, messageId, answerId, scheduleId, reportedUserId, reason, status, aiReviewState,
 			aiDecision, aiDecision, confidence, aiDecision, createdAt, snapshot, createdAt
 		);
 	}

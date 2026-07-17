@@ -18,6 +18,7 @@ import shinhan.fibri.ieum.common.chat.domain.RoomType;
 import shinhan.fibri.ieum.common.chat.repository.ChatMemberRepository;
 import shinhan.fibri.ieum.common.chat.repository.ChatRoomRepository;
 import shinhan.fibri.ieum.common.chat.repository.MessageRepository;
+import shinhan.fibri.ieum.main.chat.dto.ChatReplyPreview;
 import shinhan.fibri.ieum.main.question.repository.QuestionRepository;
 import shinhan.fibri.ieum.main.question.repository.QuestionTitleProjection;
 
@@ -76,6 +77,66 @@ class ChatRoomSummaryQueryServiceTest {
 
 		verify(chatRoomRepository).findActiveRoomsByUserIdAndRoomType(42L, RoomType.direct);
 		verify(chatRoomRepository, never()).findActiveRoomsByUserId(42L);
+	}
+
+	@Test
+	void listForUserKeepsTheLastMessageReplyPreviewFlat() {
+		User me = user(42L, "me@example.com", "me");
+		User friend = user(77L, "friend@example.com", "friend");
+		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
+		ChatMember member = ChatMember.join(room, me);
+		Message target = message(400L, room, friend, "original", "2026-07-08T10:00:00+09:00");
+		Message lastMessage = Message.text(
+			room,
+			me,
+			"reply",
+			OffsetDateTime.parse("2026-07-08T11:00:00+09:00"),
+			target
+		);
+		setField(lastMessage, "id", 501L);
+		when(chatRoomRepository.findActiveRoomsByUserId(42L)).thenReturn(List.of(room));
+		when(chatMemberRepository.findActiveByUserIdAndRoomIds(42L, List.of(100L))).thenReturn(List.of(member));
+		when(messageRepository.countUnreadByRoomIds(42L, List.of(100L))).thenReturn(List.of());
+		when(messageRepository.findLastVisibleMessagesByRoomIds(42L, List.of(100L))).thenReturn(List.of(lastMessage));
+
+		var response = service.listForUser(42L, null);
+
+		assertThat(response).singleElement().satisfies(summary -> {
+			assertThat(summary.lastMessage().replyTo()).isEqualTo(
+				new ChatReplyPreview(400L, 77L, "friend", "original", null)
+			);
+		});
+		assertThat(ChatReplyPreview.class.getRecordComponents())
+			.extracting(component -> component.getName())
+			.doesNotContain("replyTo");
+	}
+
+	@Test
+	void listForUserRedactsReplyPreviewWhoseParentPredatesRejoinBoundary() {
+		User me = user(42L, "me@example.com", "me");
+		User friend = user(77L, "friend@example.com", "friend");
+		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
+		ChatMember member = ChatMember.join(room, me);
+		member.hideHistoryThrough(400L);
+		Message hiddenParent = message(400L, room, friend, "original", "2026-07-08T10:00:00+09:00");
+		Message lastMessage = Message.text(
+			room,
+			friend,
+			"reply",
+			OffsetDateTime.parse("2026-07-08T11:00:00+09:00"),
+			hiddenParent
+		);
+		setField(lastMessage, "id", 501L);
+		when(chatRoomRepository.findActiveRoomsByUserId(42L)).thenReturn(List.of(room));
+		when(chatMemberRepository.findActiveByUserIdAndRoomIds(42L, List.of(100L))).thenReturn(List.of(member));
+		when(messageRepository.countUnreadByRoomIds(42L, List.of(100L))).thenReturn(List.of());
+		when(messageRepository.findLastVisibleMessagesByRoomIds(42L, List.of(100L))).thenReturn(List.of(lastMessage));
+
+		var response = service.listForUser(42L, null);
+
+		assertThat(response).singleElement().satisfies(summary ->
+			assertThat(summary.lastMessage().replyTo()).isNull()
+		);
 	}
 
 	@Test

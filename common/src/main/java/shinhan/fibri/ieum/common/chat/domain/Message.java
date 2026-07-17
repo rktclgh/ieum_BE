@@ -39,6 +39,10 @@ public class Message {
 	@Column(name = "image_file_id")
 	private UUID imageFileId;
 
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "reply_to_message_id")
+	private Message replyTo;
+
 	@Enumerated(EnumType.STRING)
 	@Column(name = "message_type", nullable = false, length = 16)
 	private MessageType messageType;
@@ -58,7 +62,8 @@ public class Message {
 		String content,
 		UUID imageFileId,
 		MessageType messageType,
-		OffsetDateTime createdAt
+		OffsetDateTime createdAt,
+		Message replyTo
 	) {
 		if (content == null && imageFileId == null) {
 			throw new IllegalArgumentException("content or imageFileId is required");
@@ -69,6 +74,7 @@ public class Message {
 		this.imageFileId = imageFileId;
 		this.messageType = Objects.requireNonNull(messageType, "messageType must not be null");
 		this.createdAt = Objects.requireNonNull(createdAt, "createdAt must not be null");
+		this.replyTo = replyTo;
 	}
 
 	public static Message text(ChatRoom room, User sender, String content) {
@@ -76,13 +82,28 @@ public class Message {
 	}
 
 	public static Message text(ChatRoom room, User sender, String content, OffsetDateTime createdAt) {
+		return text(room, sender, content, createdAt, null);
+	}
+
+	public static Message text(ChatRoom room, User sender, String content, Message replyTo) {
+		return text(room, sender, content, OffsetDateTime.now(), replyTo);
+	}
+
+	public static Message text(
+		ChatRoom room,
+		User sender,
+		String content,
+		OffsetDateTime createdAt,
+		Message replyTo
+	) {
 		return new Message(
 			room,
 			sender,
 			Objects.requireNonNull(content, "content must not be null"),
 			null,
 			MessageType.user,
-			createdAt
+			createdAt,
+			replyTo
 		);
 	}
 
@@ -91,13 +112,28 @@ public class Message {
 	}
 
 	public static Message image(ChatRoom room, User sender, UUID imageFileId, OffsetDateTime createdAt) {
+		return image(room, sender, imageFileId, createdAt, null);
+	}
+
+	public static Message image(ChatRoom room, User sender, UUID imageFileId, Message replyTo) {
+		return image(room, sender, imageFileId, OffsetDateTime.now(), replyTo);
+	}
+
+	public static Message image(
+		ChatRoom room,
+		User sender,
+		UUID imageFileId,
+		OffsetDateTime createdAt,
+		Message replyTo
+	) {
 		return new Message(
 			room,
 			sender,
 			null,
 			Objects.requireNonNull(imageFileId, "imageFileId must not be null"),
 			MessageType.user,
-			createdAt
+			createdAt,
+			replyTo
 		);
 	}
 
@@ -110,7 +146,7 @@ public class Message {
 		if (content == null || content.isBlank()) {
 			throw new IllegalArgumentException("system content must not be blank");
 		}
-		return new Message(room, sender, content, null, MessageType.system, createdAt);
+		return new Message(room, sender, content, null, MessageType.system, createdAt, null);
 	}
 
 	public void markDeleted(OffsetDateTime deletedAt) {
@@ -135,6 +171,10 @@ public class Message {
 
 	public UUID getImageFileId() {
 		return imageFileId;
+	}
+
+	public Message getReplyTo() {
+		return replyTo;
 	}
 
 	public MessageType getMessageType() {
