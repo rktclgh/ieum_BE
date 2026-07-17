@@ -20,7 +20,10 @@ import shinhan.fibri.ieum.main.admin.knowledge.exception.KnowledgeCandidateNotFo
 import shinhan.fibri.ieum.main.admin.knowledge.exception.KnowledgeCandidateSourceIneligibleException;
 import shinhan.fibri.ieum.main.auth.dto.AuthErrorResponse;
 
-@RestControllerAdvice(assignableTypes = AdminKnowledgeCandidateController.class)
+@RestControllerAdvice(assignableTypes = {
+	AdminKnowledgeCandidateController.class,
+	AdminKnowledgeGraphController.class
+})
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class AdminKnowledgeCandidateExceptionHandler {
 

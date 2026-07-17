@@ -38,6 +38,7 @@
 | `GET` | `/admin/knowledge/relation-candidates/{candidateId}` | `200 AdminKnowledgeCandidateDetailResponse` |
 | `POST` | `/admin/knowledge/relation-candidates/{candidateId}/approve` | `200 AdminKnowledgeCandidateDecisionResponse` |
 | `POST` | `/admin/knowledge/relation-candidates/{candidateId}/reject` | `200 AdminKnowledgeCandidateDecisionResponse` |
+| `GET` | `/admin/ai/knowledge/graph?query=&focus=&predicate=&limit=` | `200 AdminKnowledgeGraphResponse` |
 
 ## KG 관계 후보 검토
 
@@ -48,6 +49,13 @@
 - 승인 결과는 `{candidateId, status, version, relation}`이다. relation은 승인에만 존재하고 반려에는 `null`이다.
 - stale version 또는 이미 종결된 후보는 `409 KNOWLEDGE_CANDIDATE_CONCURRENTLY_CHANGED`다. 승인 시 source가 더 이상 적격하지 않으면 후보를 `invalidated`로 보존하고 `409 KNOWLEDGE_CANDIDATE_SOURCE_INELIGIBLE`을 반환한다.
 - 승인/반려는 각각 `KNOWLEDGE_RELATION_APPROVED`, `KNOWLEDGE_RELATION_REJECTED` 관리자 감사 로그와 같은 transaction으로 기록한다.
+
+## KG 지식 탐색/시각화
+
+- `GET /api/v1/admin/ai/knowledge/graph`는 승인된 KG 관계를 그래프 뷰용으로 조회한다.
+- query parameter는 `query`, `focus`, `predicate`, `limit`이다. `limit` 기본값은 60, 최대값은 80이다.
+- 응답은 `{nodes, edges, truncated}`이며 node는 `{id, label, degree}`, edge는 relation id·source/target·predicate·confidence·근거 source/chunk 메타데이터를 포함한다.
+- 조회 결과가 `limit`을 초과하면 `truncated: true`를 반환하고, 화면에는 `limit`개 edge 기준의 nodes/edges만 노출한다.
 
 ## KPI overview
 
@@ -133,7 +141,7 @@ Content-Type: application/json
 - 콘텐츠 삭제/비노출 API
 - 회원 영구 삭제 API
 - AI 제재 pending-review API
-- AI 정책 CRUD 및 후보 검토 외 지식 탐색/시각화 API
+- AI 정책 CRUD 및 추가 KG 관리 API
 - 감사 로그 조회 UI/API, 보존 기간 정책
 
 이 항목들은 관리자 대시보드 MVP의 AS-BUILT API로 취급하지 않는다.
