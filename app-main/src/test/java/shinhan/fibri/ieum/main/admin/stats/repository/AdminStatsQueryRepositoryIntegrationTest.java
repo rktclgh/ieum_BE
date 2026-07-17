@@ -106,16 +106,18 @@ class AdminStatsQueryRepositoryIntegrationTest {
 	@Test
 	void currentQueuesExcludeResolvedRetryAndDeadReports() {
 		insertQueueReport(5, "pending", "retry");
-		insertQueueReport(6, "ai_reviewed", "dead");
-		insertQueueReport(7, "confirmed", "retry");
-		insertQueueReport(8, "dismissed", "retry");
-		insertQueueReport(9, "confirmed", "dead");
-		insertQueueReport(10, "dismissed", "dead");
+		insertQueueReport(6, "ai_reviewed", "retry");
+		insertQueueReport(7, "pending", "dead");
+		insertQueueReport(8, "ai_reviewed", "dead");
+		insertQueueReport(9, "confirmed", "retry");
+		insertQueueReport(10, "dismissed", "retry");
+		insertQueueReport(11, "confirmed", "dead");
+		insertQueueReport(12, "dismissed", "dead");
 
 		QueueStatsRow queues = repository.getCurrentQueues();
 
-		assertThat(queues.retryReportCount()).isEqualTo(1);
-		assertThat(queues.deadReportCount()).isEqualTo(1);
+		assertThat(queues.retryReportCount()).isEqualTo(2);
+		assertThat(queues.deadReportCount()).isEqualTo(2);
 	}
 
 	private void truncateTables() {
