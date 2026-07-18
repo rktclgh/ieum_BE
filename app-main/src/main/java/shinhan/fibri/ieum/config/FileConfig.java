@@ -21,6 +21,8 @@ public class FileConfig {
 		@Value("${app.file.s3.final-prefix:${APP_FILE_S3_FINAL_PREFIX:final}}") String finalPrefix,
 		@Value("${app.file.presign-ttl-minutes:${APP_FILE_PRESIGN_TTL_MINUTES:15}}") long presignTtlMinutes,
 		@Value("${app.file.max-size-bytes:${APP_FILE_MAX_SIZE_BYTES:10485760}}") long maxSizeBytes,
+		@Value("${app.file.max-source-pixels:${APP_FILE_MAX_SOURCE_PIXELS:50000000}}") long maxSourcePixels,
+		@Value("${app.file.max-source-dimension:${APP_FILE_MAX_SOURCE_DIMENSION:16384}}") int maxSourceDimension,
 		@Value("${app.file.rendition.display-max-px:${APP_FILE_DISPLAY_MAX_PX:1280}}") int displayMaxPx,
 		@Value("${app.file.rendition.thumb-max-px:${APP_FILE_THUMB_MAX_PX:320}}") int thumbMaxPx,
 		@Value("${app.file.rendition.webp-quality:${APP_FILE_WEBP_QUALITY:80}}") int webpQuality
@@ -30,6 +32,8 @@ public class FileConfig {
 			finalPrefix,
 			Duration.ofMinutes(presignTtlMinutes),
 			maxSizeBytes,
+			maxSourcePixels,
+			maxSourceDimension,
 			displayMaxPx,
 			thumbMaxPx,
 			webpQuality
