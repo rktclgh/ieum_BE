@@ -1,6 +1,8 @@
 package shinhan.fibri.ieum.main.file.rendition;
 
 import com.sksamuel.scrimage.ImmutableImage;
+import com.sksamuel.scrimage.metadata.ImageMetadata;
+import com.sksamuel.scrimage.metadata.OrientationTools;
 import com.sksamuel.scrimage.webp.WebpWriter;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
@@ -39,7 +41,7 @@ public class ScrimageWebpRenditionGenerator implements ImageRenditionGenerator {
 				ImageReadParam readParam = reader.getDefaultReadParam();
 				readParam.setSourceSubsampling(decodePlan.subsampling(), decodePlan.subsampling(), 0, 0);
 				BufferedImage bufferedImage = reader.read(0, readParam);
-				ImmutableImage displayImage = ImmutableImage.fromAwt(bufferedImage)
+				ImmutableImage displayImage = reorient(ImmutableImage.fromAwt(bufferedImage), origin.bytes())
 					.bound(properties.displayMaxPx(), properties.displayMaxPx());
 				WebpWriter writer = WebpWriter.DEFAULT.withQ(properties.webpQuality());
 
@@ -81,6 +83,14 @@ public class ScrimageWebpRenditionGenerator implements ImageRenditionGenerator {
 		};
 		if (!actualContentType.equals(declaredContentType)) {
 			throw new InvalidFileRequestException("Uploaded image content does not match content type");
+		}
+	}
+
+	private ImmutableImage reorient(ImmutableImage image, byte[] sourceBytes) {
+		try {
+			return OrientationTools.reorient(image, ImageMetadata.fromBytes(sourceBytes));
+		} catch (IOException exception) {
+			return image;
 		}
 	}
 }

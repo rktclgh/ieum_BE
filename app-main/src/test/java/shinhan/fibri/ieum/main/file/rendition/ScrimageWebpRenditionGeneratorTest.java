@@ -3,6 +3,7 @@ package shinhan.fibri.ieum.main.file.rendition;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.sksamuel.scrimage.ImmutableImage;
 import java.awt.Color;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
@@ -79,6 +80,28 @@ class ScrimageWebpRenditionGeneratorTest {
 			assertThat(rendition.contentType()).isEqualTo("image/webp");
 			assertThat(rendition.bytes()).isNotEmpty();
 		});
+	}
+
+	@Test
+	void preservesExifOrientationBeforeGeneratingWebpRenditions() throws Exception {
+		byte[] jpegBytes = jpegBytesWithExifOrientation(6, 4, 2);
+		StoredFileObject origin = new StoredFileObject(
+				"final/42/file/original.jpg",
+				"image/jpeg",
+				(long) jpegBytes.length,
+				jpegBytes
+		);
+
+		List<FileRendition> renditions = new ScrimageWebpRenditionGenerator().generate(origin, properties);
+		FileRendition display = renditions.stream()
+			.filter(rendition -> rendition.variant() == FileVariant.DISPLAY)
+			.findFirst()
+			.orElseThrow();
+
+		ImmutableImage renderedImage = ImmutableImage.loader().fromBytes(display.bytes());
+
+		assertThat(renderedImage.width).isEqualTo(2);
+		assertThat(renderedImage.height).isEqualTo(4);
 	}
 
 	@Test
@@ -161,9 +184,30 @@ class ScrimageWebpRenditionGeneratorTest {
 	}
 
 	private byte[] jpegBytes() throws Exception {
-		BufferedImage image = new BufferedImage(4, 4, BufferedImage.TYPE_INT_RGB);
+		return jpegBytes(4, 4);
+	}
+
+	private byte[] jpegBytes(int width, int height) throws Exception {
+		BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
 		ByteArrayOutputStream out = new ByteArrayOutputStream();
 		ImageIO.write(image, "jpg", out);
+		return out.toByteArray();
+	}
+
+	private byte[] jpegBytesWithExifOrientation(int orientation, int width, int height) throws Exception {
+		byte[] jpegBytes = jpegBytes(width, height);
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
+		out.write(jpegBytes, 0, 2);
+		out.write(new byte[] {
+				(byte) 0xFF, (byte) 0xE1, 0x00, 0x22,
+				'E', 'x', 'i', 'f', 0x00, 0x00,
+				'I', 'I', 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00,
+				0x01, 0x00,
+				0x12, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00,
+				(byte) orientation, 0x00, 0x00, 0x00,
+				0x00, 0x00, 0x00, 0x00
+		});
+		out.write(jpegBytes, 2, jpegBytes.length - 2);
 		return out.toByteArray();
 	}
 }
