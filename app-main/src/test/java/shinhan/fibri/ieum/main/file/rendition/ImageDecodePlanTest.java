@@ -22,7 +22,7 @@ class ImageDecodePlanTest {
 			MAX_SOURCE_PIXELS
 		);
 
-		assertThat(plan.subsampling()).isEqualTo(4);
+		assertThat(plan.subsampling()).isEqualTo(3);
 	}
 
 	@Test

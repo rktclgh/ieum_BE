@@ -25,7 +25,7 @@ record ImageDecodePlan(int subsampling) {
 			throw new InvalidFileRequestException("Image exceeds the maximum allowed pixel count");
 		}
 
-		int subsampling = (int) Math.max(1L, (maxDimension + (long) displayMaxPx - 1L) / displayMaxPx);
+		int subsampling = Math.max(1, maxDimension / displayMaxPx);
 		return new ImageDecodePlan(subsampling);
 	}
 }
