@@ -22,6 +22,8 @@ class ScrimageWebpRenditionGeneratorTest {
 			"final",
 			Duration.ofMinutes(15),
 			10_485_760L,
+			50_000_000L,
+			16_384,
 			1280,
 			320,
 			80
@@ -29,11 +31,12 @@ class ScrimageWebpRenditionGeneratorTest {
 
 	@Test
 	void generatesDisplayAndThumbWebpRenditions() throws Exception {
+		byte[] jpegBytes = jpegBytes();
 		StoredFileObject origin = new StoredFileObject(
-				"final/42/file/original.png",
-				"image/png",
-				(long) pngBytes().length,
-				pngBytes()
+				"final/42/file/original.jpg",
+				"image/jpeg",
+				(long) jpegBytes.length,
+				jpegBytes
 		);
 
 		List<FileRendition> renditions = new ScrimageWebpRenditionGenerator().generate(origin, properties);
@@ -60,8 +63,86 @@ class ScrimageWebpRenditionGeneratorTest {
 			.hasMessage("Image bytes could not be rendered");
 	}
 
+	@Test
+	void generatesRenditionsFromPngThatRequiresSourceSubsampling() throws Exception {
+		byte[] pngBytes = pngBytes(1281, 720);
+		StoredFileObject origin = new StoredFileObject(
+				"final/42/file/original.png",
+				"image/png",
+				(long) pngBytes.length,
+				pngBytes
+		);
+
+		List<FileRendition> renditions = new ScrimageWebpRenditionGenerator().generate(origin, properties);
+
+		assertThat(renditions).allSatisfy(rendition -> {
+			assertThat(rendition.contentType()).isEqualTo("image/webp");
+			assertThat(rendition.bytes()).isNotEmpty();
+		});
+	}
+
+	@Test
+	void rejectsUnsupportedImageFormat() throws Exception {
+		byte[] gifBytes = gifBytes();
+		StoredFileObject origin = new StoredFileObject(
+				"final/42/file/original.png",
+				"image/png",
+				(long) gifBytes.length,
+				gifBytes
+		);
+
+		assertThatThrownBy(() -> new ScrimageWebpRenditionGenerator().generate(origin, properties))
+			.isInstanceOf(InvalidFileRequestException.class)
+			.hasMessage("Only jpeg and png images are supported");
+	}
+
+	@Test
+	void rejectsSupportedImageFormatWhoseDeclaredContentTypeDoesNotMatch() throws Exception {
+		byte[] jpegBytes = jpegBytes();
+		StoredFileObject origin = new StoredFileObject(
+				"final/42/file/original.png",
+				"image/png",
+				(long) jpegBytes.length,
+				jpegBytes
+		);
+
+		assertThatThrownBy(() -> new ScrimageWebpRenditionGenerator().generate(origin, properties))
+			.isInstanceOf(InvalidFileRequestException.class)
+			.hasMessage("Uploaded image content does not match content type");
+	}
+
+	@Test
+	void rejectsSourceImageAboveConfiguredPixelLimitBeforeDecoding() throws Exception {
+		byte[] pngBytes = pngBytes();
+		StoredFileObject origin = new StoredFileObject(
+				"final/42/file/original.png",
+				"image/png",
+				(long) pngBytes.length,
+				pngBytes
+		);
+		FileProperties restrictedProperties = new FileProperties(
+				"tmp",
+				"final",
+			Duration.ofMinutes(15),
+			10_485_760L,
+			15L,
+			16_384,
+			1280,
+				320,
+				80
+		);
+
+		assertThatThrownBy(() -> new ScrimageWebpRenditionGenerator().generate(origin, restrictedProperties))
+			.isInstanceOf(InvalidFileRequestException.class)
+			.hasMessage("Image exceeds the maximum allowed pixel count");
+	}
+
 	private byte[] pngBytes() throws Exception {
-		BufferedImage image = new BufferedImage(4, 4, BufferedImage.TYPE_INT_RGB);
+		return pngBytes(4, 4);
+	}
+
+	private byte[] pngBytes(int width, int height) throws Exception {
+		BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
 		for (int y = 0; y < image.getHeight(); y++) {
 			for (int x = 0; x < image.getWidth(); x++) {
 				image.setRGB(x, y, Color.BLUE.getRGB());
@@ -69,6 +150,20 @@ class ScrimageWebpRenditionGeneratorTest {
 		}
 		ByteArrayOutputStream out = new ByteArrayOutputStream();
 		ImageIO.write(image, "png", out);
+		return out.toByteArray();
+	}
+
+	private byte[] gifBytes() throws Exception {
+		BufferedImage image = new BufferedImage(4, 4, BufferedImage.TYPE_INT_RGB);
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
+		ImageIO.write(image, "gif", out);
+		return out.toByteArray();
+	}
+
+	private byte[] jpegBytes() throws Exception {
+		BufferedImage image = new BufferedImage(4, 4, BufferedImage.TYPE_INT_RGB);
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
+		ImageIO.write(image, "jpg", out);
 		return out.toByteArray();
 	}
 }

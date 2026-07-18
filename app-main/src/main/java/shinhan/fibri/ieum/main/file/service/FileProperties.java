@@ -7,6 +7,8 @@ public record FileProperties(
 	String finalPrefix,
 	Duration presignTtl,
 	Long maxSizeBytes,
+	long maxSourcePixels,
+	int maxSourceDimension,
 	int displayMaxPx,
 	int thumbMaxPx,
 	int webpQuality

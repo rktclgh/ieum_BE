@@ -46,6 +46,8 @@ class FileServiceTest {
 			"final",
 			Duration.ofMinutes(15),
 			10_485_760L,
+			50_000_000L,
+			16_384,
 			1280,
 			320,
 			80
