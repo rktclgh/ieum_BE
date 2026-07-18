@@ -14,7 +14,8 @@ public record ChatRoomSummaryResponse(
 	boolean pinned,
 	boolean notifyEnabled,
 	long unreadCount,
-	ChatMessageResponse lastMessage
+	ChatMessageResponse lastMessage,
+	ChatRoomCounterpartResponse counterpart
 ) {
 
 	public static ChatRoomSummaryResponse from(
@@ -22,7 +23,8 @@ public record ChatRoomSummaryResponse(
 		ChatMember member,
 		long unreadCount,
 		Message lastMessage,
-		String questionTitle
+		String questionTitle,
+		ChatRoomCounterpartResponse counterpart
 	) {
 		return new ChatRoomSummaryResponse(
 			room.getId(),
@@ -33,7 +35,8 @@ public record ChatRoomSummaryResponse(
 			member.getPinnedAt() != null,
 			member.isNotifyEnabled(),
 			unreadCount,
-			lastMessage == null ? null : ChatMessageResponse.from(lastMessage, member.getVisibleAfterMessageId())
+			lastMessage == null ? null : ChatMessageResponse.from(lastMessage, member.getVisibleAfterMessageId()),
+			counterpart
 		);
 	}
 }

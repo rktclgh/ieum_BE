@@ -29,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import shinhan.fibri.ieum.main.chat.dto.ChatRoomListEvent;
 import shinhan.fibri.ieum.testsupport.CanonicalPostgresDataSource;
+import shinhan.fibri.ieum.testsupport.OfflineUserPresenceQueryConfiguration;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -36,6 +37,7 @@ import shinhan.fibri.ieum.testsupport.CanonicalPostgresDataSource;
 	ChatRoomSummaryQueryService.class,
 	ChatRoomListChangeEmitter.class,
 	ChatRoomListChangeListener.class,
+	OfflineUserPresenceQueryConfiguration.class,
 	ChatRoomListChangeTransactionIntegrationTest.PublisherConfiguration.class
 })
 @Transactional(propagation = Propagation.NOT_SUPPORTED)

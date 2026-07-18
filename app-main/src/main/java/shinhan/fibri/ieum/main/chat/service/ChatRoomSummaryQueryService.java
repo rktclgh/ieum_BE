@@ -17,7 +17,9 @@ import shinhan.fibri.ieum.common.chat.domain.RoomType;
 import shinhan.fibri.ieum.common.chat.repository.ChatMemberRepository;
 import shinhan.fibri.ieum.common.chat.repository.ChatRoomRepository;
 import shinhan.fibri.ieum.common.chat.repository.MessageRepository;
+import shinhan.fibri.ieum.main.chat.dto.ChatRoomCounterpartResponse;
 import shinhan.fibri.ieum.main.chat.dto.ChatRoomSummaryResponse;
+import shinhan.fibri.ieum.main.notification.presence.UserPresenceQuery;
 import shinhan.fibri.ieum.main.question.repository.QuestionRepository;
 import shinhan.fibri.ieum.main.question.repository.QuestionTitleProjection;
 
@@ -29,6 +31,7 @@ public class ChatRoomSummaryQueryService {
 	private final ChatMemberRepository chatMemberRepository;
 	private final MessageRepository messageRepository;
 	private final QuestionRepository questionRepository;
+	private final UserPresenceQuery userPresenceQuery;
 
 	@Transactional(readOnly = true)
 	public List<ChatRoomSummaryResponse> listForUser(Long userId, RoomType roomType) {
@@ -53,6 +56,10 @@ public class ChatRoomSummaryQueryService {
 			.stream()
 			.collect(Collectors.toMap(message -> message.getRoom().getId(), Function.identity()));
 		Map<Long, String> titleByQuestionId = findQuestionTitles(rooms);
+		Map<Long, List<ChatMemberRepository.RoomCounterpartProjection>> counterpartsByRoomId =
+			chatMemberRepository.findCounterpartsByRoomIds(userId, roomIds)
+				.stream()
+				.collect(Collectors.groupingBy(ChatMemberRepository.RoomCounterpartProjection::getRoomId));
 
 		return rooms.stream()
 			.filter(room -> membersByRoomId.containsKey(room.getId()))
@@ -61,7 +68,8 @@ public class ChatRoomSummaryQueryService {
 				membersByRoomId.get(room.getId()),
 				unreadByRoomId.getOrDefault(room.getId(), 0L),
 				lastMessageByRoomId.get(room.getId()),
-				room.getQuestionId() == null ? null : titleByQuestionId.get(room.getQuestionId())
+				room.getQuestionId() == null ? null : titleByQuestionId.get(room.getQuestionId()),
+				resolveCounterpart(room.getRoomType(), counterpartsByRoomId.get(room.getId()))
 			))
 			.sorted(roomSummaryComparator())
 			.toList();
@@ -102,9 +110,45 @@ public class ChatRoomSummaryQueryService {
 					member,
 					unreadByUserId.getOrDefault(member.getUser().getId(), 0L),
 					lastMessageByUserId.get(member.getUser().getId()),
-					questionTitle
+					questionTitle,
+					resolveCounterpart(member.getRoom().getRoomType(), members, member.getUser().getId())
 				)
 			));
+	}
+
+	private ChatRoomCounterpartResponse resolveCounterpart(
+		RoomType roomType,
+		List<ChatMemberRepository.RoomCounterpartProjection> counterparts
+	) {
+		if (roomType == RoomType.group || counterparts == null || counterparts.size() != 1) {
+			return null;
+		}
+		ChatMemberRepository.RoomCounterpartProjection counterpart = counterparts.getFirst();
+		return ChatRoomCounterpartResponse.of(
+			counterpart.getUserId(),
+			counterpart.getNickname(),
+			counterpart.getProfileFileId(),
+			counterpart.getNationality(),
+			userPresenceQuery.isOnline(counterpart.getUserId())
+		);
+	}
+
+	private ChatRoomCounterpartResponse resolveCounterpart(RoomType roomType, List<ChatMember> members, Long userId) {
+		if (roomType == RoomType.group) {
+			return null;
+		}
+		return members.stream()
+			.map(ChatMember::getUser)
+			.filter(user -> !user.getId().equals(userId))
+			.findFirst()
+			.map(user -> ChatRoomCounterpartResponse.of(
+				user.getId(),
+				user.getNickname(),
+				user.getProfileFileId(),
+				user.getNationality(),
+				userPresenceQuery.isOnline(user.getId())
+			))
+			.orElse(null);
 	}
 
 	private Map<Long, String> findQuestionTitles(List<ChatRoom> rooms) {

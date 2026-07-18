@@ -57,7 +57,8 @@ class ChatRoomListEventTest {
 				"hello",
 				null,
 				OffsetDateTime.parse("2026-07-08T12:00:00+09:00")
-			)
+			),
+			null
 		);
 	}
 }

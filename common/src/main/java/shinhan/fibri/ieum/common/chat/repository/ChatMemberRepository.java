@@ -2,6 +2,7 @@ package shinhan.fibri.ieum.common.chat.repository;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -98,5 +99,33 @@ public interface ChatMemberRepository extends JpaRepository<ChatMember, ChatMemb
 		@Param("roomId") Long roomId,
 		@Param("userIds") List<Long> userIds
 	);
+
+	@Query("""
+		SELECT member.room.id AS roomId, member.user.id AS userId,
+		       member.user.nickname AS nickname,
+		       member.user.profileFileId AS profileFileId,
+		       member.user.nationality AS nationality
+		FROM ChatMember member
+		WHERE member.room.id IN :roomIds
+		  AND member.user.id <> :userId
+		  AND member.leftAt IS NULL
+		""")
+	List<RoomCounterpartProjection> findCounterpartsByRoomIds(
+		@Param("userId") Long userId,
+		@Param("roomIds") List<Long> roomIds
+	);
+
+	interface RoomCounterpartProjection {
+
+		Long getRoomId();
+
+		Long getUserId();
+
+		String getNickname();
+
+		UUID getProfileFileId();
+
+		String getNationality();
+	}
 
 }

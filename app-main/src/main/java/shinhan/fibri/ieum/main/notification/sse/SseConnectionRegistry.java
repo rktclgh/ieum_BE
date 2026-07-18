@@ -18,9 +18,10 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import shinhan.fibri.ieum.main.notification.presence.PresenceRegistry;
+import shinhan.fibri.ieum.main.notification.presence.UserPresenceQuery;
 
 @Component
-public class SseConnectionRegistry {
+public class SseConnectionRegistry implements UserPresenceQuery {
 
 	private static final int SHUTDOWN_BATCH_SIZE = 50;
 	private static final long SHUTDOWN_BATCH_DELAY_MILLIS = 250L;
@@ -150,6 +151,7 @@ public class SseConnectionRegistry {
 		}
 	}
 
+	@Override
 	public boolean isOnline(Long userId) {
 		UserConnections connections = connectionsByUser.get(userId);
 		return connections != null && !connections.isEmpty();

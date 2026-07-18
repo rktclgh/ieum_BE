@@ -29,6 +29,7 @@ import shinhan.fibri.ieum.main.friend.service.FriendRequestNotifier;
 import shinhan.fibri.ieum.main.friend.service.FriendService;
 import shinhan.fibri.ieum.testsupport.CanonicalPostgresContainer;
 import shinhan.fibri.ieum.testsupport.CanonicalPostgresDataSource;
+import shinhan.fibri.ieum.testsupport.OfflineUserPresenceQueryConfiguration;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -37,7 +38,8 @@ import shinhan.fibri.ieum.testsupport.CanonicalPostgresDataSource;
 	ChatMessageService.class,
 	ChatRoomLifecycleService.class,
 	ChatRoomSummaryQueryService.class,
-	FriendService.class
+	FriendService.class,
+	OfflineUserPresenceQueryConfiguration.class
 })
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 class OneToOneVisibilityIntegrationTest {

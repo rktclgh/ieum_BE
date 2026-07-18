@@ -367,6 +367,7 @@ class ChatServiceTest {
 			false,
 			true,
 			3L,
+			null,
 			null
 		);
 		when(chatRoomSummaryQueryService.listForUser(42L, null)).thenReturn(List.of(summary));

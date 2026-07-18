@@ -366,7 +366,7 @@ class ChatWebSocketIntegrationTest {
 	}
 
 	private ChatRoomSummaryResponse roomSummary(Long roomId, boolean pinned) {
-		return new ChatRoomSummaryResponse(roomId, RoomType.direct, null, null, null, pinned, true, 0L, null);
+		return new ChatRoomSummaryResponse(roomId, RoomType.direct, null, null, null, pinned, true, 0L, null, null);
 	}
 
 	@TestConfiguration

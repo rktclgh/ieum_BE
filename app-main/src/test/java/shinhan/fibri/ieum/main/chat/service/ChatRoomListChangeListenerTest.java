@@ -140,6 +140,8 @@ class ChatRoomListChangeListenerTest {
 	}
 
 	private ChatRoomSummaryResponse summary(Long roomId, long unreadCount) {
-		return new ChatRoomSummaryResponse(roomId, RoomType.direct, null, null, null, false, true, unreadCount, null);
+		return new ChatRoomSummaryResponse(
+			roomId, RoomType.direct, null, null, null, false, true, unreadCount, null, null
+		);
 	}
 }

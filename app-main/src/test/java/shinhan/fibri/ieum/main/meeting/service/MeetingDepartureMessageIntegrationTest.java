@@ -50,6 +50,7 @@ import shinhan.fibri.ieum.main.meeting.dto.KickMeetingRequest;
 import shinhan.fibri.ieum.main.meeting.exception.ParticipantNotFoundException;
 import shinhan.fibri.ieum.main.pin.repository.PinWriter;
 import shinhan.fibri.ieum.testsupport.CanonicalPostgresDataSource;
+import shinhan.fibri.ieum.testsupport.OfflineUserPresenceQueryConfiguration;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -60,6 +61,7 @@ import shinhan.fibri.ieum.testsupport.CanonicalPostgresDataSource;
 	ChatRoomListChangeEmitter.class,
 	ChatService.class,
 	ChatRoomSummaryQueryService.class,
+	OfflineUserPresenceQueryConfiguration.class,
 	MeetingDepartureMessageIntegrationTest.PublisherConfiguration.class
 })
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
