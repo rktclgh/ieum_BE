@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.main.chat.dto;
 
 import java.util.UUID;
+import shinhan.fibri.ieum.main.support.ProfileImageUrls;
 
 public record ChatRoomCounterpartResponse(
 	Long userId,
@@ -20,7 +21,7 @@ public record ChatRoomCounterpartResponse(
 		return new ChatRoomCounterpartResponse(
 			userId,
 			nickname,
-			profileFileId == null ? null : "/api/v1/files/%s".formatted(profileFileId),
+			ProfileImageUrls.of(profileFileId),
 			nationality,
 			active
 		);

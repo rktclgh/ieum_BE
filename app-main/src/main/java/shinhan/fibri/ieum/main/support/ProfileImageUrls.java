@@ -1,5 +1,6 @@
 package shinhan.fibri.ieum.main.support;
 
+import java.util.UUID;
 import shinhan.fibri.ieum.common.auth.domain.User;
 
 public final class ProfileImageUrls {
@@ -8,9 +9,16 @@ public final class ProfileImageUrls {
 	}
 
 	public static String of(User user) {
-		if (user.getProfileFileId() == null) {
+		return of(user.getProfileFileId());
+	}
+
+	/**
+	 * 엔티티를 로드하지 않는 프로젝션 조회용. 파일 id만 들고 있을 때 사용한다.
+	 */
+	public static String of(UUID profileFileId) {
+		if (profileFileId == null) {
 			return null;
 		}
-		return "/api/v1/files/" + user.getProfileFileId();
+		return "/api/v1/files/" + profileFileId;
 	}
 }

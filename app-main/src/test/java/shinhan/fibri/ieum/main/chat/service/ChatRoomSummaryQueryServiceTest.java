@@ -368,6 +368,65 @@ class ChatRoomSummaryQueryServiceTest {
 		assertThat(response.get(77L).counterpart().active()).isFalse();
 		verify(chatMemberRepository, never())
 			.findCounterpartsByRoomIds(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyList());
+		// 요청 목록이 이미 방 전체(2명)이므로 추가 조회는 필요 없다.
+		verify(chatMemberRepository, never()).findActiveByRoomId(org.mockito.ArgumentMatchers.anyLong());
+	}
+
+	@Test
+	void findActiveForRoomAndUsersResolvesCounterpartWhenOnlyOneUserIsRequested() {
+		User me = user(42L, "me@example.com", "me");
+		User friend = user(77L, "friend@example.com", "friend");
+		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
+		ChatMember meMember = ChatMember.join(room, me);
+		ChatMember friendMember = ChatMember.join(room, friend);
+		onlineUserIds.add(77L);
+		// markRead/pin/notify는 본인 id 하나만 넘긴다.
+		when(chatMemberRepository.findActiveByRoomIdAndUserIds(100L, List.of(42L))).thenReturn(List.of(meMember));
+		when(messageRepository.countUnreadByRoomIdAndUserIds(100L, List.of(42L))).thenReturn(List.of());
+		when(messageRepository.findLastVisibleMessagesByRoomIdAndUserIds(100L, List.of(42L))).thenReturn(List.of());
+		when(chatMemberRepository.findActiveByRoomId(100L)).thenReturn(List.of(meMember, friendMember));
+
+		var response = service.findActiveForRoomAndUsers(100L, List.of(42L));
+
+		// 응답은 요청된 유저 것만 만들되, counterpart는 방 전체에서 찾아야 한다.
+		assertThat(response).containsOnlyKeys(42L);
+		assertThat(response.get(42L).counterpart()).isNotNull();
+		assertThat(response.get(42L).counterpart().userId()).isEqualTo(77L);
+		assertThat(response.get(42L).counterpart().nickname()).isEqualTo("friend");
+		assertThat(response.get(42L).counterpart().active()).isTrue();
+	}
+
+	@Test
+	void findActiveForRoomAndUsersLeavesCounterpartNullWhenTheOnlyOtherMemberHasLeft() {
+		User me = user(42L, "me@example.com", "me");
+		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
+		ChatMember meMember = ChatMember.join(room, me);
+		onlineUserIds.add(77L);
+		when(chatMemberRepository.findActiveByRoomIdAndUserIds(100L, List.of(42L))).thenReturn(List.of(meMember));
+		when(messageRepository.countUnreadByRoomIdAndUserIds(100L, List.of(42L))).thenReturn(List.of());
+		when(messageRepository.findLastVisibleMessagesByRoomIdAndUserIds(100L, List.of(42L))).thenReturn(List.of());
+		// 상대가 나갔으면 활성 멤버 조회에도 본인만 잡힌다.
+		when(chatMemberRepository.findActiveByRoomId(100L)).thenReturn(List.of(meMember));
+
+		var response = service.findActiveForRoomAndUsers(100L, List.of(42L));
+
+		assertThat(response.get(42L).counterpart()).isNull();
+	}
+
+	@Test
+	void findActiveForRoomAndUsersSkipsMemberLookupForGroupRooms() {
+		User me = user(42L, "me@example.com", "me");
+		ChatRoom room = room(ChatRoom.group(9L), 300L);
+		ChatMember meMember = ChatMember.join(room, me);
+		when(chatMemberRepository.findActiveByRoomIdAndUserIds(300L, List.of(42L))).thenReturn(List.of(meMember));
+		when(messageRepository.countUnreadByRoomIdAndUserIds(300L, List.of(42L))).thenReturn(List.of());
+		when(messageRepository.findLastVisibleMessagesByRoomIdAndUserIds(300L, List.of(42L))).thenReturn(List.of());
+
+		var response = service.findActiveForRoomAndUsers(300L, List.of(42L));
+
+		assertThat(response.get(42L).counterpart()).isNull();
+		// group 방은 counterpart가 없으므로 인원수만큼의 멤버를 끌어오지 않는다.
+		verify(chatMemberRepository, never()).findActiveByRoomId(org.mockito.ArgumentMatchers.anyLong());
 	}
 
 	@Test

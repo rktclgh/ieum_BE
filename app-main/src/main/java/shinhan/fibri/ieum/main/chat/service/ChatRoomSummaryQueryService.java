@@ -106,6 +106,7 @@ public class ChatRoomSummaryQueryService {
 				MessageRepository.UserLastVisibleMessage::getLastMessage
 			));
 		String questionTitle = findQuestionTitle(members.getFirst().getRoom().getQuestionId());
+		List<ChatMember> counterpartPool = findCounterpartPool(roomId, members);
 
 		return members.stream()
 			.collect(Collectors.toMap(
@@ -116,9 +117,27 @@ public class ChatRoomSummaryQueryService {
 					unreadByUserId.getOrDefault(member.getUser().getId(), 0L),
 					lastMessageByUserId.get(member.getUser().getId()),
 					questionTitle,
-					resolveCounterpart(member.getRoom().getRoomType(), members, member.getUser().getId())
+					resolveCounterpart(member.getRoom().getRoomType(), counterpartPool, member.getUser().getId())
 				)
 			));
+	}
+
+	/**
+	 * counterpart는 요청된 유저가 아니라 방 전체에서 찾아야 한다. markRead/pin/notify는
+	 * {@code List.of(myUserId)} 하나만 넘기므로, 요청 목록만 뒤지면 상대를 못 찾아 counterpart가
+	 * null로 나가고 FE의 온라인 표시가 깜빡인다.
+	 *
+	 * <p>1:1 방은 활성 멤버가 최대 2명이므로, 이미 2명을 받았다면 그게 방 전체라 추가 조회가 필요 없다.
+	 * group 방은 counterpart 자체가 없으므로 조회하지 않는다.
+	 */
+	private List<ChatMember> findCounterpartPool(Long roomId, List<ChatMember> requestedMembers) {
+		if (requestedMembers.getFirst().getRoom().getRoomType() == RoomType.group) {
+			return List.of();
+		}
+		if (requestedMembers.size() >= 2) {
+			return requestedMembers;
+		}
+		return chatMemberRepository.findActiveByRoomId(roomId);
 	}
 
 	private ChatRoomCounterpartResponse resolveCounterpart(
