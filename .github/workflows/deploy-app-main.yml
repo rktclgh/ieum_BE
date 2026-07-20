@@ -288,22 +288,8 @@ jobs:
             | jq -r '.workflow_runs[0].id')"
           [[ "$latest_run_id" == "$GITHUB_RUN_ID" ]]
 
-      - name: Build and push image
-        id: image
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-          FRONTEND_SHA: ${{ needs.frontend-build.outputs.frontend_sha }}
-        run: |
-          test -n "$DOCKERHUB_USERNAME"
-          test -n "$DOCKERHUB_TOKEN"
-          image="docker.io/${DOCKERHUB_USERNAME}/ieum-app-main:${GITHUB_SHA}-fe-${FRONTEND_SHA}"
-          printf '%s' "$DOCKERHUB_TOKEN" | docker login --username "$DOCKERHUB_USERNAME" --password-stdin
-          docker build --file deploy/app-main/Dockerfile --tag "$image" .
-          docker push "$image"
-          echo "image=$image" >> "$GITHUB_OUTPUT"
-
-      - name: Refuse stale frontend deployment
+      - name: Queue latest frontend deployment if needed
+        id: frontend-fresh
         env:
           CI_GITHUB_TOKEN: ${{ secrets.CI_GITHUB_TOKEN }}
           FRONTEND_SHA: ${{ needs.frontend-build.outputs.frontend_sha }}
@@ -317,9 +303,40 @@ jobs:
             "$GITHUB_API_URL/repos/rktclgh/ieum_FE/git/ref/heads/main" \
             | jq -r '.object.sha')"
           [[ "$latest_frontend_sha" =~ ^[0-9a-f]{40}$ ]]
-          [[ "$latest_frontend_sha" == "$FRONTEND_SHA" ]]
+
+          if [[ "$latest_frontend_sha" == "$FRONTEND_SHA" ]]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer $CI_GITHUB_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/dispatches" \
+            --data "{\"event_type\":\"frontend-updated\",\"client_payload\":{\"frontend_sha\":\"$latest_frontend_sha\"}}"
+          echo "deploy=false" >> "$GITHUB_OUTPUT"
+          echo "::notice::Queued a deployment for newer frontend SHA $latest_frontend_sha"
+
+      - name: Build and push image
+        id: image
+        if: steps.frontend-fresh.outputs.deploy == 'true'
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          FRONTEND_SHA: ${{ needs.frontend-build.outputs.frontend_sha }}
+        run: |
+          test -n "$DOCKERHUB_USERNAME"
+          test -n "$DOCKERHUB_TOKEN"
+          image="docker.io/${DOCKERHUB_USERNAME}/ieum-app-main:${GITHUB_SHA}-fe-${FRONTEND_SHA}"
+          printf '%s' "$DOCKERHUB_TOKEN" | docker login --username "$DOCKERHUB_USERNAME" --password-stdin
+          docker build --file deploy/app-main/Dockerfile --tag "$image" .
+          docker push "$image"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
 
       - name: Deploy over SSH
+        if: steps.frontend-fresh.outputs.deploy == 'true'
         env:
           IMAGE: ${{ steps.image.outputs.image }}
           SSH_HOST: ${{ vars.SSH_HOST }}
