@@ -44,7 +44,7 @@ public class Meeting {
 	private OffsetDateTime meetingAt;
 
 	@Column(name = "max_members", nullable = false)
-	private int maxMembers;
+	private short maxMembers;
 
 	@Column(name = "image_file_id")
 	private UUID imageFileId;
@@ -83,13 +83,16 @@ public class Meeting {
 		if (maxMembers < 2) {
 			throw new IllegalArgumentException("maxMembers must be at least 2");
 		}
+		if (maxMembers > Short.MAX_VALUE) {
+			throw new IllegalArgumentException("maxMembers must not exceed " + Short.MAX_VALUE);
+		}
 		this.pinId = Objects.requireNonNull(pinId, "pinId must not be null");
 		this.hostId = Objects.requireNonNull(hostId, "hostId must not be null");
 		this.type = Objects.requireNonNull(type, "type must not be null");
 		this.title = Objects.requireNonNull(title, "title must not be null");
 		this.content = content;
 		this.meetingAt = meetingAt;
-		this.maxMembers = maxMembers;
+		this.maxMembers = (short) maxMembers;
 		this.imageFileId = imageFileId;
 		this.thumbnailFileId = thumbnailFileId;
 		this.status = MeetingStatus.open;

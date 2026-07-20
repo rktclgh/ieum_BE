@@ -25,19 +25,22 @@ public class AnswerImage {
 	private UUID fileId;
 
 	@Column(name = "sort_order", nullable = false)
-	private int sortOrder;
+	private short sortOrder;
 
 	protected AnswerImage() {
 	}
 
-	private AnswerImage(Long answerId, UUID fileId, int sortOrder) {
+	private AnswerImage(Long answerId, UUID fileId, short sortOrder) {
 		this.answerId = Objects.requireNonNull(answerId, "answerId must not be null");
 		this.fileId = Objects.requireNonNull(fileId, "fileId must not be null");
 		this.sortOrder = sortOrder;
 	}
 
 	public static AnswerImage link(Long answerId, UUID fileId, int sortOrder) {
-		return new AnswerImage(answerId, fileId, sortOrder);
+		if (sortOrder < 0 || sortOrder > Short.MAX_VALUE) {
+			throw new IllegalArgumentException("sortOrder must be between 0 and " + Short.MAX_VALUE);
+		}
+		return new AnswerImage(answerId, fileId, (short) sortOrder);
 	}
 
 	public Long getId() {

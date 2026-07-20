@@ -68,7 +68,8 @@ public class Report {
 	@Column(name = "context_snapshot", columnDefinition = "jsonb")
 	private String contextSnapshot;
 
-	@Column(name = "context_hash", nullable = false, length = 64)
+	@JdbcTypeCode(SqlTypes.CHAR)
+	@Column(name = "context_hash", nullable = false, length = 64, columnDefinition = "char(64)")
 	private String contextHash;
 
 	@Enumerated(EnumType.STRING)
