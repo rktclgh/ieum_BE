@@ -12,11 +12,11 @@ import shinhan.fibri.ieum.main.notification.service.NotificationPublisher;
 public class RadiusNotificationListener {
 
 	private final RadiusNotificationGate gate;
-	private final OnlineAudienceResolver audienceResolver;
+	private final RadiusAudienceResolver audienceResolver;
 	private final NotificationPublisher notificationPublisher;
 	private final FriendService friendService;
 
-	public RadiusNotificationListener(RadiusNotificationGate gate, OnlineAudienceResolver audienceResolver, NotificationPublisher notificationPublisher, FriendService friendService) {
+	public RadiusNotificationListener(RadiusNotificationGate gate, RadiusAudienceResolver audienceResolver, NotificationPublisher notificationPublisher, FriendService friendService) {
 		this.gate = gate;
 		this.audienceResolver = audienceResolver;
 		this.notificationPublisher = notificationPublisher;
@@ -28,7 +28,7 @@ public class RadiusNotificationListener {
 	public void onQuestionCreated(QuestionCreatedEvent event) {
 		if (!gate.tryAcquire(NotificationCategory.question, event.questionId(), GeoHashGrid.encode(event.latitude(), event.longitude()))) return;
 		for (Long userId : audienceResolver.resolve(event.latitude(), event.longitude(), NotificationCategory.question, event.authorId(), friendService.blockedUserIdsOf(event.authorId()))) {
-			notificationPublisher.publishEphemeral(userId, NotificationType.question, "주변 새 질문", event.title(), event.questionId());
+			notificationPublisher.publishDurableOnce(userId, NotificationType.question, "주변 새 질문", event.title(), event.questionId(), null, radiusEventKey(NotificationCategory.question, event.questionId()));
 		}
 	}
 
@@ -37,7 +37,11 @@ public class RadiusNotificationListener {
 	public void onMeetingCreated(MeetingCreatedEvent event) {
 		if (!gate.tryAcquire(NotificationCategory.meeting, event.meetingId(), GeoHashGrid.encode(event.latitude(), event.longitude()))) return;
 		for (Long userId : audienceResolver.resolve(event.latitude(), event.longitude(), NotificationCategory.meeting, event.hostId(), friendService.blockedUserIdsOf(event.hostId()))) {
-			notificationPublisher.publishEphemeral(userId, NotificationType.meeting, "주변 새 모임", event.title(), event.meetingId());
+			notificationPublisher.publishDurableOnce(userId, NotificationType.meeting, "주변 새 모임", event.title(), event.meetingId(), null, radiusEventKey(NotificationCategory.meeting, event.meetingId()));
 		}
+	}
+
+	private String radiusEventKey(NotificationCategory category, Long refId) {
+		return "radius:" + category.name() + ":" + refId;
 	}
 }

@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.main.notification.presence;
 
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -14,9 +15,9 @@ import shinhan.fibri.ieum.main.friend.service.FriendService;
 class RadiusNotificationListenerTest {
 
 	@Test
-	void publishesEphemeralQuestionToResolvedAudienceWhenGateAllows() {
+	void publishesDurableQuestionOnceToResolvedAudienceWhenGateAllows() {
 		RadiusNotificationGate gate = mock(RadiusNotificationGate.class);
-		OnlineAudienceResolver audienceResolver = mock(OnlineAudienceResolver.class);
+		RadiusAudienceResolver audienceResolver = mock(RadiusAudienceResolver.class);
 		NotificationPublisher publisher = mock(NotificationPublisher.class);
 		FriendService friendService = mock(FriendService.class);
 		RadiusNotificationListener listener = new RadiusNotificationListener(gate, audienceResolver, publisher, friendService);
@@ -27,14 +28,15 @@ class RadiusNotificationListenerTest {
 
 		listener.onQuestionCreated(event);
 
-		verify(publisher).publishEphemeral(2L, NotificationType.question, "주변 새 질문", "새 질문", 10L);
-		verify(publisher).publishEphemeral(3L, NotificationType.question, "주변 새 질문", "새 질문", 10L);
+		verify(publisher).publishDurableOnce(2L, NotificationType.question, "주변 새 질문", "새 질문", 10L, null, "radius:question:10");
+		verify(publisher).publishDurableOnce(3L, NotificationType.question, "주변 새 질문", "새 질문", 10L, null, "radius:question:10");
+		verify(publisher, never()).publishEphemeral(2L, NotificationType.question, "주변 새 질문", "새 질문", 10L);
 	}
 
 	@Test
-	void publishesEphemeralMeetingToResolvedAudienceWhenGateAllows() {
+	void publishesDurableMeetingOnceToResolvedAudienceWhenGateAllows() {
 		RadiusNotificationGate gate = mock(RadiusNotificationGate.class);
-		OnlineAudienceResolver audienceResolver = mock(OnlineAudienceResolver.class);
+		RadiusAudienceResolver audienceResolver = mock(RadiusAudienceResolver.class);
 		NotificationPublisher publisher = mock(NotificationPublisher.class);
 		FriendService friendService = mock(FriendService.class);
 		RadiusNotificationListener listener = new RadiusNotificationListener(gate, audienceResolver, publisher, friendService);
@@ -45,6 +47,7 @@ class RadiusNotificationListenerTest {
 
 		listener.onMeetingCreated(event);
 
-		verify(publisher).publishEphemeral(2L, NotificationType.meeting, "주변 새 모임", "새 모임", 20L);
+		verify(publisher).publishDurableOnce(2L, NotificationType.meeting, "주변 새 모임", "새 모임", 20L, null, "radius:meeting:20");
+		verify(publisher, never()).publishEphemeral(2L, NotificationType.meeting, "주변 새 모임", "새 모임", 20L);
 	}
 }
