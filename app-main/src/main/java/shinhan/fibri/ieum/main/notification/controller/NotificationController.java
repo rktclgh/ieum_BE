@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
+import shinhan.fibri.ieum.main.notification.dto.NotificationDeleteAllResponse;
 import shinhan.fibri.ieum.main.notification.dto.NotificationListResponse;
 import shinhan.fibri.ieum.main.notification.dto.NotificationReadAllResponse;
 import shinhan.fibri.ieum.main.notification.service.NotificationService;
@@ -45,6 +46,13 @@ public class NotificationController {
 		@AuthenticationPrincipal AuthenticatedUser principal
 	) {
 		return ResponseEntity.ok(notificationService.markAllRead(principal.userId()));
+	}
+
+	@DeleteMapping
+	public ResponseEntity<NotificationDeleteAllResponse> deleteAll(
+		@AuthenticationPrincipal AuthenticatedUser principal
+	) {
+		return ResponseEntity.ok(notificationService.deleteAll(principal.userId()));
 	}
 
 	@DeleteMapping("/{notificationId}")

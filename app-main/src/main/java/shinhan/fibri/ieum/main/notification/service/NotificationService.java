@@ -6,6 +6,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import shinhan.fibri.ieum.main.notification.domain.Notification;
+import shinhan.fibri.ieum.main.notification.dto.NotificationDeleteAllResponse;
 import shinhan.fibri.ieum.main.notification.dto.NotificationItem;
 import shinhan.fibri.ieum.main.notification.dto.NotificationListResponse;
 import shinhan.fibri.ieum.main.notification.dto.NotificationReadAllResponse;
@@ -63,6 +64,11 @@ public class NotificationService {
 		if (notificationRepository.deleteByIdAndUserId(notificationId, userId) == 0) {
 			throw new NotificationNotFoundException();
 		}
+	}
+
+	@Transactional
+	public NotificationDeleteAllResponse deleteAll(Long userId) {
+		return new NotificationDeleteAllResponse(notificationRepository.deleteAllByUserId(userId));
 	}
 
 	private int normalizePageSize(Integer size) {

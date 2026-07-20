@@ -16,6 +16,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.test.util.ReflectionTestUtils;
 import shinhan.fibri.ieum.main.notification.domain.Notification;
 import shinhan.fibri.ieum.main.notification.domain.NotificationType;
+import shinhan.fibri.ieum.main.notification.dto.NotificationDeleteAllResponse;
 import shinhan.fibri.ieum.main.notification.dto.NotificationListResponse;
 import shinhan.fibri.ieum.main.notification.dto.NotificationReadAllResponse;
 import shinhan.fibri.ieum.main.notification.exception.InvalidNotificationCursorException;
@@ -113,6 +114,23 @@ class NotificationServiceTest {
 
 		assertThatThrownBy(() -> service.delete(42L, 10L))
 			.isInstanceOf(NotificationNotFoundException.class);
+	}
+
+	@Test
+	void deletesEveryNotificationOwnedByUser() {
+		when(notificationRepository.deleteAllByUserId(42L)).thenReturn(7);
+
+		NotificationDeleteAllResponse response = service.deleteAll(42L);
+
+		assertThat(response.deleted()).isEqualTo(7);
+		verify(notificationRepository).deleteAllByUserId(42L);
+	}
+
+	@Test
+	void reportsZeroDeletedInsteadOfFailingWhenNothingToDelete() {
+		when(notificationRepository.deleteAllByUserId(42L)).thenReturn(0);
+
+		assertThat(service.deleteAll(42L).deleted()).isZero();
 	}
 
 	private static Notification notification(Long id, String title, String createdAt) {

@@ -36,6 +36,7 @@ import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
 import shinhan.fibri.ieum.main.notification.domain.NotificationType;
+import shinhan.fibri.ieum.main.notification.dto.NotificationDeleteAllResponse;
 import shinhan.fibri.ieum.main.notification.dto.NotificationItem;
 import shinhan.fibri.ieum.main.notification.dto.NotificationListResponse;
 import shinhan.fibri.ieum.main.notification.dto.NotificationReadAllResponse;
@@ -107,6 +108,26 @@ class NotificationControllerTest {
 			.andExpect(status().isNoContent());
 
 		verify(notificationService).delete(42L, 10L);
+	}
+
+	@Test
+	void deletesAllNotificationsAndReturnsDeletedCount() throws Exception {
+		when(notificationService.deleteAll(42L)).thenReturn(new NotificationDeleteAllResponse(7));
+
+		mockMvc.perform(delete("/api/v1/notifications").with(authenticated()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.deleted", is(7)));
+
+		verify(notificationService).deleteAll(42L);
+	}
+
+	@Test
+	void deletesAllWithoutNotFoundWhenUserHasNoNotifications() throws Exception {
+		when(notificationService.deleteAll(42L)).thenReturn(new NotificationDeleteAllResponse(0));
+
+		mockMvc.perform(delete("/api/v1/notifications").with(authenticated()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.deleted", is(0)));
 	}
 
 	@Test

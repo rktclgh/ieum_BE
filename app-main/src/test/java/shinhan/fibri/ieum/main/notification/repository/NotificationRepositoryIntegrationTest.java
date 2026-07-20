@@ -214,6 +214,24 @@ class NotificationRepositoryIntegrationTest {
 	}
 
 	@Test
+	void deletesEveryOwnedNotificationAndLeavesOtherUsersUntouched() {
+		long readId = insertNotification(1L, "read", OffsetDateTime.parse("2026-07-01T10:00:00+09:00"));
+		insertNotification(1L, "unread-1", OffsetDateTime.parse("2026-07-02T10:00:00+09:00"));
+		insertNotification(1L, "unread-2", OffsetDateTime.parse("2026-07-03T10:00:00+09:00"));
+		insertNotification(2L, "other", OffsetDateTime.parse("2026-07-04T10:00:00+09:00"));
+		jdbcTemplate.update("UPDATE notifications SET is_read = true WHERE notification_id = ?", readId);
+
+		assertThat(notificationRepository.deleteAllByUserId(1L)).isEqualTo(3);
+		assertThat(countNotifications(1L)).isZero();
+		assertThat(countNotifications(2L)).isEqualTo(1L);
+	}
+
+	@Test
+	void deletesAllIdempotentlyWhenNothingRemains() {
+		assertThat(notificationRepository.deleteAllByUserId(1L)).isZero();
+	}
+
+	@Test
 	void insertsOnlyOneNotificationForTheSameUserAndEventKey() {
 		NotificationEventRepository eventRepository = new NotificationEventRepository(jdbcTemplate);
 
@@ -307,6 +325,14 @@ class NotificationRepositoryIntegrationTest {
 			"SELECT count(*) FROM notifications WHERE user_id = 1 AND ref_id = 50",
 			Long.class
 		)).isEqualTo(2L);
+	}
+
+	private long countNotifications(Long userId) {
+		return jdbcTemplate.queryForObject(
+			"SELECT count(*) FROM notifications WHERE user_id = ?",
+			Long.class,
+			userId
+		);
 	}
 
 	private long insertNotification(Long userId, String title, OffsetDateTime createdAt) {
