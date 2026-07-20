@@ -41,7 +41,7 @@ public class UserSettings {
 	private boolean notifyQuestion;
 
 	@Column(name = "notify_radius_km", nullable = false)
-	private int notifyRadiusKm;
+	private short notifyRadiusKm;
 
 	protected UserSettings() {
 	}
@@ -74,13 +74,16 @@ public class UserSettings {
 		boolean notifyQuestion,
 		int notifyRadiusKm
 	) {
+		if (notifyRadiusKm < 0 || notifyRadiusKm > Short.MAX_VALUE) {
+			throw new IllegalArgumentException("notifyRadiusKm must be between 0 and " + Short.MAX_VALUE);
+		}
 		this.language = Objects.requireNonNull(language, "language must not be null");
 		this.cameraPermission = cameraPermission;
 		this.pushPermission = pushPermission;
 		this.notifyAll = notifyAll;
 		this.notifyMeeting = notifyMeeting;
 		this.notifyQuestion = notifyQuestion;
-		this.notifyRadiusKm = notifyRadiusKm;
+		this.notifyRadiusKm = (short) notifyRadiusKm;
 	}
 
 	public Long getId() {
