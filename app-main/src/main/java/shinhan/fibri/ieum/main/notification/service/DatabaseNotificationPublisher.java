@@ -130,7 +130,7 @@ public class DatabaseNotificationPublisher implements NotificationPublisher {
 	}
 
 	private void fanOut(Long userId, OutboundEvent event) {
-		NotificationSsePayload payload = event.payload();
+		NotificationSsePayload payload = event.notificationPayload();
 		try {
 			if (registry.isOnline(userId)) {
 				registry.push(userId, event);

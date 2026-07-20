@@ -13,7 +13,7 @@ public record NotificationSsePayload(
 	Boolean answerIsAi,
 	OffsetDateTime createdAt,
 	boolean persistent
-) {
+) implements SseEventPayload {
 
 	public NotificationSsePayload {
 		Objects.requireNonNull(type, "type must not be null");

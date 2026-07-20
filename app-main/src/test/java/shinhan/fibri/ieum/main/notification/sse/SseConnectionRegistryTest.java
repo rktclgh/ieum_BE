@@ -8,9 +8,12 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
+import org.springframework.context.ApplicationEvent;
+import org.springframework.context.ApplicationEventPublisher;
 import org.junit.jupiter.api.Test;
 import shinhan.fibri.ieum.main.notification.domain.NotificationType;
 import shinhan.fibri.ieum.main.notification.presence.PresenceRegistry;
+import shinhan.fibri.ieum.main.notification.presence.UserPresenceChangedEvent;
 
 class SseConnectionRegistryTest {
 
@@ -127,6 +130,47 @@ class SseConnectionRegistryTest {
 	}
 
 	@Test
+	void publishesPresenceChangeOnlyForFirstConnectAndLastDisconnect() {
+		CapturingEventPublisher eventPublisher = new CapturingEventPublisher();
+		SseConnectionRegistry registry = registry(
+			5,
+			org.mockito.Mockito.mock(PresenceRegistry.class),
+			eventPublisher
+		);
+		FakeConnection first = new FakeConnection();
+		FakeConnection second = new FakeConnection();
+
+		registry.register(42L, "sid-1", first);
+		registry.register(42L, "sid-2", second);
+		first.fireCompletion();
+		second.fireCompletion();
+
+		assertThat(eventPublisher.events).containsExactly(
+			new UserPresenceChangedEvent(42L, true),
+			new UserPresenceChangedEvent(42L, false)
+		);
+	}
+
+	@Test
+	void publisherFailureDoesNotDamageConnectionLifecycle() {
+		ApplicationEventPublisher throwingPublisher = event -> {
+			throw new IllegalStateException("listener failed");
+		};
+		SseConnectionRegistry registry = registry(
+			5,
+			org.mockito.Mockito.mock(PresenceRegistry.class),
+			throwingPublisher
+		);
+		FakeConnection connection = new FakeConnection();
+
+		assertThat(registry.register(42L, "sid-1", connection)).isTrue();
+		connection.fireCompletion();
+
+		assertThat(registry.connectionCount(42L)).isZero();
+		assertThat(registry.isOnline(42L)).isFalse();
+	}
+
+	@Test
 	void removesConnectionAndPresenceEvenWhenEmitterCompletionThrows() {
 		PresenceRegistry presenceRegistry = org.mockito.Mockito.mock(PresenceRegistry.class);
 		SseConnectionRegistry registry = registry(5, presenceRegistry);
@@ -233,6 +277,14 @@ class SseConnectionRegistryTest {
 	}
 
 	private static SseConnectionRegistry registry(int maxConnectionsPerUser, PresenceRegistry presenceRegistry) {
+		return registry(maxConnectionsPerUser, presenceRegistry, event -> { });
+	}
+
+	private static SseConnectionRegistry registry(
+		int maxConnectionsPerUser,
+		PresenceRegistry presenceRegistry,
+		ApplicationEventPublisher eventPublisher
+	) {
 		NotificationProperties properties = new NotificationProperties(
 			1_800_000L,
 			maxConnectionsPerUser,
@@ -245,7 +297,7 @@ class SseConnectionRegistryTest {
 			16,
 			500
 		);
-		return new SseConnectionRegistry(properties, Runnable::run, presenceRegistry);
+		return new SseConnectionRegistry(properties, Runnable::run, presenceRegistry, eventPublisher);
 	}
 
 	private static OutboundEvent durable(Long id) {
@@ -266,6 +318,21 @@ class SseConnectionRegistryTest {
 			if (Math.floorMod(sessionId.hashCode(), shardCount) == shard && ++found == occurrence) {
 				return sessionId;
 			}
+		}
+	}
+
+	private static final class CapturingEventPublisher implements ApplicationEventPublisher {
+
+		private final List<Object> events = new ArrayList<>();
+
+		@Override
+		public void publishEvent(ApplicationEvent event) {
+			events.add(event);
+		}
+
+		@Override
+		public void publishEvent(Object event) {
+			events.add(event);
 		}
 	}
 

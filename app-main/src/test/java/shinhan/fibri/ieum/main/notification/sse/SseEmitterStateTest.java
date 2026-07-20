@@ -66,7 +66,7 @@ class SseEmitterStateTest {
 		executor.runAll();
 
 		assertThat(sent).hasSize(1);
-		assertThat(sent.getFirst().payload().title()).isEqualTo("new");
+		assertThat(sent.getFirst().notificationPayload().title()).isEqualTo("new");
 		assertThat(state.droppedCount()).isEqualTo(1L);
 	}
 
@@ -85,7 +85,7 @@ class SseEmitterStateTest {
 		assertThat(state.isClosed()).isFalse();
 		assertThat(state.droppedCount()).isEqualTo(1L);
 		assertThat(closes).hasValue(0);
-		assertThat(sent).extracting(event -> event.payload().title()).containsExactly("delivered");
+		assertThat(sent).extracting(event -> event.notificationPayload().title()).containsExactly("delivered");
 	}
 
 	@Test
@@ -128,7 +128,7 @@ class SseEmitterStateTest {
 		CountDownLatch releaseFirstSend = new CountDownLatch(1);
 		SseEmitterState state = state(2, executor, event -> {
 			sent.add(event);
-			if (event.payload().notificationId().equals(1L)) {
+			if (event.notificationPayload().notificationId().equals(1L)) {
 				firstSendStarted.countDown();
 				await(releaseFirstSend);
 			}
@@ -143,7 +143,7 @@ class SseEmitterStateTest {
 		worker.join(2_000L);
 
 		assertThat(worker.isAlive()).isFalse();
-		assertThat(sent).extracting(event -> event.payload().notificationId()).containsExactly(1L, 2L);
+		assertThat(sent).extracting(event -> event.notificationPayload().notificationId()).containsExactly(1L, 2L);
 		assertThat(executor.submissionCount()).isEqualTo(1);
 	}
 

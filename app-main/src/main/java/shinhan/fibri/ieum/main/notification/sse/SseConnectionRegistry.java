@@ -14,21 +14,27 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import jakarta.annotation.PreDestroy;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import shinhan.fibri.ieum.main.notification.presence.PresenceRegistry;
+import shinhan.fibri.ieum.main.notification.presence.UserPresenceChangedEvent;
 import shinhan.fibri.ieum.main.notification.presence.UserPresenceQuery;
 
 @Component
 public class SseConnectionRegistry implements UserPresenceQuery {
 
+	private static final Logger log = LoggerFactory.getLogger(SseConnectionRegistry.class);
 	private static final int SHUTDOWN_BATCH_SIZE = 50;
 	private static final long SHUTDOWN_BATCH_DELAY_MILLIS = 250L;
 
 	private final NotificationProperties properties;
 	private final Executor executor;
 	private final PresenceRegistry presenceRegistry;
+	private final ApplicationEventPublisher eventPublisher;
 	private final ConcurrentHashMap<Long, UserConnections> connectionsByUser = new ConcurrentHashMap<>();
 	private final AtomicBoolean acceptingConnections = new AtomicBoolean(true);
 	private final Object lifecycleMonitor = new Object();
@@ -36,11 +42,13 @@ public class SseConnectionRegistry implements UserPresenceQuery {
 	public SseConnectionRegistry(
 		NotificationProperties properties,
 		@Qualifier("notificationTaskExecutor") Executor executor,
-		PresenceRegistry presenceRegistry
+		PresenceRegistry presenceRegistry,
+		ApplicationEventPublisher eventPublisher
 	) {
 		this.properties = Objects.requireNonNull(properties, "properties must not be null");
 		this.executor = Objects.requireNonNull(executor, "executor must not be null");
 		this.presenceRegistry = Objects.requireNonNull(presenceRegistry, "presenceRegistry must not be null");
+		this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher must not be null");
 	}
 
 	public boolean register(Long userId, String sessionId, SseEmitter emitter) {
@@ -64,6 +72,7 @@ public class SseConnectionRegistry implements UserPresenceQuery {
 		emitter.onError(error -> remove(connection));
 
 		AtomicReference<Connection> evictedReference = new AtomicReference<>();
+		AtomicBoolean firstConnectionAdded = new AtomicBoolean();
 		synchronized (lifecycleMonitor) {
 			if (!acceptingConnections.get()) {
 				emitter.complete();
@@ -71,9 +80,13 @@ public class SseConnectionRegistry implements UserPresenceQuery {
 			}
 			connectionsByUser.compute(userId, (ignored, existing) -> {
 				UserConnections connections = existing == null ? new UserConnections() : existing;
+				firstConnectionAdded.set(connections.isEmpty());
 				evictedReference.set(connections.add(connection, properties.maxConnectionsPerUser()));
 				return connections;
 			});
+		}
+		if (firstConnectionAdded.get()) {
+			publishPresenceChanged(userId, true);
 		}
 		Connection evicted = evictedReference.get();
 		if (evicted != null) {
@@ -216,6 +229,20 @@ public class SseConnectionRegistry implements UserPresenceQuery {
 		});
 		if (lastConnectionRemoved.get()) {
 			presenceRegistry.removeOnLastDisconnect(connection.userId);
+			publishPresenceChanged(connection.userId, false);
+		}
+	}
+
+	private void publishPresenceChanged(Long userId, boolean online) {
+		try {
+			eventPublisher.publishEvent(new UserPresenceChangedEvent(userId, online));
+		} catch (RuntimeException exception) {
+			log.warn(
+				"event=presence_transition_publish_failed userId={} online={} failureType={}",
+				userId,
+				online,
+				exception.getClass().getSimpleName()
+			);
 		}
 	}
 

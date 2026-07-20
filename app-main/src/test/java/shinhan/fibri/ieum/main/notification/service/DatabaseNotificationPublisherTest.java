@@ -70,7 +70,7 @@ class DatabaseNotificationPublisherTest {
 		ArgumentCaptor<OutboundEvent> event = ArgumentCaptor.forClass(OutboundEvent.class);
 		verify(registry).push(eq(USER_ID), event.capture());
 		assertThat(event.getValue().kind()).isEqualTo(OutboundEvent.Kind.durable);
-		assertThat(event.getValue().payload())
+		assertThat(event.getValue().notificationPayload())
 			.extracting(
 				payload -> payload.notificationId(),
 				payload -> payload.answerIsAi(),
@@ -250,7 +250,7 @@ class DatabaseNotificationPublisherTest {
 
 		ArgumentCaptor<OutboundEvent> event = ArgumentCaptor.forClass(OutboundEvent.class);
 		verify(registry).push(eq(USER_ID), event.capture());
-		assertThat(event.getValue().payload())
+		assertThat(event.getValue().notificationPayload())
 			.extracting(
 				payload -> payload.notificationId(),
 				payload -> payload.refId(),

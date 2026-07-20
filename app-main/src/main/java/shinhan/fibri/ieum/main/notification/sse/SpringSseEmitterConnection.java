@@ -17,11 +17,11 @@ final class SpringSseEmitterConnection implements SseEmitterConnection {
 	public void send(OutboundEvent event) throws IOException {
 		switch (event.kind()) {
 			case durable -> emitter.send(SseEmitter.event()
-				.id(String.valueOf(event.payload().notificationId()))
-				.name("notification")
+				.id(String.valueOf(event.notificationPayload().notificationId()))
+				.name(event.eventName())
 				.data(event.payload()));
 			case ephemeral -> emitter.send(SseEmitter.event()
-				.name("notification")
+				.name(event.eventName())
 				.data(event.payload()));
 			case heartbeat -> emitter.send(SseEmitter.event().comment("hb"));
 		}
