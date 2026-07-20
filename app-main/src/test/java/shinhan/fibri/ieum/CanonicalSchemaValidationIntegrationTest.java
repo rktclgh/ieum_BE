@@ -3,8 +3,6 @@ package shinhan.fibri.ieum;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Properties;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -27,19 +25,20 @@ class CanonicalSchemaValidationIntegrationTest {
 
 	@Test
 	void runtimeConfigurationEnablesSchemaValidation() throws IOException {
-		Properties properties = new Properties();
-		try (var input = Files.newInputStream(applicationPropertiesPath())) {
-			properties.load(input);
-		}
-
-		assertThat(properties.getProperty("spring.jpa.hibernate.ddl-auto")).isEqualTo("validate");
+		assertThat(mainApplicationProperties().getProperty("spring.jpa.hibernate.ddl-auto")).isEqualTo("validate");
 	}
 
-	private Path applicationPropertiesPath() {
-		Path fromRoot = Path.of("app-main/src/main/resources/application.properties");
-		if (Files.exists(fromRoot)) {
-			return fromRoot;
+	private Properties mainApplicationProperties() throws IOException {
+		var resources = getClass().getClassLoader().getResources("application.properties");
+		while (resources.hasMoreElements()) {
+			Properties properties = new Properties();
+			try (var input = resources.nextElement().openStream()) {
+				properties.load(input);
+			}
+			if ("ieum-main".equals(properties.getProperty("spring.application.name"))) {
+				return properties;
+			}
 		}
-		return Path.of("src/main/resources/application.properties");
+		throw new IllegalStateException("app-main application.properties was not found on the classpath");
 	}
 }
