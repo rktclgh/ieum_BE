@@ -15,6 +15,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -108,7 +110,7 @@ class MeetingControllerTest {
 					    "detailAddress": "2번 출구 앞",
 					    "label": "동선역 2번 출구"
 					  },
-					  "schedule": { "startsAt": "2099-07-10T19:00:00+09:00" },
+					  "schedule": { "date": "2099-07-10", "startTime": "19:00" },
 					  "maxMembers": 7,
 					  "imageFileId": "00000000-0000-0000-0000-000000000001"
 					}
@@ -180,7 +182,7 @@ class MeetingControllerTest {
 					    "detailAddress": "2번 출구 앞",
 					    "label": "동선역 2번 출구"
 					  },
-					  "schedule": { "startsAt": "2099-07-10T19:00:00+09:00" },
+					  "schedule": { "date": "2099-07-10", "startTime": "19:00" },
 					  "maxMembers": 7,
 					  "imageFileId": "00000000-0000-0000-0000-000000000001"
 					}
@@ -205,11 +207,19 @@ class MeetingControllerTest {
 				true,
 				new MeetingScheduleItem(
 					32L,
+					null,
+					null,
+					LocalDate.parse("2026-07-14"),
+					LocalTime.parse("19:00"),
+					LocalTime.parse("20:00"),
+					false,
 					OffsetDateTime.parse("2026-07-14T19:00:00+09:00"),
 					OffsetDateTime.parse("2026-07-14T20:00:00+09:00"),
 					"scheduled",
 					42L,
-					true
+					false,
+					true,
+					false
 				),
 				new MeetingDetailRecurrenceRuleResponse(
 					"weekly",
@@ -323,11 +333,35 @@ class MeetingControllerTest {
 			.thenReturn(new MeetingSchedulesResponse(java.util.List.of(
 				new MeetingScheduleItem(
 					31L,
+					"용산 와인바에서 봅시다",
+					"용산역 1번 출구",
+					LocalDate.parse("2099-07-10"),
+					LocalTime.parse("19:00"),
+					LocalTime.parse("20:00"),
+					false,
 					OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
 					OffsetDateTime.parse("2099-07-10T20:00:00+09:00"),
 					"scheduled",
 					42L,
-					true
+					true,
+					true,
+					false
+				),
+				new MeetingScheduleItem(
+					32L,
+					"다음 정모",
+					"용산역 1번 출구",
+					LocalDate.parse("2099-07-20"),
+					null,
+					null,
+					true,
+					OffsetDateTime.parse("2099-07-20T00:00:00+09:00"),
+					null,
+					"scheduled",
+					42L,
+					true,
+					true,
+					false
 				)
 			)));
 
@@ -337,10 +371,19 @@ class MeetingControllerTest {
 				.with(authenticated()))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.items[0].scheduleId", is(31)))
+			.andExpect(jsonPath("$.items[0].date", is("2099-07-10")))
+			.andExpect(jsonPath("$.items[0].startTime", is("19:00")))
+			.andExpect(jsonPath("$.items[0].endTime", is("20:00")))
+			.andExpect(jsonPath("$.items[0].timeUndecided", is(false)))
 			.andExpect(jsonPath("$.items[0].startsAt", is("2099-07-10T19:00:00+09:00")))
 			.andExpect(jsonPath("$.items[0].status", is("scheduled")))
 			.andExpect(jsonPath("$.items[0].createdByUserId", is(42)))
-			.andExpect(jsonPath("$.items[0].canDelete", is(true)));
+			.andExpect(jsonPath("$.items[0].canDelete", is(true)))
+			.andExpect(jsonPath("$.items[1].date", is("2099-07-20")))
+			.andExpect(jsonPath("$.items[1].startTime", nullValue()))
+			.andExpect(jsonPath("$.items[1].endTime", nullValue()))
+			.andExpect(jsonPath("$.items[1].timeUndecided", is(true)))
+			.andExpect(jsonPath("$.items[1].startsAt", is("2099-07-20T00:00:00+09:00")));
 	}
 
 	@Test
@@ -363,6 +406,10 @@ class MeetingControllerTest {
 					31L,
 					"저녁 모임",
 					new LocationSnapshot(37.5, 127.0, "서울특별시 강남구 테헤란로 123", "2번 출구 앞", "동선역 2번 출구"),
+					LocalDate.parse("2099-07-10"),
+					LocalTime.parse("19:00"),
+					LocalTime.parse("20:00"),
+					false,
 					OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
 					OffsetDateTime.parse("2099-07-10T20:00:00+09:00"),
 					"scheduled",
@@ -398,6 +445,10 @@ class MeetingControllerTest {
 					new LocationSnapshot(37.5, 127.0, "서울", "", ""),
 					null,
 					null,
+					null,
+					false,
+					null,
+					null,
 					"unscheduled",
 					null,
 					false,
@@ -411,6 +462,9 @@ class MeetingControllerTest {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.items[0].meetingId", is(4)))
 			.andExpect(jsonPath("$.items[0].scheduleId", nullValue()))
+			.andExpect(jsonPath("$.items[0].date", nullValue()))
+			.andExpect(jsonPath("$.items[0].startTime", nullValue()))
+			.andExpect(jsonPath("$.items[0].timeUndecided", is(false)))
 			.andExpect(jsonPath("$.items[0].startsAt", nullValue()))
 			.andExpect(jsonPath("$.items[0].endsAt", nullValue()))
 			.andExpect(jsonPath("$.items[0].status", is("unscheduled")))
@@ -477,8 +531,9 @@ class MeetingControllerTest {
 					{
 					  "title": "용산 와인바에서 봅시다",
 					  "locationName": "용산역 1번 출구",
-					  "startsAt": "2099-07-10T19:00:00+09:00",
-					  "endsAt": "2099-07-10T20:00:00+09:00"
+					  "date": "2099-07-10",
+					  "startTime": "19:00",
+					  "endTime": "20:00"
 					}
 					""")
 				.with(authenticated()))
@@ -491,7 +546,7 @@ class MeetingControllerTest {
 	void addScheduleRequiresManagedDisplayDetails() throws Exception {
 		mockMvc.perform(post("/api/v1/meetings/{meetingId}/schedules", 3L)
 				.contentType(MediaType.APPLICATION_JSON)
-				.content("{\"startsAt\":\"2099-07-10T19:00:00+09:00\"}")
+				.content("{\"date\":\"2099-07-10\",\"startTime\":\"19:00\"}")
 				.with(authenticated()))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")));
@@ -502,8 +557,8 @@ class MeetingControllerTest {
 		when(meetingService.addManagedSchedule(any(AuthenticatedUser.class), org.mockito.ArgumentMatchers.eq(3L), any()))
 			.thenThrow(new InvalidMeetingRequestException(
 				"VALIDATION_FAILED",
-				"endsAt",
-				"endsAt must be after startsAt"
+				"endTime",
+				"endTime must be after startTime"
 			));
 
 		mockMvc.perform(post("/api/v1/meetings/{meetingId}/schedules", 3L)
@@ -512,15 +567,16 @@ class MeetingControllerTest {
 					{
 					  "title": "용산 와인바에서 봅시다",
 					  "locationName": "용산역 1번 출구",
-					  "startsAt": "2099-07-10T19:00:00+09:00",
-					  "endsAt": "2099-07-10T19:00:00+09:00"
+					  "date": "2099-07-10",
+					  "startTime": "19:00",
+					  "endTime": "19:00"
 					}
 					""")
 				.with(authenticated()))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
-			.andExpect(jsonPath("$.fieldErrors[0].field", is("endsAt")))
-			.andExpect(jsonPath("$.fieldErrors[0].message", is("endsAt must be after startsAt")));
+			.andExpect(jsonPath("$.fieldErrors[0].field", is("endTime")))
+			.andExpect(jsonPath("$.fieldErrors[0].message", is("endTime must be after startTime")));
 	}
 
 	@Test
@@ -534,7 +590,8 @@ class MeetingControllerTest {
 					{
 					  "title": "용산 와인바에서 봅시다",
 					  "locationName": "용산역 1번 출구",
-					  "startsAt": "2099-07-10T19:00:00+09:00"
+					  "date": "2099-07-10",
+					  "startTime": "19:00"
 					}
 					""")
 				.with(authenticated()))
@@ -553,6 +610,10 @@ class MeetingControllerTest {
 			31L,
 			"수정 일정",
 			"수정 장소",
+			LocalDate.parse("2099-07-11"),
+			LocalTime.parse("19:00"),
+			null,
+			false,
 			OffsetDateTime.parse("2099-07-11T19:00:00+09:00"),
 			null,
 			"scheduled",
@@ -568,7 +629,8 @@ class MeetingControllerTest {
 					{
 					  "title": "수정 일정",
 					  "locationName": "수정 장소",
-					  "startsAt": "2099-07-11T19:00:00+09:00"
+					  "date": "2099-07-11",
+					  "startTime": "19:00"
 					}
 					""")
 				.with(authenticated()))

@@ -8,7 +8,6 @@ import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.YearMonth;
 import java.time.ZoneId;
-import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,6 +29,7 @@ import shinhan.fibri.ieum.main.meeting.domain.MeetingRecurrenceRule;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingParticipant;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingSchedule;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingScheduleStatus;
+import shinhan.fibri.ieum.main.meeting.domain.MeetingScheduleTimePolicy;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingStatus;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingType;
 import shinhan.fibri.ieum.main.meeting.domain.ParticipantStatus;
@@ -59,7 +59,6 @@ import shinhan.fibri.ieum.main.meeting.exception.MeetingNotOpenException;
 import shinhan.fibri.ieum.main.meeting.exception.NotHostException;
 import shinhan.fibri.ieum.main.meeting.exception.NotMeetingMemberException;
 import shinhan.fibri.ieum.main.meeting.exception.ParticipantNotFoundException;
-import shinhan.fibri.ieum.main.meeting.exception.ScheduleAlreadyExistsException;
 import shinhan.fibri.ieum.main.meeting.exception.ScheduleNotCancellableException;
 import shinhan.fibri.ieum.main.meeting.exception.ScheduleNotFoundException;
 import shinhan.fibri.ieum.main.meeting.exception.SchedulePermissionDeniedException;
@@ -96,7 +95,7 @@ public class MeetingService {
 	@Transactional
 	public CreateMeetingResponse create(AuthenticatedUser principal, CreateMeetingRequest request) {
 		validateCreateRuleCombination(request);
-		validateScheduleWindow(request.schedule(), "schedule.endsAt");
+		validateCreateSchedule(request);
 		validateRecurrenceRule(request);
 		OffsetDateTime meetingAtCache = initialMeetingAtCache(request);
 		UUID imageFileId = validateImage(request.imageFileId(), principal.userId());
@@ -320,38 +319,6 @@ public class MeetingService {
 	}
 
 	@Transactional
-	public CreateMeetingScheduleResponse addSchedule(
-		AuthenticatedUser principal,
-		Long meetingId,
-		CreateMeetingScheduleRequest request
-	) {
-		validateScheduleWindow(request, "endsAt");
-		Meeting meeting = meetingRepository.findActiveByIdForUpdate(meetingId)
-			.orElseThrow(MeetingNotFoundException::new);
-		ensureJoinedMeetingMember(meetingId, principal.userId());
-		if (meeting.getType() == MeetingType.recurring) {
-			throw new InvalidMeetingRequestException(
-				"VALIDATION_FAILED",
-				"type",
-				"recurring schedule is managed by recurrenceRule"
-			);
-		}
-		OffsetDateTime now = OffsetDateTime.now();
-		if (meetingScheduleRepository.existsActiveSchedule(meetingId, now)) {
-			throw new ScheduleAlreadyExistsException();
-		}
-		MeetingSchedule schedule = meetingScheduleRepository.save(createSchedule(
-			meetingId,
-			principal.userId(),
-			request.startsAt(),
-			request.endsAt(),
-			meetingScheduleRepository.findMaxSequenceNoByMeetingId(meetingId) + 1
-		));
-		meeting.updateMeetingAtCache(schedule.getStartsAt());
-		return new CreateMeetingScheduleResponse(schedule.getId());
-	}
-
-	@Transactional
 	public CreateMeetingScheduleResponse addManagedSchedule(
 		AuthenticatedUser principal,
 		Long meetingId,
@@ -367,9 +334,9 @@ public class MeetingService {
 			principal.userId(),
 			request.title(),
 			request.locationName(),
-			request.startsAt(),
-			request.endsAt(),
-			MeetingScheduleTimePolicy.visibleUntil(request.startsAt()),
+			request.date(),
+			request.startTime(),
+			request.endTime(),
 			meetingScheduleRepository.findMaxSequenceNoByMeetingId(meetingId) + 1
 		));
 		refreshMeetingAtCache(meeting);
@@ -398,9 +365,9 @@ public class MeetingService {
 		schedule.update(
 			request.title(),
 			request.locationName(),
-			request.startsAt(),
-			request.endsAt(),
-			MeetingScheduleTimePolicy.visibleUntil(request.startsAt())
+			request.date(),
+			request.startTime(),
+			request.endTime()
 		);
 		refreshMeetingAtCache(meeting);
 		return toScheduleItem(
@@ -467,19 +434,14 @@ public class MeetingService {
 	}
 
 	private void validateManagedScheduleWindow(ManageMeetingScheduleRequest request) {
-		if (request == null || request.startsAt() == null) {
-			throw new InvalidMeetingRequestException("VALIDATION_FAILED", "startsAt", "startsAt is required");
+		if (request == null || request.date() == null) {
+			throw invalid("date", "date is required");
 		}
-		if (!request.startsAt().isAfter(OffsetDateTime.now())) {
-			throw new InvalidMeetingRequestException("VALIDATION_FAILED", "startsAt", "startsAt must be in the future");
-		}
-		if (request.endsAt() != null && !request.endsAt().isAfter(request.startsAt())) {
-			throw new InvalidMeetingRequestException("VALIDATION_FAILED", "endsAt", "endsAt must be after startsAt");
-		}
+		validateDateTimeWindow(request.date(), request.startTime(), request.endTime(), "");
 	}
 
 	private void ensureFutureScheduled(MeetingSchedule schedule) {
-		if (schedule.getStatus() != MeetingScheduleStatus.scheduled || !schedule.getStartsAt().isAfter(OffsetDateTime.now())) {
+		if (!schedule.mutableAt(OffsetDateTime.now())) {
 			throw new ScheduleNotCancellableException();
 		}
 	}
@@ -557,17 +519,65 @@ public class MeetingService {
 		}
 	}
 
-	private void validateScheduleWindow(CreateMeetingScheduleRequest schedule, String field) {
-		if (schedule == null || schedule.startsAt() == null || schedule.endsAt() == null) {
+	/**
+	 * 날짜·시간 조합 검증 (§8 v4 매트릭스). 날짜와 시각은 독립적으로 미정일 수 있으나
+	 * "날짜 없이 시간만" 은 one_time으로 표현할 수 없다 — 그건 정기모임이므로 recurring으로 만든다.
+	 */
+	private void validateCreateSchedule(CreateMeetingRequest request) {
+		CreateMeetingScheduleRequest schedule = request.schedule();
+		if (schedule == null) {
 			return;
 		}
-		if (!schedule.endsAt().isAfter(schedule.startsAt())) {
-			throw new InvalidMeetingRequestException(
-				"VALIDATION_FAILED",
-				field,
-				"endsAt must be after startsAt"
+		if (request.type() == MeetingType.recurring) {
+			if (schedule.date() != null) {
+				throw invalid("schedule.date", "recurring date is managed by recurrenceRule");
+			}
+			if (schedule.startTime() == null) {
+				throw invalid("schedule.startTime", "startTime is required for recurring meeting");
+			}
+			validateTimePair(schedule.startTime(), schedule.endTime(), "schedule.endTime");
+			return;
+		}
+		if (schedule.date() == null) {
+			throw invalid(
+				"schedule.date",
+				"date is required — a meeting with only a time must be created as a recurring meeting"
 			);
 		}
+		validateDateTimeWindow(schedule.date(), schedule.startTime(), schedule.endTime(), "schedule.");
+	}
+
+	/**
+	 * 시간이 확정되면 시작 시각이 미래여야 하고, 시간 미정이면 날짜가 오늘(KST) 이상이면 된다.
+	 * 시간 미정 일정은 그 날 23:59까지 유효하기 때문이다.
+	 */
+	private void validateDateTimeWindow(LocalDate date, LocalTime startTime, LocalTime endTime, String prefix) {
+		validateTimePair(startTime, endTime, prefix + "endTime");
+		if (startTime == null) {
+			if (date.isBefore(MeetingScheduleTimePolicy.today())) {
+				throw invalid(prefix + "date", "date must not be in the past");
+			}
+			return;
+		}
+		if (!MeetingScheduleTimePolicy.startsAt(date, startTime).isAfter(OffsetDateTime.now())) {
+			throw invalid(prefix + "startTime", "start time must be in the future");
+		}
+	}
+
+	private void validateTimePair(LocalTime startTime, LocalTime endTime, String endTimeField) {
+		if (endTime == null) {
+			return;
+		}
+		if (startTime == null) {
+			throw invalid(endTimeField, "endTime requires startTime");
+		}
+		if (!endTime.isAfter(startTime)) {
+			throw invalid(endTimeField, "endTime must be after startTime");
+		}
+	}
+
+	private InvalidMeetingRequestException invalid(String field, String message) {
+		return new InvalidMeetingRequestException("VALIDATION_FAILED", field, message);
 	}
 
 	private void validateRecurrenceRule(CreateMeetingRequest request) {
@@ -597,20 +607,23 @@ public class MeetingService {
 			return List.of(createSchedule(
 				meetingId,
 				createdBy,
-				request.schedule().startsAt(),
-				request.schedule().endsAt(),
+				request.schedule().date(),
+				request.schedule().startTime(),
+				request.schedule().endTime(),
 				1
 			));
 		}
-		List<OffsetDateTime> startsAtList = recurringStartsAt(request);
-		List<MeetingSchedule> schedules = new ArrayList<>(startsAtList.size());
-		Duration duration = request.schedule().endsAt() == null
-			? null
-			: Duration.between(request.schedule().startsAt(), request.schedule().endsAt());
-		for (int index = 0; index < startsAtList.size(); index++) {
-			OffsetDateTime startsAt = startsAtList.get(index);
-			OffsetDateTime endsAt = duration == null ? null : startsAt.plus(duration);
-			schedules.add(createSchedule(meetingId, createdBy, startsAt, endsAt, index + 1));
+		List<LocalDate> dates = recurringDates(request);
+		List<MeetingSchedule> schedules = new ArrayList<>(dates.size());
+		for (int index = 0; index < dates.size(); index++) {
+			schedules.add(createSchedule(
+				meetingId,
+				createdBy,
+				dates.get(index),
+				request.schedule().startTime(),
+				request.schedule().endTime(),
+				index + 1
+			));
 		}
 		if (schedules.isEmpty()) {
 			throw new InvalidMeetingRequestException(
@@ -624,43 +637,44 @@ public class MeetingService {
 
 	private OffsetDateTime initialMeetingAtCache(CreateMeetingRequest request) {
 		if (request.type() == MeetingType.one_time) {
-			return request.schedule() == null ? null : request.schedule().startsAt();
+			if (request.schedule() == null) {
+				return null;
+			}
+			return MeetingScheduleTimePolicy.startsAt(request.schedule().date(), request.schedule().startTime());
 		}
-		List<OffsetDateTime> startsAtList = recurringStartsAt(request);
-		if (startsAtList.isEmpty()) {
+		List<LocalDate> dates = recurringDates(request);
+		if (dates.isEmpty()) {
 			throw new InvalidMeetingRequestException(
 				"VALIDATION_FAILED",
 				"recurrenceRule",
 				"recurrenceRule does not create schedules"
 			);
 		}
-		return startsAtList.getFirst();
+		return MeetingScheduleTimePolicy.startsAt(dates.getFirst(), request.schedule().startTime());
 	}
 
 	private MeetingSchedule createSchedule(
 		Long meetingId,
 		Long createdBy,
-		OffsetDateTime startsAt,
-		OffsetDateTime endsAt,
+		LocalDate date,
+		LocalTime startTime,
+		LocalTime endTime,
 		int sequenceNo
 	) {
-		return MeetingSchedule.create(
-			meetingId,
-			createdBy,
-			startsAt,
-			endsAt,
-			MeetingScheduleTimePolicy.visibleUntil(startsAt),
-			sequenceNo
-		);
+		return MeetingSchedule.create(meetingId, createdBy, date, startTime, endTime, sequenceNo);
 	}
 
-	private List<OffsetDateTime> recurringStartsAt(CreateMeetingRequest request) {
+	/**
+	 * 정기 모임의 회차 날짜. 날짜는 recurrenceRule이 단독으로 정하고, 시각은 schedule.startTime이 정한다.
+	 * 이미 지난 시각(오늘의 지난 회차 포함)은 건너뛴다.
+	 */
+	private List<LocalDate> recurringDates(CreateMeetingRequest request) {
 		CreateMeetingRecurrenceRuleRequest rule = request.recurrenceRule();
 		ZoneId zone = ZoneId.of(rule.timezone() == null || rule.timezone().isBlank() ? "Asia/Seoul" : rule.timezone());
-		ZonedDateTime firstStart = request.schedule().startsAt().atZoneSameInstant(zone);
-		LocalTime time = firstStart.toLocalTime();
-		LocalDate firstDate = firstStart.toLocalDate();
-		LocalDate current = firstDate.isAfter(rule.startsOn()) ? firstDate : rule.startsOn();
+		LocalTime startTime = request.schedule().startTime();
+		OffsetDateTime now = OffsetDateTime.now();
+		LocalDate today = LocalDate.now(zone);
+		LocalDate current = rule.startsOn().isAfter(today) ? rule.startsOn() : today;
 		LocalDate until = rule.endsOn() == null ? rule.startsOn().plusYears(1) : rule.endsOn();
 		int limit = rule.maxOccurrences() == null
 			? INITIAL_RECURRING_SCHEDULE_LIMIT
@@ -670,17 +684,15 @@ public class MeetingService {
 			return List.of();
 		}
 		current = anchorDate.get();
-		List<OffsetDateTime> startsAtList = new ArrayList<>(limit);
-		while (!current.isAfter(until) && startsAtList.size() < limit) {
-			if (matchesRecurrence(current, rule, anchorDate.get())) {
-				OffsetDateTime startsAt = current.atTime(time).atZone(zone).toOffsetDateTime();
-				if (!startsAt.isBefore(request.schedule().startsAt())) {
-					startsAtList.add(startsAt);
-				}
+		List<LocalDate> dates = new ArrayList<>(limit);
+		while (!current.isAfter(until) && dates.size() < limit) {
+			if (matchesRecurrence(current, rule, anchorDate.get())
+				&& MeetingScheduleTimePolicy.startsAt(current, startTime).isAfter(now)) {
+				dates.add(current);
 			}
 			current = current.plusDays(1);
 		}
-		return startsAtList;
+		return dates;
 	}
 
 	private Optional<LocalDate> firstActualDate(
@@ -906,6 +918,10 @@ public class MeetingService {
 			schedule.getId(),
 			schedule.getTitle() == null ? fallbackTitle : schedule.getTitle(),
 			schedule.getLocationName() == null ? fallbackLocationName : schedule.getLocationName(),
+			schedule.getStartsOn(),
+			schedule.getStartTime(),
+			schedule.getEndTime(),
+			schedule.isTimeUndecided(),
 			toResponseTime(schedule.getStartsAt()),
 			toResponseTime(schedule.getEndsAt()),
 			schedule.getStatus().name(),
@@ -924,8 +940,7 @@ public class MeetingService {
 		MeetingSchedule schedule,
 		OffsetDateTime now
 	) {
-		boolean futureScheduled = schedule.getStatus() == MeetingScheduleStatus.scheduled
-			&& schedule.getStartsAt().isAfter(now);
+		boolean futureScheduled = schedule.mutableAt(now);
 		boolean own = Objects.equals(schedule.getCreatedBy(), principal.userId());
 		boolean joinedOrOperator = isScheduleOperator(principal, hostId)
 			|| participant.map(row -> row.getStatus() == ParticipantStatus.joined).orElse(false);
@@ -947,6 +962,10 @@ public class MeetingService {
 			new LocationSnapshot(
 				row.getLatitude(), row.getLongitude(), row.getAddress(), row.getDetailAddress(), row.getLabel()
 			),
+			row.getStartsOn(),
+			row.getStartTime(),
+			row.getEndTime(),
+			row.getStartsOn() != null && row.getStartTime() == null,
 			toResponseTime(row.getStartsAt()),
 			toResponseTime(row.getEndsAt()),
 			row.getStatus(),

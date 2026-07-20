@@ -1,12 +1,10 @@
 package shinhan.fibri.ieum.main.meeting.service;
 
-import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.YearMonth;
 import java.time.ZoneId;
-import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -15,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingRecurrenceRule;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingSchedule;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingScheduleStatus;
+import shinhan.fibri.ieum.main.meeting.domain.MeetingScheduleTimePolicy;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingRecurrenceRuleRepository;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingScheduleRepository;
 
@@ -56,12 +55,11 @@ public class MeetingScheduleMaintenanceService {
 		MeetingSchedule last = schedules.getLast();
 		Long createdBy = schedules.getFirst().getCreatedBy();
 		ZoneId zone = zone(rule);
-		LocalDate anchorDate = schedules.getFirst().getStartsAt().atZoneSameInstant(zone).toLocalDate();
-		ZonedDateTime lastStart = last.getStartsAt().atZoneSameInstant(zone);
-		LocalTime meetingTime = lastStart.toLocalTime();
-		Duration duration = last.getEndsAt() == null ? null : Duration.between(last.getStartsAt(), last.getEndsAt());
+		LocalDate anchorDate = schedules.getFirst().getStartsOn();
+		LocalTime meetingTime = last.getStartTime();
+		LocalTime endTime = last.getEndTime();
 		LocalDate current = laterDate(
-			lastStart.toLocalDate().plusDays(1),
+			last.getStartsOn().plusDays(1),
 			now.atZoneSameInstant(zone).toLocalDate()
 		);
 		int futureCount = futureScheduledCount(schedules, now);
@@ -82,20 +80,19 @@ public class MeetingScheduleMaintenanceService {
 				if (meetingScheduleRepository.existsByMeetingIdAndSequenceNo(rule.getMeetingId(), sequenceNo)) {
 					return created;
 				}
-				OffsetDateTime startsAt = current.atTime(meetingTime).atZone(zone).toOffsetDateTime();
-				OffsetDateTime endsAt = duration == null ? null : startsAt.plus(duration);
-				meetingScheduleRepository.save(MeetingSchedule.create(
+				MeetingSchedule expanded = MeetingSchedule.create(
 					rule.getMeetingId(),
 					createdBy,
-					startsAt,
-					endsAt,
-					MeetingScheduleTimePolicy.visibleUntil(startsAt),
+					current,
+					meetingTime,
+					endTime,
 					sequenceNo
-				));
+				);
+				meetingScheduleRepository.save(expanded);
 				created++;
 				totalCount++;
 				sequenceNo++;
-				if (!startsAt.isBefore(now)) {
+				if (!expanded.getStartsAt().isBefore(now)) {
 					futureCount++;
 				}
 			}

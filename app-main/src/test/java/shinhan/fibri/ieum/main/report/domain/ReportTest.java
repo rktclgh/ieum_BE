@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import org.junit.jupiter.api.Test;
 import shinhan.fibri.ieum.common.auth.domain.GenderType;
@@ -103,9 +104,9 @@ class ReportTest {
 			77L,
 			"용산 와인바에서 봅시다",
 			"용산역 1번 출구",
-			OffsetDateTime.parse("2099-07-20T19:00:00+09:00"),
+			LocalDate.parse("2099-07-20"),
+			LocalTime.parse("19:00"),
 			null,
-			OffsetDateTime.parse("2099-07-20T23:59:59+09:00"),
 			1
 		);
 

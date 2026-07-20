@@ -1,6 +1,8 @@
 package shinhan.fibri.ieum.main.meeting.repository;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
 
 public interface MeetingCalendarProjection {
 
@@ -20,6 +22,12 @@ public interface MeetingCalendarProjection {
 	String getDetailAddress();
 
 	String getLabel();
+
+	LocalDate getStartsOn();
+
+	LocalTime getStartTime();
+
+	LocalTime getEndTime();
 
 	Instant getStartsAt();
 

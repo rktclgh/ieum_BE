@@ -1,5 +1,12 @@
 -- ============================================================
--- FiBri Schema v22
+-- FiBri Schema v23
+-- v22 대비 변경:
+--   [24] 모임 일정 날짜·시간 분리 (시간 미정 지원):
+--        meeting_schedules.starts_on(DATE) + start_time/end_time(TIME)이 저장 정본.
+--        start_time IS NULL = 시간 미정. 날짜 미정은 일정 row 부재로 표현(기존과 동일).
+--        starts_at/ends_at은 starts_on + COALESCE(start_time,'00:00') @KST 로 서버가 계산하는
+--        파생 캐시로 남긴다 — 정렬·범위조회·인덱스·스케줄러·핀 노출 쿼리 무변경 보존이 목적.
+--        기존 DB 증분: db/migrations/v36_meeting_schedule_date_time.sql
 -- v21 대비 변경:
 --   [23] 채택 답변 지식 적격성 잠금:
 --        question → pin → answer 순서로 active/accepted human-answer 상태를 잠근다.
@@ -807,8 +814,11 @@ CREATE TABLE meeting_schedules (
     created_by BIGINT REFERENCES users(user_id) ON DELETE SET NULL,       -- [v25] 최초 작성자. 하드 삭제 시 일정은 보존
     title VARCHAR(100),                                                    -- [v29] 채팅에서 작성한 일정별 제목
     location_name VARCHAR(200),                                           -- [v29] 채팅에서 작성한 일정별 장소명
-    starts_at TIMESTAMPTZ NOT NULL,
-    ends_at TIMESTAMPTZ,
+    starts_on DATE NOT NULL,                                              -- [신규 v23] 회차 날짜 정본 (KST)
+    start_time TIME,                                                      -- [신규 v23] 시작 시각 정본 (KST). NULL = 시간 미정
+    end_time TIME,                                                        -- [신규 v23] 종료 시각 정본 (KST). 같은 날 안에서만
+    starts_at TIMESTAMPTZ NOT NULL,                                       -- [v23] 파생 캐시 = starts_on + COALESCE(start_time,'00:00') @KST
+    ends_at TIMESTAMPTZ,                                                  -- [v23] 파생 캐시 = starts_on + end_time @KST
     visible_until TIMESTAMPTZ NOT NULL,
     status meeting_schedule_status NOT NULL DEFAULT 'scheduled',
     sequence_no INT NOT NULL,
@@ -817,7 +827,9 @@ CREATE TABLE meeting_schedules (
     deleted_at TIMESTAMPTZ,
     UNIQUE (meeting_id, sequence_no),
     CHECK (ends_at IS NULL OR ends_at > starts_at),
-    CHECK (visible_until >= starts_at)
+    CHECK (visible_until >= starts_at),
+    CONSTRAINT ck_msched_time_pair  CHECK (start_time IS NOT NULL OR end_time IS NULL),   -- [신규 v23] endTime은 startTime 없이 불가
+    CONSTRAINT ck_msched_time_order CHECK (end_time IS NULL OR end_time > start_time)     -- [신규 v23] 자정 넘김 미지원
 );
 CREATE INDEX idx_meeting_schedules_visible
     ON meeting_schedules(meeting_id, visible_until)

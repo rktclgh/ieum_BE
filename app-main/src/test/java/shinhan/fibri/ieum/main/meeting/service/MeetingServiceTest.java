@@ -14,7 +14,10 @@ import static org.mockito.Mockito.doThrow;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -133,8 +136,8 @@ class MeetingServiceTest {
 		ArgumentCaptor<MeetingSchedule> scheduleCaptor = ArgumentCaptor.forClass(MeetingSchedule.class);
 		verify(meetingScheduleRepository).save(scheduleCaptor.capture());
 		assertThat(scheduleCaptor.getValue().getMeetingId()).isEqualTo(3L);
-		assertThat(scheduleCaptor.getValue().getStartsAt()).isEqualTo(OffsetDateTime.parse("2026-07-10T19:00:00+09:00"));
-		assertThat(scheduleCaptor.getValue().getVisibleUntil()).isEqualTo(OffsetDateTime.parse("2026-07-10T23:59:59.999999999+09:00"));
+		assertThat(scheduleCaptor.getValue().getStartsAt()).isEqualTo(OffsetDateTime.parse("2099-07-10T19:00:00+09:00"));
+		assertThat(scheduleCaptor.getValue().getVisibleUntil()).isEqualTo(OffsetDateTime.parse("2099-07-10T23:59:59.999999999+09:00"));
 	}
 
 	@Test
@@ -224,18 +227,95 @@ class MeetingServiceTest {
 
 	@Test
 	void createRejectsScheduleEndingAtOrBeforeStartBeforeWritingRows() {
-		OffsetDateTime startsAt = OffsetDateTime.parse("2099-07-10T19:00:00+09:00");
-		CreateMeetingRequest invalidRequest = requestWithSchedule(
-			new CreateMeetingScheduleRequest(startsAt, startsAt)
-		);
+		CreateMeetingRequest invalidRequest = requestWithSchedule(new CreateMeetingScheduleRequest(
+			LocalDate.parse("2099-07-10"),
+			LocalTime.parse("19:00"),
+			LocalTime.parse("19:00")
+		));
 
 		assertThatThrownBy(() -> service.create(principal(42L), invalidRequest))
 			.isInstanceOfSatisfying(InvalidMeetingRequestException.class, exception -> {
 				assertThat(exception.code()).isEqualTo("VALIDATION_FAILED");
-				assertThat(exception.field()).isEqualTo("schedule.endsAt");
-				assertThat(exception).hasMessage("endsAt must be after startsAt");
+				assertThat(exception.field()).isEqualTo("schedule.endTime");
+				assertThat(exception).hasMessage("endTime must be after startTime");
 			});
 		verify(pinWriter, never()).create(any(), any(), any(LocationSnapshot.class));
+		verify(meetingRepository, never()).save(any(Meeting.class));
+	}
+
+	@Test
+	void createRejectsOneTimeScheduleWithTimeButNoDate() {
+		// 날짜 없이 시간만 정한 모임은 "그 시각의 정기모임"이므로 one_time으로 만들 수 없다.
+		CreateMeetingRequest invalidRequest = requestWithSchedule(new CreateMeetingScheduleRequest(
+			null,
+			LocalTime.parse("19:00"),
+			null
+		));
+
+		assertThatThrownBy(() -> service.create(principal(42L), invalidRequest))
+			.isInstanceOfSatisfying(InvalidMeetingRequestException.class, exception -> {
+				assertThat(exception.code()).isEqualTo("VALIDATION_FAILED");
+				assertThat(exception.field()).isEqualTo("schedule.date");
+			});
+		verify(pinWriter, never()).create(any(), any(), any(LocationSnapshot.class));
+		verify(meetingRepository, never()).save(any(Meeting.class));
+	}
+
+	@Test
+	void createRejectsOneTimeEndTimeWithoutStartTime() {
+		CreateMeetingRequest invalidRequest = requestWithSchedule(new CreateMeetingScheduleRequest(
+			LocalDate.parse("2099-07-10"),
+			null,
+			LocalTime.parse("21:00")
+		));
+
+		assertThatThrownBy(() -> service.create(principal(42L), invalidRequest))
+			.isInstanceOfSatisfying(InvalidMeetingRequestException.class, exception -> {
+				assertThat(exception.field()).isEqualTo("schedule.endTime");
+				assertThat(exception).hasMessage("endTime requires startTime");
+			});
+		verify(meetingRepository, never()).save(any(Meeting.class));
+	}
+
+	@Test
+	void createRejectsRecurringScheduleCarryingDate() {
+		CreateMeetingRequest invalidRequest = new CreateMeetingRequest(
+			"정기 러닝",
+			null,
+			MeetingType.recurring,
+			new LocationSnapshot(37.5, 127.0, "서울특별시 강남구 테헤란로 123", "", ""),
+			new CreateMeetingScheduleRequest(LocalDate.parse("2099-07-10"), LocalTime.parse("19:00"), null),
+			weeklyRule(LocalDate.parse("2099-07-06")),
+			7,
+			null
+		);
+
+		assertThatThrownBy(() -> service.create(principal(42L), invalidRequest))
+			.isInstanceOfSatisfying(InvalidMeetingRequestException.class, exception -> {
+				assertThat(exception.field()).isEqualTo("schedule.date");
+				assertThat(exception).hasMessage("recurring date is managed by recurrenceRule");
+			});
+		verify(meetingRepository, never()).save(any(Meeting.class));
+	}
+
+	@Test
+	void createRejectsRecurringScheduleWithoutStartTime() {
+		CreateMeetingRequest invalidRequest = new CreateMeetingRequest(
+			"정기 러닝",
+			null,
+			MeetingType.recurring,
+			new LocationSnapshot(37.5, 127.0, "서울특별시 강남구 테헤란로 123", "", ""),
+			new CreateMeetingScheduleRequest(null, null, null),
+			weeklyRule(LocalDate.parse("2099-07-06")),
+			7,
+			null
+		);
+
+		assertThatThrownBy(() -> service.create(principal(42L), invalidRequest))
+			.isInstanceOfSatisfying(InvalidMeetingRequestException.class, exception -> {
+				assertThat(exception.field()).isEqualTo("schedule.startTime");
+				assertThat(exception).hasMessage("startTime is required for recurring meeting");
+			});
 		verify(meetingRepository, never()).save(any(Meeting.class));
 	}
 
@@ -254,11 +334,11 @@ class MeetingServiceTest {
 		});
 		when(recurrenceRuleRepository.save(any(MeetingRecurrenceRule.class))).thenAnswer(invocation -> invocation.getArgument(0));
 		when(chatRoomLifecycle.createGroupRoom(3L, 42L)).thenReturn(9L);
-		CreateMeetingRecurrenceRuleRequest recurrenceRule = weeklyRule(LocalDate.parse("2026-07-07"));
+		CreateMeetingRecurrenceRuleRequest recurrenceRule = weeklyRule(LocalDate.parse("2099-07-07"));
 
 		CreateMeetingResponse response = service.create(
 			principal(42L),
-			request(null, MeetingType.recurring, OffsetDateTime.parse("2026-07-07T19:00:00+09:00"), recurrenceRule)
+			request(null, MeetingType.recurring, OffsetDateTime.parse("2099-07-07T19:00:00+09:00"), recurrenceRule)
 		);
 
 		assertThat(response.firstScheduleId()).isEqualTo(31L);
@@ -267,9 +347,9 @@ class MeetingServiceTest {
 		assertThat(scheduleCaptor.getAllValues())
 			.extracting(MeetingSchedule::getStartsAt)
 			.containsExactly(
-				OffsetDateTime.parse("2026-07-07T19:00:00+09:00"),
-				OffsetDateTime.parse("2026-07-14T19:00:00+09:00"),
-				OffsetDateTime.parse("2026-07-21T19:00:00+09:00")
+				OffsetDateTime.parse("2099-07-07T19:00:00+09:00"),
+				OffsetDateTime.parse("2099-07-14T19:00:00+09:00"),
+				OffsetDateTime.parse("2099-07-21T19:00:00+09:00")
 			);
 		assertThat(scheduleCaptor.getAllValues())
 			.extracting(MeetingSchedule::getSequenceNo)
@@ -296,15 +376,15 @@ class MeetingServiceTest {
 			2,
 			null,
 			15,
-			LocalDate.parse("2026-01-20"),
-			LocalDate.parse("2026-08-31"),
+			LocalDate.parse("2099-01-20"),
+			LocalDate.parse("2099-08-31"),
 			null,
 			"Asia/Seoul"
 		);
 
 		service.create(
 			principal(42L),
-			request(null, MeetingType.recurring, OffsetDateTime.parse("2026-02-15T19:00:00+09:00"), recurrenceRule)
+			request(null, MeetingType.recurring, OffsetDateTime.parse("2099-02-15T19:00:00+09:00"), recurrenceRule)
 		);
 
 		ArgumentCaptor<MeetingSchedule> scheduleCaptor = ArgumentCaptor.forClass(MeetingSchedule.class);
@@ -312,10 +392,10 @@ class MeetingServiceTest {
 		assertThat(scheduleCaptor.getAllValues())
 			.extracting(MeetingSchedule::getStartsAt)
 			.containsExactly(
-				OffsetDateTime.parse("2026-02-15T19:00:00+09:00"),
-				OffsetDateTime.parse("2026-04-15T19:00:00+09:00"),
-				OffsetDateTime.parse("2026-06-15T19:00:00+09:00"),
-				OffsetDateTime.parse("2026-08-15T19:00:00+09:00")
+				OffsetDateTime.parse("2099-02-15T19:00:00+09:00"),
+				OffsetDateTime.parse("2099-04-15T19:00:00+09:00"),
+				OffsetDateTime.parse("2099-06-15T19:00:00+09:00"),
+				OffsetDateTime.parse("2099-08-15T19:00:00+09:00")
 			);
 	}
 
@@ -335,15 +415,15 @@ class MeetingServiceTest {
 			2,
 			List.of(1, 2),
 			null,
-			LocalDate.parse("2026-07-07"),
-			LocalDate.parse("2026-08-31"),
+			LocalDate.parse("2099-07-07"),
+			LocalDate.parse("2099-08-31"),
 			4,
 			"Asia/Seoul"
 		);
 
 		service.create(
 			principal(42L),
-			request(null, MeetingType.recurring, OffsetDateTime.parse("2026-07-07T19:00:00+09:00"), recurrenceRule)
+			request(null, MeetingType.recurring, OffsetDateTime.parse("2099-07-07T19:00:00+09:00"), recurrenceRule)
 		);
 
 		ArgumentCaptor<MeetingSchedule> scheduleCaptor = ArgumentCaptor.forClass(MeetingSchedule.class);
@@ -351,10 +431,10 @@ class MeetingServiceTest {
 		assertThat(scheduleCaptor.getAllValues())
 			.extracting(MeetingSchedule::getStartsAt)
 			.containsExactly(
-				OffsetDateTime.parse("2026-07-07T19:00:00+09:00"),
-				OffsetDateTime.parse("2026-07-20T19:00:00+09:00"),
-				OffsetDateTime.parse("2026-07-21T19:00:00+09:00"),
-				OffsetDateTime.parse("2026-08-03T19:00:00+09:00")
+				OffsetDateTime.parse("2099-07-07T19:00:00+09:00"),
+				OffsetDateTime.parse("2099-07-20T19:00:00+09:00"),
+				OffsetDateTime.parse("2099-07-21T19:00:00+09:00"),
+				OffsetDateTime.parse("2099-08-03T19:00:00+09:00")
 			);
 	}
 
@@ -374,21 +454,21 @@ class MeetingServiceTest {
 			1,
 			null,
 			15,
-			LocalDate.parse("2026-01-20"),
-			LocalDate.parse("2026-03-31"),
+			LocalDate.parse("2099-01-20"),
+			LocalDate.parse("2099-03-31"),
 			null,
 			"Asia/Seoul"
 		);
 
 		service.create(
 			principal(42L),
-			request(null, MeetingType.recurring, OffsetDateTime.parse("2026-01-20T19:00:00+09:00"), recurrenceRule)
+			request(null, MeetingType.recurring, OffsetDateTime.parse("2099-01-20T19:00:00+09:00"), recurrenceRule)
 		);
 
 		ArgumentCaptor<Meeting> meetingCaptor = ArgumentCaptor.forClass(Meeting.class);
 		verify(meetingRepository).save(meetingCaptor.capture());
 		assertThat(meetingCaptor.getValue().getMeetingAt())
-			.isEqualTo(OffsetDateTime.parse("2026-02-15T19:00:00+09:00"));
+			.isEqualTo(OffsetDateTime.parse("2099-02-15T19:00:00+09:00"));
 	}
 
 	@Test
@@ -451,9 +531,9 @@ class MeetingServiceTest {
 		MeetingSchedule nextSchedule = MeetingSchedule.create(
 			3L,
 			42L,
-			OffsetDateTime.parse("2026-07-14T19:00:00+09:00"),
-			OffsetDateTime.parse("2026-07-14T20:00:00+09:00"),
-			OffsetDateTime.parse("2026-07-14T23:59:59+09:00"),
+			LocalDate.parse("2026-07-14"),
+			LocalTime.parse("19:00"),
+			LocalTime.parse("20:00"),
 			2
 		);
 		setField(nextSchedule, "id", 32L);
@@ -512,9 +592,9 @@ class MeetingServiceTest {
 		MeetingSchedule legacySchedule = MeetingSchedule.create(
 			3L,
 			42L,
-			OffsetDateTime.parse("2099-07-14T19:00:00+09:00"),
+			LocalDate.parse("2099-07-14"),
+			LocalTime.parse("19:00"),
 			null,
-			OffsetDateTime.parse("2099-07-14T23:59:59+09:00"),
 			1
 		);
 		when(meetingRepository.findDetailById(3L)).thenReturn(Optional.of(detail));
@@ -652,18 +732,18 @@ class MeetingServiceTest {
 		MeetingSchedule first = MeetingSchedule.create(
 			3L,
 			42L,
-			OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
-			OffsetDateTime.parse("2099-07-10T20:00:00+09:00"),
-			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"),
+			LocalDate.parse("2099-07-10"),
+			LocalTime.parse("19:00"),
+			LocalTime.parse("20:00"),
 			1
 		);
 		setField(first, "id", 31L);
 		MeetingSchedule second = MeetingSchedule.create(
 			3L,
 			42L,
-			OffsetDateTime.parse("2099-07-20T19:00:00+09:00"),
+			LocalDate.parse("2099-07-20"),
+			LocalTime.parse("19:00"),
 			null,
-			OffsetDateTime.parse("2099-07-20T23:59:59+09:00"),
 			2
 		);
 		second.cancel();
@@ -696,9 +776,9 @@ class MeetingServiceTest {
 		MeetingSchedule legacySchedule = MeetingSchedule.create(
 			3L,
 			42L,
-			OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
+			LocalDate.parse("2099-07-10"),
+			LocalTime.parse("19:00"),
 			null,
-			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"),
 			1
 		);
 		MeetingDetailProjection pinLocation = mock(MeetingDetailProjection.class);
@@ -721,9 +801,9 @@ class MeetingServiceTest {
 		MeetingSchedule legacySchedule = MeetingSchedule.create(
 			3L,
 			42L,
-			OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
+			LocalDate.parse("2099-07-10"),
+			LocalTime.parse("19:00"),
 			null,
-			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"),
 			1
 		);
 		MeetingDetailProjection pinLocation = mock(MeetingDetailProjection.class);
@@ -745,9 +825,9 @@ class MeetingServiceTest {
 		MeetingSchedule schedule = MeetingSchedule.create(
 			3L,
 			77L,
-			OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
+			LocalDate.parse("2099-07-10"),
+			LocalTime.parse("19:00"),
 			null,
-			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"),
 			1
 		);
 		setField(schedule, "id", 31L);
@@ -775,9 +855,9 @@ class MeetingServiceTest {
 		MeetingSchedule schedule = MeetingSchedule.create(
 			3L,
 			42L,
-			OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
+			LocalDate.parse("2099-07-10"),
+			LocalTime.parse("19:00"),
 			null,
-			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"),
 			1
 		);
 		setField(schedule, "id", 31L);
@@ -1050,8 +1130,9 @@ class MeetingServiceTest {
 			new ManageMeetingScheduleRequest(
 				"용산 와인바에서 봅시다",
 				"용산역 1번 출구",
-				OffsetDateTime.parse("2099-07-20T19:00:00+09:00"),
-				OffsetDateTime.parse("2099-07-20T21:00:00+09:00")
+				LocalDate.parse("2099-07-20"),
+				LocalTime.parse("19:00"),
+				LocalTime.parse("21:00")
 			)
 		);
 
@@ -1074,9 +1155,9 @@ class MeetingServiceTest {
 			42L,
 			"기존 일정",
 			"기존 장소",
-			OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
+			LocalDate.parse("2099-07-10"),
+			LocalTime.parse("19:00"),
 			null,
-			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"),
 			1
 		);
 		setField(schedule, "id", 31L);
@@ -1095,7 +1176,8 @@ class MeetingServiceTest {
 			new ManageMeetingScheduleRequest(
 				"수정 일정",
 				"수정 장소",
-				OffsetDateTime.parse("2099-07-11T19:00:00+09:00"),
+				LocalDate.parse("2099-07-11"),
+				LocalTime.parse("19:00"),
 				null
 			)
 		);
@@ -1109,12 +1191,11 @@ class MeetingServiceTest {
 	}
 
 	@Test
-	void addScheduleCreatesOneTimeScheduleAndUpdatesMeetingAtCache() {
+	void addManagedScheduleStoresTimeUndecidedScheduleAnchoredAtMidnight() {
 		Meeting meeting = meeting(3L, 42L, OffsetDateTime.parse("2026-07-01T19:00:00+09:00"), 7);
 		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
 		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L))
 			.thenReturn(Optional.of(MeetingParticipant.join(3L, 42L, OffsetDateTime.now())));
-		when(meetingScheduleRepository.existsActiveSchedule(eq(3L), any(OffsetDateTime.class))).thenReturn(false);
 		when(meetingScheduleRepository.findMaxSequenceNoByMeetingId(3L)).thenReturn(1);
 		when(meetingScheduleRepository.save(any(MeetingSchedule.class))).thenAnswer(invocation -> {
 			MeetingSchedule schedule = invocation.getArgument(0);
@@ -1122,158 +1203,172 @@ class MeetingServiceTest {
 			return schedule;
 		});
 
-		CreateMeetingScheduleResponse response = service.addSchedule(
+		CreateMeetingScheduleResponse response = service.addManagedSchedule(
 			principal(42L),
 			3L,
-			new CreateMeetingScheduleRequest(
-				OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
-				OffsetDateTime.parse("2099-07-10T20:00:00+09:00")
-			)
+			managedRequest(LocalDate.parse("2099-07-10"), null, null)
 		);
 
 		assertThat(response.scheduleId()).isEqualTo(32L);
-		assertThat(meeting.getMeetingAt()).isEqualTo(OffsetDateTime.parse("2099-07-10T19:00:00+09:00"));
 		ArgumentCaptor<MeetingSchedule> scheduleCaptor = ArgumentCaptor.forClass(MeetingSchedule.class);
 		verify(meetingScheduleRepository).save(scheduleCaptor.capture());
-		assertThat(scheduleCaptor.getValue().getSequenceNo()).isEqualTo(2);
-		assertThat(scheduleCaptor.getValue().getCreatedBy()).isEqualTo(42L);
-		assertThat(scheduleCaptor.getValue().getVisibleUntil()).isEqualTo(OffsetDateTime.parse("2099-07-10T23:59:59.999999999+09:00"));
+		MeetingSchedule saved = scheduleCaptor.getValue();
+		assertThat(saved.isTimeUndecided()).isTrue();
+		assertThat(saved.getStartTime()).isNull();
+		assertThat(saved.getStartsAt()).isEqualTo(OffsetDateTime.parse("2099-07-10T00:00:00+09:00"));
+		assertThat(saved.getVisibleUntil()).isEqualTo(OffsetDateTime.parse("2099-07-10T23:59:59.999999999+09:00"));
+		assertThat(saved.getSequenceNo()).isEqualTo(2);
 	}
 
 	@Test
-	void addScheduleAllowsJoinedParticipantAndStoresCreator() {
+	void addManagedScheduleAcceptsTodayWhenTimeIsUndecided() {
 		Meeting meeting = meeting(3L, 42L, OffsetDateTime.parse("2026-07-01T19:00:00+09:00"), 7);
 		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
-		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 99L))
-			.thenReturn(Optional.of(MeetingParticipant.join(3L, 99L, OffsetDateTime.now())));
-		when(meetingScheduleRepository.existsActiveSchedule(eq(3L), any(OffsetDateTime.class))).thenReturn(false);
-		when(meetingScheduleRepository.findMaxSequenceNoByMeetingId(3L)).thenReturn(1);
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L))
+			.thenReturn(Optional.of(MeetingParticipant.join(3L, 42L, OffsetDateTime.now())));
+		when(meetingScheduleRepository.findMaxSequenceNoByMeetingId(3L)).thenReturn(0);
 		when(meetingScheduleRepository.save(any(MeetingSchedule.class))).thenAnswer(invocation -> {
 			MeetingSchedule schedule = invocation.getArgument(0);
 			setField(schedule, "id", 32L);
 			return schedule;
 		});
 
-		CreateMeetingScheduleResponse response = service.addSchedule(
-			principal(99L),
-			3L,
-			new CreateMeetingScheduleRequest(OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), null)
-		);
+		// 시간 미정 일정은 당일 23:59까지 유효하므로 오늘 날짜도 등록할 수 있어야 한다.
+		LocalDate today = LocalDate.now(ZoneId.of("Asia/Seoul"));
 
-		assertThat(response.scheduleId()).isEqualTo(32L);
-		ArgumentCaptor<MeetingSchedule> scheduleCaptor = ArgumentCaptor.forClass(MeetingSchedule.class);
-		verify(meetingScheduleRepository).save(scheduleCaptor.capture());
-		assertThat(scheduleCaptor.getValue().getCreatedBy()).isEqualTo(99L);
+		assertThat(service.addManagedSchedule(principal(42L), 3L, managedRequest(today, null, null)).scheduleId())
+			.isEqualTo(32L);
 	}
 
 	@Test
-	void addScheduleRejectsScheduleEndingBeforeStartBeforeReadingMeeting() {
-		CreateMeetingScheduleRequest request = new CreateMeetingScheduleRequest(
-			OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
-			OffsetDateTime.parse("2099-07-10T18:59:59+09:00")
-		);
+	void addManagedScheduleRejectsTodayWhenTimeAlreadyPassed() {
+		LocalDate today = LocalDate.now(ZoneId.of("Asia/Seoul"));
 
-		assertThatThrownBy(() -> service.addSchedule(principal(42L), 3L, request))
+		assertThatThrownBy(() -> service.addManagedSchedule(
+			principal(42L),
+			3L,
+			managedRequest(today, LocalTime.MIDNIGHT, null)
+		))
 			.isInstanceOfSatisfying(InvalidMeetingRequestException.class, exception -> {
 				assertThat(exception.code()).isEqualTo("VALIDATION_FAILED");
-				assertThat(exception.field()).isEqualTo("endsAt");
-				assertThat(exception).hasMessage("endsAt must be after startsAt");
+				assertThat(exception.field()).isEqualTo("startTime");
+			});
+		verify(meetingRepository, never()).findActiveByIdForUpdate(any());
+	}
+
+	@Test
+	void addManagedScheduleRejectsPastDateWhenTimeIsUndecided() {
+		LocalDate yesterday = LocalDate.now(ZoneId.of("Asia/Seoul")).minusDays(1);
+
+		assertThatThrownBy(() -> service.addManagedSchedule(
+			principal(42L),
+			3L,
+			managedRequest(yesterday, null, null)
+		))
+			.isInstanceOfSatisfying(InvalidMeetingRequestException.class, exception -> {
+				assertThat(exception.field()).isEqualTo("date");
+				assertThat(exception).hasMessage("date must not be in the past");
+			});
+		verify(meetingRepository, never()).findActiveByIdForUpdate(any());
+	}
+
+	@Test
+	void addManagedScheduleRejectsEndTimeWithoutStartTimeBeforeReadingMeeting() {
+		assertThatThrownBy(() -> service.addManagedSchedule(
+			principal(42L),
+			3L,
+			managedRequest(LocalDate.parse("2099-07-10"), null, LocalTime.parse("21:00"))
+		))
+			.isInstanceOfSatisfying(InvalidMeetingRequestException.class, exception -> {
+				assertThat(exception.code()).isEqualTo("VALIDATION_FAILED");
+				assertThat(exception.field()).isEqualTo("endTime");
+				assertThat(exception).hasMessage("endTime requires startTime");
 			});
 		verify(meetingRepository, never()).findActiveByIdForUpdate(any());
 		verify(meetingScheduleRepository, never()).save(any(MeetingSchedule.class));
 	}
 
 	@Test
-	void addScheduleRejectsNonMember() {
+	void addManagedScheduleRejectsScheduleEndingBeforeStartBeforeReadingMeeting() {
+		assertThatThrownBy(() -> service.addManagedSchedule(
+			principal(42L),
+			3L,
+			managedRequest(LocalDate.parse("2099-07-10"), LocalTime.parse("19:00"), LocalTime.parse("18:59"))
+		))
+			.isInstanceOfSatisfying(InvalidMeetingRequestException.class, exception -> {
+				assertThat(exception.code()).isEqualTo("VALIDATION_FAILED");
+				assertThat(exception.field()).isEqualTo("endTime");
+				assertThat(exception).hasMessage("endTime must be after startTime");
+			});
+		verify(meetingRepository, never()).findActiveByIdForUpdate(any());
+		verify(meetingScheduleRepository, never()).save(any(MeetingSchedule.class));
+	}
+
+	@Test
+	void addManagedScheduleRejectsNonMember() {
 		Meeting meeting = meeting(3L, 42L, OffsetDateTime.parse("2026-07-01T19:00:00+09:00"), 7);
 		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
 		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 99L)).thenReturn(Optional.empty());
 
-		assertThatThrownBy(() -> service.addSchedule(
-			principal(99L),
-			3L,
-			new CreateMeetingScheduleRequest(OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), null)
-		))
+		assertThatThrownBy(() -> service.addManagedSchedule(principal(99L), 3L, futureManagedRequest()))
 			.isInstanceOf(NotMeetingMemberException.class);
 		verify(meetingScheduleRepository, never()).save(any(MeetingSchedule.class));
 	}
 
 	@Test
-	void addScheduleRejectsAdminWithoutJoinedMembership() {
+	void addManagedScheduleRejectsAdminWithoutJoinedMembership() {
 		Meeting meeting = meeting(3L, 42L, OffsetDateTime.parse("2026-07-01T19:00:00+09:00"), 7);
 		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
 		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 99L)).thenReturn(Optional.empty());
 
-		assertThatThrownBy(() -> service.addSchedule(
-			adminPrincipal(99L),
-			3L,
-			new CreateMeetingScheduleRequest(OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), null)
-		)).isInstanceOf(NotMeetingMemberException.class);
+		assertThatThrownBy(() -> service.addManagedSchedule(adminPrincipal(99L), 3L, futureManagedRequest()))
+			.isInstanceOf(NotMeetingMemberException.class);
 		verify(meetingScheduleRepository, never()).save(any(MeetingSchedule.class));
 	}
 
 	@Test
-	void addScheduleRejectsLeftMember() {
+	void addManagedScheduleRejectsLeftMember() {
 		Meeting meeting = meeting(3L, 42L, OffsetDateTime.parse("2026-07-01T19:00:00+09:00"), 7);
 		MeetingParticipant participant = MeetingParticipant.join(3L, 99L, OffsetDateTime.now());
 		participant.leave();
 		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
 		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 99L)).thenReturn(Optional.of(participant));
 
-		assertThatThrownBy(() -> service.addSchedule(
-			principal(99L),
-			3L,
-			new CreateMeetingScheduleRequest(OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), null)
-		)).isInstanceOf(NotMeetingMemberException.class);
+		assertThatThrownBy(() -> service.addManagedSchedule(principal(99L), 3L, futureManagedRequest()))
+			.isInstanceOf(NotMeetingMemberException.class);
 	}
 
 	@Test
-	void addScheduleRejectsKickedMember() {
+	void addManagedScheduleRejectsKickedMember() {
 		Meeting meeting = meeting(3L, 42L, OffsetDateTime.parse("2026-07-01T19:00:00+09:00"), 7);
 		MeetingParticipant participant = MeetingParticipant.join(3L, 99L, OffsetDateTime.now());
 		participant.kick();
 		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
 		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 99L)).thenReturn(Optional.of(participant));
 
-		assertThatThrownBy(() -> service.addSchedule(
-			principal(99L),
-			3L,
-			new CreateMeetingScheduleRequest(OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), null)
-		)).isInstanceOf(KickedMemberException.class);
+		assertThatThrownBy(() -> service.addManagedSchedule(principal(99L), 3L, futureManagedRequest()))
+			.isInstanceOf(KickedMemberException.class);
 	}
 
 	@Test
-	void addScheduleRejectsRecurringMeeting() {
+	void addManagedScheduleRejectsRecurringMeeting() {
 		Meeting meeting = meeting(3L, 42L, MeetingType.recurring, OffsetDateTime.parse("2026-07-01T19:00:00+09:00"), 7);
 		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
 		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L))
 			.thenReturn(Optional.of(MeetingParticipant.join(3L, 42L, OffsetDateTime.now())));
 
-		assertThatThrownBy(() -> service.addSchedule(
-			principal(42L),
-			3L,
-			new CreateMeetingScheduleRequest(OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), null)
-		))
+		assertThatThrownBy(() -> service.addManagedSchedule(principal(42L), 3L, futureManagedRequest()))
 			.isInstanceOf(InvalidMeetingRequestException.class)
 			.hasMessage("recurring schedule is managed by recurrenceRule");
 		verify(meetingScheduleRepository, never()).save(any(MeetingSchedule.class));
 	}
 
-	@Test
-	void addScheduleRejectsWhenActiveScheduleAlreadyExists() {
-		Meeting meeting = meeting(3L, 42L, OffsetDateTime.parse("2026-07-01T19:00:00+09:00"), 7);
-		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
-		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L))
-			.thenReturn(Optional.of(MeetingParticipant.join(3L, 42L, OffsetDateTime.now())));
-		when(meetingScheduleRepository.existsActiveSchedule(eq(3L), any(OffsetDateTime.class))).thenReturn(true);
+	private ManageMeetingScheduleRequest futureManagedRequest() {
+		return managedRequest(LocalDate.parse("2099-07-10"), LocalTime.parse("19:00"), null);
+	}
 
-		assertThatThrownBy(() -> service.addSchedule(
-			principal(42L),
-			3L,
-			new CreateMeetingScheduleRequest(OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), null)
-		))
-			.isInstanceOf(ScheduleAlreadyExistsException.class);
-		verify(meetingScheduleRepository, never()).save(any(MeetingSchedule.class));
+	private ManageMeetingScheduleRequest managedRequest(LocalDate date, LocalTime startTime, LocalTime endTime) {
+		return new ManageMeetingScheduleRequest("용산 와인바에서 봅시다", "용산역 1번 출구", date, startTime, endTime);
 	}
 
 	@Test
@@ -1282,9 +1377,9 @@ class MeetingServiceTest {
 		MeetingSchedule schedule = MeetingSchedule.create(
 			3L,
 			42L,
-			OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
+			LocalDate.parse("2099-07-10"),
+			LocalTime.parse("19:00"),
 			null,
-			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"),
 			1
 		);
 		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
@@ -1304,9 +1399,9 @@ class MeetingServiceTest {
 		MeetingSchedule schedule = MeetingSchedule.create(
 			3L,
 			null,
-			OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
+			LocalDate.parse("2099-07-10"),
+			LocalTime.parse("19:00"),
 			null,
-			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"),
 			1
 		);
 		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
@@ -1325,9 +1420,9 @@ class MeetingServiceTest {
 		MeetingSchedule schedule = MeetingSchedule.create(
 			3L,
 			42L,
-			OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
+			LocalDate.parse("2099-07-10"),
+			LocalTime.parse("19:00"),
 			null,
-			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"),
 			1
 		);
 		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
@@ -1346,8 +1441,12 @@ class MeetingServiceTest {
 	void cancelScheduleAllowsHostWithoutParticipantRow() {
 		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
 		MeetingSchedule schedule = MeetingSchedule.create(
-			3L, 42L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), null,
-			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"), 1
+			3L,
+			42L,
+			LocalDate.parse("2099-07-10"),
+			LocalTime.parse("19:00"),
+			null,
+			1
 		);
 		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
 		when(meetingScheduleRepository.findByIdAndMeetingIdAndDeletedAtIsNull(31L, 3L)).thenReturn(Optional.of(schedule));
@@ -1362,8 +1461,12 @@ class MeetingServiceTest {
 	void cancelScheduleAllowsAdminEvenWhenKicked() {
 		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
 		MeetingSchedule schedule = MeetingSchedule.create(
-			3L, 42L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), null,
-			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"), 1
+			3L,
+			42L,
+			LocalDate.parse("2099-07-10"),
+			LocalTime.parse("19:00"),
+			null,
+			1
 		);
 		MeetingParticipant adminParticipant = MeetingParticipant.join(3L, 99L, OffsetDateTime.now());
 		adminParticipant.kick();
@@ -1381,8 +1484,12 @@ class MeetingServiceTest {
 	void cancelScheduleAllowsAdminEvenWhenLeft() {
 		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
 		MeetingSchedule schedule = MeetingSchedule.create(
-			3L, 42L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), null,
-			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"), 1
+			3L,
+			42L,
+			LocalDate.parse("2099-07-10"),
+			LocalTime.parse("19:00"),
+			null,
+			1
 		);
 		MeetingParticipant adminParticipant = MeetingParticipant.join(3L, 99L, OffsetDateTime.now());
 		adminParticipant.leave();
@@ -1411,8 +1518,12 @@ class MeetingServiceTest {
 	void cancelScheduleRejectsJoinedNonCreator() {
 		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
 		MeetingSchedule schedule = MeetingSchedule.create(
-			3L, 77L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), null,
-			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"), 1
+			3L,
+			77L,
+			LocalDate.parse("2099-07-10"),
+			LocalTime.parse("19:00"),
+			null,
+			1
 		);
 		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
 		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L))
@@ -1427,8 +1538,12 @@ class MeetingServiceTest {
 	void cancelScheduleRejectsJoinedUserWhenCreatorWasPurged() {
 		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
 		MeetingSchedule schedule = MeetingSchedule.create(
-			3L, null, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), null,
-			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"), 1
+			3L,
+			null,
+			LocalDate.parse("2099-07-10"),
+			LocalTime.parse("19:00"),
+			null,
+			1
 		);
 		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
 		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L))
@@ -1443,8 +1558,12 @@ class MeetingServiceTest {
 	void cancelScheduleRejectsLeftCreator() {
 		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
 		MeetingSchedule schedule = MeetingSchedule.create(
-			3L, 42L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), null,
-			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"), 1
+			3L,
+			42L,
+			LocalDate.parse("2099-07-10"),
+			LocalTime.parse("19:00"),
+			null,
+			1
 		);
 		MeetingParticipant participant = MeetingParticipant.join(3L, 42L, OffsetDateTime.now());
 		participant.leave();
@@ -1460,8 +1579,12 @@ class MeetingServiceTest {
 	void cancelScheduleRejectsKickedCreator() {
 		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
 		MeetingSchedule schedule = MeetingSchedule.create(
-			3L, 42L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), null,
-			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"), 1
+			3L,
+			42L,
+			LocalDate.parse("2099-07-10"),
+			LocalTime.parse("19:00"),
+			null,
+			1
 		);
 		MeetingParticipant participant = MeetingParticipant.join(3L, 42L, OffsetDateTime.now());
 		participant.kick();
@@ -1489,9 +1612,9 @@ class MeetingServiceTest {
 		MeetingSchedule schedule = MeetingSchedule.create(
 			3L,
 			42L,
-			OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
+			LocalDate.parse("2099-07-10"),
+			LocalTime.parse("19:00"),
 			null,
-			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"),
 			1
 		);
 		schedule.cancel();
@@ -1697,24 +1820,30 @@ class MeetingServiceTest {
 		return request(
 			imageFileId,
 			MeetingType.one_time,
-			OffsetDateTime.parse("2026-07-10T19:00:00+09:00"),
+			OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
 			null
 		);
 	}
 
+	/**
+	 * recurring은 날짜를 recurrenceRule이 전담하므로 schedule에는 시각만 담는다.
+	 * one_time은 날짜·시각을 모두 담는다.
+	 */
 	private CreateMeetingRequest request(
 		UUID imageFileId,
 		MeetingType type,
 		OffsetDateTime startsAt,
 		CreateMeetingRecurrenceRuleRequest recurrenceRule
 	) {
+		ZonedDateTime kst = startsAt.atZoneSameInstant(ZoneId.of("Asia/Seoul"));
 		return new CreateMeetingRequest(
 			"저녁 모임",
 			"같이 밥 먹어요",
 			type,
 			new LocationSnapshot(37.5, 127.0, "서울특별시 강남구 테헤란로 123", "2번 출구 앞", "동선역 2번 출구"),
 			new CreateMeetingScheduleRequest(
-				startsAt,
+				type == MeetingType.recurring ? null : kst.toLocalDate(),
+				kst.toLocalTime(),
 				null
 			),
 			recurrenceRule,
@@ -1759,7 +1888,7 @@ class MeetingServiceTest {
 			List.of(2),
 			null,
 			startsOn,
-			LocalDate.parse("2026-07-21"),
+			startsOn.plusWeeks(2),
 			null,
 			"Asia/Seoul"
 		);
@@ -1988,6 +2117,21 @@ class MeetingServiceTest {
 				return "동선역 2번 출구";
 			}
 			@Override
+			public LocalDate getStartsOn() {
+				return LocalDate.parse("2099-07-10");
+			}
+
+			@Override
+			public LocalTime getStartTime() {
+				return LocalTime.parse("19:00");
+			}
+
+			@Override
+			public LocalTime getEndTime() {
+				return LocalTime.parse("20:00");
+			}
+
+			@Override
 			public Instant getStartsAt() {
 				return OffsetDateTime.parse("2099-07-10T19:00:00+09:00").toInstant();
 			}
@@ -2059,6 +2203,21 @@ class MeetingServiceTest {
 			@Override
 			public String getLabel() {
 				return "";
+			}
+
+			@Override
+			public LocalDate getStartsOn() {
+				return null;
+			}
+
+			@Override
+			public LocalTime getStartTime() {
+				return null;
+			}
+
+			@Override
+			public LocalTime getEndTime() {
+				return null;
 			}
 
 			@Override

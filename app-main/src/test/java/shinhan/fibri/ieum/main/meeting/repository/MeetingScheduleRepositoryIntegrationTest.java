@@ -54,16 +54,16 @@ class MeetingScheduleRepositoryIntegrationTest {
 		jdbcTemplate.update("TRUNCATE TABLE meeting_schedules RESTART IDENTITY");
 		jdbcTemplate.update("""
 			INSERT INTO meeting_schedules (
-				meeting_id, starts_at, ends_at, visible_until, status, sequence_no, created_at, updated_at, deleted_at
+				meeting_id, starts_on, start_time, starts_at, ends_at, visible_until, status, sequence_no, created_at, updated_at, deleted_at
 			)
 			VALUES
-				(1, '2026-07-09T10:00:00+09:00', NULL, '2026-07-09T23:59:59+09:00',
+				(1, '2026-07-09', '10:00', '2026-07-09T10:00:00+09:00', NULL, '2026-07-09T23:59:59+09:00',
 				 'scheduled'::meeting_schedule_status, 1, now(), now(), NULL),
-				(1, '2026-07-08T10:00:00+09:00', NULL, '2026-07-08T23:59:59+09:00',
+				(1, '2026-07-08', '10:00', '2026-07-08T10:00:00+09:00', NULL, '2026-07-08T23:59:59+09:00',
 				 'scheduled'::meeting_schedule_status, 2, now(), now(), NULL),
-				(1, '2026-07-07T10:00:00+09:00', NULL, '2026-07-07T23:59:59+09:00',
+				(1, '2026-07-07', '10:00', '2026-07-07T10:00:00+09:00', NULL, '2026-07-07T23:59:59+09:00',
 				 'scheduled'::meeting_schedule_status, 3, now(), now(), now()),
-				(1, '2026-07-06T10:00:00+09:00', NULL, '2026-07-06T23:59:59+09:00',
+				(1, '2026-07-06', '10:00', '2026-07-06T10:00:00+09:00', NULL, '2026-07-06T23:59:59+09:00',
 				 'cancelled'::meeting_schedule_status, 4, now(), now(), NULL)
 			""");
 	}
@@ -102,6 +102,9 @@ class MeetingScheduleRepositoryIntegrationTest {
 				schedule_id BIGSERIAL PRIMARY KEY,
 				meeting_id BIGINT NOT NULL,
 				created_by BIGINT,
+				starts_on DATE NOT NULL,
+				start_time TIME,
+				end_time TIME,
 				starts_at TIMESTAMPTZ NOT NULL,
 				ends_at TIMESTAMPTZ,
 				visible_until TIMESTAMPTZ NOT NULL,

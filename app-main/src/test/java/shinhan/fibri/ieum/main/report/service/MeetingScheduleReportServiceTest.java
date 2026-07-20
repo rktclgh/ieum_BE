@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 
 import java.lang.reflect.Field;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -111,9 +112,9 @@ class MeetingScheduleReportServiceTest {
 			createdBy,
 			"용산 와인바에서 봅시다",
 			"용산역 1번 출구",
-			OffsetDateTime.parse("2099-07-20T19:00:00+09:00"),
+			LocalDate.parse("2099-07-20"),
+			LocalTime.parse("19:00"),
 			null,
-			OffsetDateTime.parse("2099-07-20T23:59:59+09:00"),
 			1
 		);
 		setField(schedule, "id", id);

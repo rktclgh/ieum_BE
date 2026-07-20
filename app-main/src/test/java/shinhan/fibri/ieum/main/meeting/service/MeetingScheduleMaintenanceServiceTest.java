@@ -9,6 +9,8 @@ import static org.mockito.Mockito.when;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingRecurrenceRule;
@@ -165,13 +167,13 @@ class MeetingScheduleMaintenanceServiceTest {
 	}
 
 	private MeetingSchedule schedule(Long meetingId, String startsAt, int sequenceNo) {
-		OffsetDateTime start = OffsetDateTime.parse(startsAt);
+		ZonedDateTime start = OffsetDateTime.parse(startsAt).atZoneSameInstant(ZoneId.of("Asia/Seoul"));
 		return MeetingSchedule.create(
 			meetingId,
 			42L,
-			start,
-			start.plusHours(1),
-			start.withHour(23).withMinute(59).withSecond(59),
+			start.toLocalDate(),
+			start.toLocalTime(),
+			start.toLocalTime().plusHours(1),
 			sequenceNo
 		);
 	}

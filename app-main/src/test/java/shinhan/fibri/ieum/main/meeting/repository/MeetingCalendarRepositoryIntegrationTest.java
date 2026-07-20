@@ -218,10 +218,17 @@ class MeetingCalendarRepositoryIntegrationTest {
 	private long insertSchedule(long meetingId, long createdBy, OffsetDateTime startsAt) {
 		return jdbc.sql("""
 			INSERT INTO meeting_schedules (
-				meeting_id, created_by, starts_at, visible_until, status, sequence_no
+				meeting_id, created_by, starts_on, start_time, starts_at, visible_until, status, sequence_no
 			)
 			VALUES (
-				:meetingId, :createdBy, :startsAt, :visibleUntil, 'scheduled', 1
+				:meetingId,
+				:createdBy,
+				(CAST(:startsAt AS timestamptz) AT TIME ZONE 'Asia/Seoul')::date,
+				(CAST(:startsAt AS timestamptz) AT TIME ZONE 'Asia/Seoul')::time,
+				:startsAt,
+				:visibleUntil,
+				'scheduled',
+				1
 			)
 			RETURNING schedule_id
 			""")

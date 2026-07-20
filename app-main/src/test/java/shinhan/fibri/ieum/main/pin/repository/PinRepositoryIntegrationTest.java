@@ -334,6 +334,9 @@ class PinRepositoryIntegrationTest {
 			CREATE TABLE IF NOT EXISTS meeting_schedules (
 				schedule_id BIGSERIAL PRIMARY KEY,
 				meeting_id BIGINT NOT NULL,
+				starts_on DATE NOT NULL,
+				start_time TIME,
+				end_time TIME,
 				starts_at TIMESTAMPTZ NOT NULL,
 				visible_until TIMESTAMPTZ NOT NULL,
 				status meeting_schedule_status NOT NULL,
@@ -383,10 +386,19 @@ class PinRepositoryIntegrationTest {
 	private void insertSchedule(Long meetingId, String startsAt, String visibleUntil) {
 		jdbcTemplate.update(
 			"""
-				INSERT INTO meeting_schedules (meeting_id, starts_at, visible_until, status)
-				VALUES (?, ?::timestamptz, ?::timestamptz, 'scheduled'::meeting_schedule_status)
+				INSERT INTO meeting_schedules (meeting_id, starts_on, start_time, starts_at, visible_until, status)
+				VALUES (
+				    ?,
+				    (?::timestamptz AT TIME ZONE 'Asia/Seoul')::date,
+				    (?::timestamptz AT TIME ZONE 'Asia/Seoul')::time,
+				    ?::timestamptz,
+				    ?::timestamptz,
+				    'scheduled'::meeting_schedule_status
+				)
 				""",
 			meetingId,
+			startsAt,
+			startsAt,
 			startsAt,
 			visibleUntil
 		);
