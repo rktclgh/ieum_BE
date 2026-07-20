@@ -1,6 +1,5 @@
 package shinhan.fibri.ieum.main.friend.service;
 
-import java.time.OffsetDateTime;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -30,6 +29,7 @@ import shinhan.fibri.ieum.main.friend.exception.FriendRequestExistsException;
 import shinhan.fibri.ieum.main.friend.exception.FriendshipNotFoundException;
 import shinhan.fibri.ieum.main.friend.exception.SelfFriendActionException;
 import shinhan.fibri.ieum.main.friend.exception.SelfFriendRequestException;
+import shinhan.fibri.ieum.main.notification.presence.UserPresenceQuery;
 import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
 
 @Service
@@ -39,15 +39,15 @@ public class FriendService {
 	private final UserRepository userRepository;
 	private final FriendshipRepository friendshipRepository;
 	private final FriendRequestNotifier friendRequestNotifier;
+	private final UserPresenceQuery userPresenceQuery;
 	private final PlatformTransactionManager transactionManager;
 
 	@Transactional(readOnly = true)
 	public List<FriendResponse> listFriends(AuthenticatedUser principal) {
 		User currentUser = findActiveUser(principal.userId());
-		OffsetDateTime now = OffsetDateTime.now();
 		return friendshipRepository.findAcceptedByUserId(currentUser.getId()).stream()
 			.map(friendship -> friendship.otherUser(currentUser.getId()))
-			.map(user -> FriendResponse.from(user, now))
+			.map(user -> FriendResponse.from(user, userPresenceQuery.isOnline(user.getId())))
 			.toList();
 	}
 

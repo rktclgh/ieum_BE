@@ -8,9 +8,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.lang.reflect.Method;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
-import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -42,6 +42,7 @@ import shinhan.fibri.ieum.main.friend.exception.FriendRequestExistsException;
 import shinhan.fibri.ieum.main.friend.exception.FriendshipNotFoundException;
 import shinhan.fibri.ieum.main.friend.exception.SelfFriendActionException;
 import shinhan.fibri.ieum.main.friend.exception.SelfFriendRequestException;
+import shinhan.fibri.ieum.main.notification.presence.UserPresenceQuery;
 import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
 
 class FriendServiceTest {
@@ -49,6 +50,7 @@ class FriendServiceTest {
 	private final UserRepository userRepository = mock(UserRepository.class);
 	private final FriendshipRepository friendshipRepository = mock(FriendshipRepository.class);
 	private final FriendRequestNotifier friendRequestNotifier = mock(FriendRequestNotifier.class);
+	private final UserPresenceQuery userPresenceQuery = mock(UserPresenceQuery.class);
 	private final PlatformTransactionManager transactionManager = new PlatformTransactionManager() {
 		@Override
 		public TransactionStatus getTransaction(TransactionDefinition definition) {
@@ -67,6 +69,7 @@ class FriendServiceTest {
 		userRepository,
 		friendshipRepository,
 		friendRequestNotifier,
+		userPresenceQuery,
 		transactionManager
 	);
 
@@ -698,22 +701,29 @@ class FriendServiceTest {
 		User currentUser = user(42L, "current@example.com", "current");
 		User firstFriend = user(77L, "first@example.com", "first");
 		User secondFriend = user(88L, "second@example.com", "second");
-		OffsetDateTime activeAt = OffsetDateTime.now().plusMinutes(1);
-		setField(firstFriend, "lastActiveAt", activeAt);
+		OffsetDateTime staleActiveAt = OffsetDateTime.parse("2026-07-08T10:15:30+09:00");
+		setField(firstFriend, "lastActiveAt", null);
+		setField(secondFriend, "lastActiveAt", staleActiveAt);
 		Friendship first = acceptedFriendship(currentUser, firstFriend);
 		Friendship second = acceptedFriendship(secondFriend, currentUser);
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
 		when(friendshipRepository.findAcceptedByUserId(42L)).thenReturn(List.of(first, second));
+		when(userPresenceQuery.isOnline(77L)).thenReturn(true);
+		when(userPresenceQuery.isOnline(88L)).thenReturn(false);
 
 		List<FriendResponse> responses = service.listFriends(principal(42L));
 
 		assertThat(responses).hasSize(2);
 		assertThat(responses.get(0).userId()).isEqualTo(77L);
 		assertThat(responses.get(0).nickname()).isEqualTo("first");
-		assertThat(responses.get(0).lastActiveAt()).isEqualTo(activeAt);
+		assertThat(responses.get(0).lastActiveAt()).isNull();
 		assertThat(responses.get(0).active()).isTrue();
 		assertThat(responses.get(1).userId()).isEqualTo(88L);
 		assertThat(responses.get(1).nickname()).isEqualTo("second");
+		assertThat(responses.get(1).lastActiveAt()).isEqualTo(staleActiveAt);
+		assertThat(responses.get(1).active()).isFalse();
+		verify(userPresenceQuery).isOnline(77L);
+		verify(userPresenceQuery).isOnline(88L);
 	}
 
 	@Test

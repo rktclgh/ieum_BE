@@ -12,21 +12,21 @@ import shinhan.fibri.ieum.common.auth.domain.User;
 
 class FriendResponseTest {
 
-	private static final OffsetDateTime NOW = OffsetDateTime.parse("2026-07-08T12:00:00+09:00");
+	private static final OffsetDateTime LAST_ACTIVE_AT = OffsetDateTime.parse("2026-07-08T12:00:00+09:00");
 
 	@Test
 	void fromMapsUserFieldsAndProfileImageUrl() {
 		User user = user(77L, "friend");
 		user.linkProfileImage(UUID.fromString("11111111-1111-1111-1111-111111111111"));
-		ReflectionTestUtils.setField(user, "lastActiveAt", NOW.minusMinutes(4));
+		ReflectionTestUtils.setField(user, "lastActiveAt", LAST_ACTIVE_AT);
 
-		FriendResponse response = FriendResponse.from(user, NOW);
+		FriendResponse response = FriendResponse.from(user, true);
 
 		assertThat(response.userId()).isEqualTo(77L);
 		assertThat(response.nickname()).isEqualTo("friend");
 		assertThat(response.profileImageUrl()).isEqualTo("/api/v1/files/11111111-1111-1111-1111-111111111111");
 		assertThat(response.nationality()).isEqualTo("KR");
-		assertThat(response.lastActiveAt()).isEqualTo(NOW.minusMinutes(4));
+		assertThat(response.lastActiveAt()).isEqualTo(LAST_ACTIVE_AT);
 		assertThat(response.active()).isTrue();
 	}
 
@@ -35,7 +35,7 @@ class FriendResponseTest {
 		User user = user(77L, "friend");
 		ReflectionTestUtils.setField(user, "nationality", null);
 
-		FriendResponse response = FriendResponse.from(user, NOW);
+		FriendResponse response = FriendResponse.from(user, false);
 
 		assertThat(response.nationality()).isNull();
 	}
@@ -43,31 +43,32 @@ class FriendResponseTest {
 	@Test
 	void fromReturnsNullProfileImageUrlWhenProfileFileIdDoesNotExist() {
 		User user = user(77L, "friend");
-		ReflectionTestUtils.setField(user, "lastActiveAt", NOW.minusMinutes(1));
+		ReflectionTestUtils.setField(user, "lastActiveAt", LAST_ACTIVE_AT);
 
-		FriendResponse response = FriendResponse.from(user, NOW);
+		FriendResponse response = FriendResponse.from(user, false);
 
 		assertThat(response.profileImageUrl()).isNull();
 	}
 
 	@Test
-	void fromMarksInactiveWhenLastActiveAtIsNullOrOlderThanFiveMinutes() {
+	void fromUsesResolvedActiveFlagWhenLastActiveAtIsNullOrStale() {
 		User missingLastActiveAt = user(77L, "missing");
-		User olderThanFiveMinutes = user(78L, "old");
-		ReflectionTestUtils.setField(olderThanFiveMinutes, "lastActiveAt", NOW.minusMinutes(5).minusNanos(1));
+		User staleLastActiveAt = user(78L, "old");
+		ReflectionTestUtils.setField(staleLastActiveAt, "lastActiveAt", LAST_ACTIVE_AT);
 
-		assertThat(FriendResponse.from(missingLastActiveAt, NOW).active()).isFalse();
-		assertThat(FriendResponse.from(olderThanFiveMinutes, NOW).active()).isFalse();
+		assertThat(FriendResponse.from(missingLastActiveAt, true).active()).isTrue();
+		assertThat(FriendResponse.from(staleLastActiveAt, false).active()).isFalse();
 	}
 
 	@Test
-	void fromMarksActiveWhenLastActiveAtIsExactlyFiveMinutesAgo() {
+	void fromCanReturnInactiveEvenWhenLastActiveAtExists() {
 		User user = user(77L, "friend");
-		ReflectionTestUtils.setField(user, "lastActiveAt", NOW.minusMinutes(5));
+		ReflectionTestUtils.setField(user, "lastActiveAt", LAST_ACTIVE_AT);
 
-		FriendResponse response = FriendResponse.from(user, NOW);
+		FriendResponse response = FriendResponse.from(user, false);
 
-		assertThat(response.active()).isTrue();
+		assertThat(response.lastActiveAt()).isEqualTo(LAST_ACTIVE_AT);
+		assertThat(response.active()).isFalse();
 	}
 
 	private User user(Long id, String nickname) {
