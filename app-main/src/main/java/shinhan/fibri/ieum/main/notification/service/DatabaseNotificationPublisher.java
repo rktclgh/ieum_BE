@@ -9,6 +9,9 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import shinhan.fibri.ieum.main.notification.domain.Notification;
 import shinhan.fibri.ieum.main.notification.domain.NotificationType;
+import shinhan.fibri.ieum.main.notification.message.KoreanNotificationMessageFallback;
+import shinhan.fibri.ieum.main.notification.message.NotificationLanguageResolver;
+import shinhan.fibri.ieum.main.notification.message.NotificationMessage;
 import shinhan.fibri.ieum.main.notification.push.DurableNotificationPushPayload;
 import shinhan.fibri.ieum.main.notification.push.WebPushDispatchRequest;
 import shinhan.fibri.ieum.main.notification.push.WebPushDispatcher;
@@ -30,50 +33,67 @@ public class DatabaseNotificationPublisher implements NotificationPublisher {
 	private final SseConnectionRegistry registry;
 	private final WebPushDispatcher webPushDispatcher;
 	private final WebPushPayloadEncoder webPushPayloadEncoder;
+	private final KoreanNotificationMessageFallback koreanFallback;
+	private final NotificationLanguageResolver languageResolver;
 
 	public DatabaseNotificationPublisher(
 		NotificationRepository notificationRepository,
 		NotificationEventRepository notificationEventRepository,
 		SseConnectionRegistry registry,
 		WebPushDispatcher webPushDispatcher,
-		WebPushPayloadEncoder webPushPayloadEncoder
+		WebPushPayloadEncoder webPushPayloadEncoder,
+		KoreanNotificationMessageFallback koreanFallback,
+		NotificationLanguageResolver languageResolver
 	) {
 		this.notificationRepository = notificationRepository;
 		this.notificationEventRepository = notificationEventRepository;
 		this.registry = registry;
 		this.webPushDispatcher = webPushDispatcher;
 		this.webPushPayloadEncoder = webPushPayloadEncoder;
+		this.koreanFallback = koreanFallback;
+		this.languageResolver = languageResolver;
 	}
 
 	@Override
-	public void publishEphemeral(Long userId, NotificationType type, String title, String body, Long refId) {
+	public void publishEphemeral(Long userId, NotificationType type, NotificationMessage message, Long refId) {
 		if (registry.isOnline(userId)) {
 			registry.push(userId, OutboundEvent.ephemeral(NotificationSsePayload.ephemeral(
-				type, title, body, refId, OffsetDateTime.now()
+				type,
+				message,
+				koreanFallback.renderTitle(message),
+				koreanFallback.renderBody(message),
+				refId,
+				OffsetDateTime.now()
 			)));
 		}
 	}
 
 	@Override
-	public void publishDurable(Long userId, NotificationType type, String title, String body, Long refId) {
-		publishDurable(userId, type, title, body, refId, null);
+	public void publishDurable(Long userId, NotificationType type, NotificationMessage message, Long refId) {
+		publishDurable(userId, type, message, refId, null);
 	}
 
 	@Override
 	public void publishDurable(
 		Long userId,
 		NotificationType type,
-		String title,
-		String body,
+		NotificationMessage message,
 		Long refId,
 		Boolean answerIsAi
 	) {
-		Notification notification = notificationRepository.saveAndFlush(
-			Notification.of(userId, type, title, body, refId, answerIsAi)
-		);
+		Notification notification = notificationRepository.saveAndFlush(Notification.of(
+			userId,
+			type,
+			message,
+			koreanFallback.renderTitle(message),
+			koreanFallback.renderBody(message),
+			refId,
+			answerIsAi
+		));
 		OutboundEvent event = OutboundEvent.durable(NotificationSsePayload.durable(
 			notification.getId(),
 			notification.getType(),
+			message,
 			notification.getTitle(),
 			notification.getBody(),
 			notification.getRefId(),
@@ -87,15 +107,17 @@ public class DatabaseNotificationPublisher implements NotificationPublisher {
 	public boolean publishDurableOnce(
 		Long userId,
 		NotificationType type,
-		String title,
-		String body,
+		NotificationMessage message,
 		Long refId,
 		Boolean answerIsAi,
 		String eventKey
 	) {
+		String title = koreanFallback.renderTitle(message);
+		String body = koreanFallback.renderBody(message);
 		return notificationEventRepository.insertOnce(
 			userId,
 			type,
+			message,
 			title,
 			body,
 			refId,
@@ -105,6 +127,7 @@ public class DatabaseNotificationPublisher implements NotificationPublisher {
 			OutboundEvent event = OutboundEvent.durable(NotificationSsePayload.durable(
 				inserted.notificationId(),
 				type,
+				message,
 				title,
 				body,
 				refId,
@@ -147,7 +170,10 @@ public class DatabaseNotificationPublisher implements NotificationPublisher {
 		}
 
 		try {
-			byte[] encoded = webPushPayloadEncoder.encode(DurableNotificationPushPayload.from(payload));
+			// 푸시는 브라우저/OS가 렌더하므로 여기서만 수신자 언어를 조회한다. 커밋 이후 경로라
+			// 이 조회가 비즈니스 트랜잭션을 늘리지 않는다.
+			String lang = languageResolver.resolve(userId);
+			byte[] encoded = webPushPayloadEncoder.encode(DurableNotificationPushPayload.from(payload, lang));
 			webPushDispatcher.dispatch(userId, new WebPushDispatchRequest(
 				encoded,
 				DURABLE_PUSH_TTL_SECONDS,

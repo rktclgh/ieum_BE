@@ -4,6 +4,8 @@ import java.util.Objects;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import shinhan.fibri.ieum.main.notification.domain.NotificationType;
+import shinhan.fibri.ieum.main.notification.message.NotificationMessage;
+import shinhan.fibri.ieum.main.notification.message.NotificationMessageKey;
 import shinhan.fibri.ieum.main.notification.service.NotificationPublisher;
 
 @Service
@@ -49,8 +51,7 @@ public class AiQuestionAnswerCompletionService {
 			publisher.publishDurableOnce(
 				question.recipientUserId(),
 				NotificationType.question,
-				"새 답변",
-				"회원님의 질문에 답변이 달렸어요",
+				NotificationMessage.of(NotificationMessageKey.ANSWER_CREATED),
 				questionId,
 				true,
 				AI_ANSWER_EVENT_KEY_PREFIX + questionId

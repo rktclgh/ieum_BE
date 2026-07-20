@@ -29,6 +29,19 @@ test -n "$v32_begin_line" && test -n "$v32_add_column_line" && test -n "$v32_fk_
   && (( v32_begin_line < v32_add_column_line )) && (( v32_add_column_line < v32_fk_line )) && (( v32_fk_line < v32_commit_line )) \
   || fail "v32 reply migration must atomically wrap column and foreign-key DDL"
 
+v37_migration="$root/db/migrations/v37_notification_i18n.sql"
+test -s "$v37_migration" || fail "v37 notification i18n migration is missing"
+grep -Fq 'ALTER TABLE IF EXISTS public.notifications' "$v37_migration" \
+  || fail "v37 must tolerate deployments where notifications is not present"
+grep -Fq 'ADD COLUMN IF NOT EXISTS message_key' "$v37_migration" \
+  || fail "v37 must add notification message_key idempotently"
+grep -Fq 'ADD COLUMN IF NOT EXISTS message_params' "$v37_migration" \
+  || fail "v37 must add notification message_params idempotently"
+grep -Fq 'notifications.message_key schema verification failed' "$v37_migration" \
+  || fail "v37 must reject an incompatible notification message_key column"
+grep -Fq 'notifications.message_params schema verification failed' "$v37_migration" \
+  || fail "v37 must reject an incompatible notification message_params column"
+
 fake_bin="$work_dir/bin"
 capture_dir="$work_dir/capture"
 mkdir -p "$fake_bin" "$capture_dir"
@@ -210,10 +223,12 @@ v32_line="$(grep -n -m1 -F '\i db/migrations/v32_chat_message_reply.sql' "$stdin
 v33_line="$(grep -n -m1 -F '\i db/migrations/v33_question_ai_ungrounded_answer.sql' "$stdin_file" | cut -d: -f1 || true)"
 v34_line="$(grep -n -m1 -F '\i db/migrations/v34_question_ai_ungrounded_answer_validate.sql' "$stdin_file" | cut -d: -f1 || true)"
 v35_line="$(grep -n -m1 -F '\i db/migrations/v35_knowledge_relation_candidates.sql' "$stdin_file" | cut -d: -f1 || true)"
+v36_line="$(grep -n -m1 -F '\i db/migrations/v36_meeting_schedule_date_time.sql' "$stdin_file" | cut -d: -f1 || true)"
+v37_line="$(grep -n -m1 -F '\i db/migrations/v37_notification_i18n.sql' "$stdin_file" | cut -d: -f1 || true)"
 test -n "$v24_line" && test -n "$v25_line" && test -n "$v26_line" && test -n "$v27_line" && test -n "$v28_line" \
   && test -n "$v29_line" && test -n "$v30_line" && test -n "$v31_line" && test -n "$v32_line" \
-  && test -n "$v33_line" && test -n "$v34_line" && test -n "$v35_line" \
-	|| fail "all v24-v35 migrations must be applied"
+  && test -n "$v33_line" && test -n "$v34_line" && test -n "$v35_line" && test -n "$v36_line" && test -n "$v37_line" \
+	|| fail "all v24-v37 migrations must be applied"
 (( v24_line < v27_line )) || fail "v24 must run before v27"
 (( v25_line < v26_line )) || fail "v25 must run before v26"
 (( v26_line < v28_line )) || fail "v26 must run before v28"
@@ -224,6 +239,8 @@ test -n "$v24_line" && test -n "$v25_line" && test -n "$v26_line" && test -n "$v
 (( v32_line < v33_line )) || fail "v32 must run before v33"
 (( v33_line < v34_line )) || fail "v33 must run before v34"
 (( v34_line < v35_line )) || fail "v34 must run before v35"
+(( v35_line < v36_line )) || fail "v35 must run before v36"
+(( v36_line < v37_line )) || fail "v36 must run before v37"
 report_policy_guard_line="$(grep -n -m1 -F '\if :apply_report_policy_migrations' "$stdin_file" | cut -d: -f1 || true)"
 test -n "$report_policy_guard_line" && (( report_policy_guard_line < v24_line )) \
 	|| fail "report policy migrations must be guarded by table presence"
@@ -248,9 +265,12 @@ test -n "$message_reply_guard_line" && (( message_reply_guard_line < v32_line ))
 question_ai_ungrounded_guard_line="$(grep -n -m1 -F '\if :apply_question_ai_ungrounded_migration' "$stdin_file" | cut -d: -f1 || true)"
 test -n "$question_ai_ungrounded_guard_line" && (( question_ai_ungrounded_guard_line < v33_line )) \
   || fail "v33 must be guarded after its named grounding-status constraint exists"
+meeting_schedule_date_time_guard_line="$(grep -n -m1 -F '\if :apply_meeting_schedule_date_time_migration' "$stdin_file" | cut -d: -f1 || true)"
+test -n "$meeting_schedule_date_time_guard_line" && (( meeting_schedule_date_time_guard_line < v36_line )) \
+  || fail "v36 must be guarded by a missing starts_on column"
 
 for workflow in "$root/.github/workflows/deploy-app-main.yml" "$root/.github/workflows/deploy-app-ai.yml"; do
-  for migration in v28_chat_system_messages v29_meeting_schedule_details v30_report_schedule_target_enum v31_report_schedule_target v32_chat_message_reply v33_question_ai_ungrounded_answer v34_question_ai_ungrounded_answer_validate v35_knowledge_relation_candidates; do
+  for migration in v28_chat_system_messages v29_meeting_schedule_details v30_report_schedule_target_enum v31_report_schedule_target v32_chat_message_reply v33_question_ai_ungrounded_answer v34_question_ai_ungrounded_answer_validate v35_knowledge_relation_candidates v36_meeting_schedule_date_time v37_notification_i18n; do
     scp_line="$(grep -n -F "db/migrations/${migration}.sql" "$workflow" | grep -F 'scp ' | cut -d: -f1 || true)"
     chmod_line="$(grep -n -F "${migration}.sql" "$workflow" | grep -F 'chmod 600' | cut -d: -f1 || true)"
     test -n "$scp_line" || fail "workflow must copy ${migration}: $workflow"

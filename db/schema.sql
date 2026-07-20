@@ -1239,6 +1239,10 @@ CREATE TABLE notifications (
     type notification_type NOT NULL,
     title VARCHAR(200) NOT NULL,
     body TEXT,
+    -- Rendered copy above is the ko fallback for pre-key clients; the key and
+    -- its snapshot params below are what current clients translate (issue #193).
+    message_key VARCHAR(100),
+    message_params JSONB,
     ref_id BIGINT,
     answer_is_ai BOOLEAN,
     event_key VARCHAR(120),

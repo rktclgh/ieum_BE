@@ -6,9 +6,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import shinhan.fibri.ieum.main.notification.domain.NotificationType;
+import shinhan.fibri.ieum.main.notification.message.NotificationMessage;
+import shinhan.fibri.ieum.main.notification.message.NotificationMessageKey;
 import shinhan.fibri.ieum.main.notification.service.NotificationPublisher;
 import shinhan.fibri.ieum.main.friend.service.FriendService;
 
@@ -27,10 +30,13 @@ class RadiusNotificationListenerTest {
 		when(friendService.blockedUserIdsOf(1L)).thenReturn(Set.of());
 
 		listener.onQuestionCreated(event);
-
-		verify(publisher).publishDurableOnce(2L, NotificationType.question, "주변 새 질문", "새 질문", 10L, null, "radius:question:10");
-		verify(publisher).publishDurableOnce(3L, NotificationType.question, "주변 새 질문", "새 질문", 10L, null, "radius:question:10");
-		verify(publisher, never()).publishEphemeral(2L, NotificationType.question, "주변 새 질문", "새 질문", 10L);
+		NotificationMessage message = NotificationMessage.of(
+			NotificationMessageKey.RADIUS_QUESTION,
+			Map.of("subject", "새 질문")
+		);
+		verify(publisher).publishDurableOnce(2L, NotificationType.question, message, 10L, null, "radius:question:10");
+		verify(publisher).publishDurableOnce(3L, NotificationType.question, message, 10L, null, "radius:question:10");
+		verify(publisher, never()).publishEphemeral(2L, NotificationType.question, message, 10L);
 	}
 
 	@Test
@@ -46,8 +52,18 @@ class RadiusNotificationListenerTest {
 		when(audienceResolver.resolve(37.5665, 126.9780, NotificationCategory.meeting, 1L, Set.of())).thenReturn(List.of(2L));
 
 		listener.onMeetingCreated(event);
-
-		verify(publisher).publishDurableOnce(2L, NotificationType.meeting, "주변 새 모임", "새 모임", 20L, null, "radius:meeting:20");
-		verify(publisher, never()).publishEphemeral(2L, NotificationType.meeting, "주변 새 모임", "새 모임", 20L);
+		NotificationMessage message = NotificationMessage.of(
+			NotificationMessageKey.RADIUS_MEETING,
+			Map.of("subject", "새 모임")
+		);
+		verify(publisher).publishDurableOnce(
+			2L,
+			NotificationType.meeting,
+			message,
+			20L,
+			null,
+			"radius:meeting:20"
+		);
+		verify(publisher, never()).publishEphemeral(2L, NotificationType.meeting, message, 20L);
 	}
 }

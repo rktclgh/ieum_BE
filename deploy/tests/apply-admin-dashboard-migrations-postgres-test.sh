@@ -75,6 +75,8 @@ sql "
     image_file_id uuid,
     CHECK (content IS NOT NULL OR image_file_id IS NOT NULL)
   );
+  CREATE TABLE public.notifications (notification_id bigint PRIMARY KEY);
+  CREATE TABLE trap.notifications (notification_id bigint PRIMARY KEY);
   CREATE FUNCTION trap.hashtextextended(text, bigint) RETURNS bigint
     LANGUAGE sql AS 'SELECT 0::bigint';
   CREATE FUNCTION trap.pg_advisory_lock(bigint) RETURNS void
@@ -137,10 +139,34 @@ schema_state="$(sql "
         AND attname = 'message_type'
         AND attnum > 0
         AND NOT attisdropped
+    ),
+    EXISTS (
+      SELECT 1 FROM pg_attribute
+      WHERE attrelid = 'public.notifications'::regclass
+        AND attname = 'message_key'
+        AND atttypid = 'character varying'::regtype
+        AND atttypmod = 104
+        AND attnum > 0
+        AND NOT attisdropped
+    ),
+    EXISTS (
+      SELECT 1 FROM pg_attribute
+      WHERE attrelid = 'public.notifications'::regclass
+        AND attname = 'message_params'
+        AND atttypid = 'jsonb'::regtype
+        AND attnum > 0
+        AND NOT attisdropped
+    ),
+    NOT EXISTS (
+      SELECT 1 FROM pg_attribute
+      WHERE attrelid = 'trap.notifications'::regclass
+        AND attname IN ('message_key', 'message_params')
+        AND attnum > 0
+        AND NOT attisdropped
     )
   );
 ")"
-[[ "$schema_state" == "t:t:t:t:t:t:t:t:t" ]] \
+[[ "$schema_state" == "t:t:t:t:t:t:t:t:t:t:t:t" ]] \
   || fail "DDL escaped public under a hostile search_path: $schema_state"
 
 constraint_oid_before="$(sql "
@@ -149,6 +175,14 @@ constraint_oid_before="$(sql "
   WHERE conrelid = 'public.users'::regclass
     AND conname = 'ck_users_auth_version_nonnegative';
 ")"
+notification_column_contract_before="$(sql "
+  SELECT string_agg(concat(attname, ':', atttypid::regtype::text, ':', atttypmod), ',' ORDER BY attname)
+  FROM pg_attribute
+  WHERE attrelid = 'public.notifications'::regclass
+    AND attname IN ('message_key', 'message_params')
+    AND attnum > 0
+    AND NOT attisdropped;
+")"
 run_helper >/dev/null
 constraint_oid_after="$(sql "
   SELECT oid
@@ -156,8 +190,42 @@ constraint_oid_after="$(sql "
   WHERE conrelid = 'public.users'::regclass
     AND conname = 'ck_users_auth_version_nonnegative';
 ")"
+notification_column_contract_after="$(sql "
+  SELECT string_agg(concat(attname, ':', atttypid::regtype::text, ':', atttypmod), ',' ORDER BY attname)
+  FROM pg_attribute
+  WHERE attrelid = 'public.notifications'::regclass
+    AND attname IN ('message_key', 'message_params')
+    AND attnum > 0
+    AND NOT attisdropped;
+")"
 [[ -n "$constraint_oid_before" && "$constraint_oid_before" == "$constraint_oid_after" ]] \
   || fail "an exact v25 rerun replaced the users constraint"
+[[ "$notification_column_contract_before" == "message_key:character varying:104,message_params:jsonb:-1" \
+  && "$notification_column_contract_before" == "$notification_column_contract_after" ]] \
+  || fail "notification i18n migration was not idempotent"
+
+sql "
+  ALTER TABLE public.notifications DROP COLUMN message_key;
+  ALTER TABLE public.notifications ADD COLUMN message_key TEXT;
+" >/dev/null
+if run_helper >/dev/null 2>&1; then
+  fail "helper accepted an incompatible notification message_key column"
+fi
+sql "
+  ALTER TABLE public.notifications DROP COLUMN message_key;
+  ALTER TABLE public.notifications ADD COLUMN message_key VARCHAR(100);
+" >/dev/null
+sql "
+  ALTER TABLE public.notifications DROP COLUMN message_params;
+  ALTER TABLE public.notifications ADD COLUMN message_params TEXT;
+" >/dev/null
+if run_helper >/dev/null 2>&1; then
+  fail "helper accepted an incompatible notification message_params column"
+fi
+sql "
+  ALTER TABLE public.notifications DROP COLUMN message_params;
+  ALTER TABLE public.notifications ADD COLUMN message_params JSONB;
+" >/dev/null
 
 message_type_constraint_oids_before="$(sql "
   SELECT string_agg(oid::text, ':' ORDER BY conname)

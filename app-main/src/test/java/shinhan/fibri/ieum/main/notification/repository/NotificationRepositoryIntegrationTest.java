@@ -2,6 +2,7 @@ package shinhan.fibri.ieum.main.notification.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.OffsetDateTime;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,6 +21,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 import shinhan.fibri.ieum.main.notification.domain.Notification;
 import shinhan.fibri.ieum.main.notification.domain.NotificationType;
+import shinhan.fibri.ieum.main.notification.message.NotificationMessage;
+import shinhan.fibri.ieum.main.notification.message.NotificationMessageKey;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -96,6 +99,8 @@ class NotificationRepositoryIntegrationTest {
 				type notification_type NOT NULL,
 				title VARCHAR(200) NOT NULL,
 				body TEXT,
+				message_key VARCHAR(100),
+				message_params JSONB,
 				ref_id BIGINT,
 				answer_is_ai BOOLEAN,
 				event_key VARCHAR(120),
@@ -233,11 +238,12 @@ class NotificationRepositoryIntegrationTest {
 
 	@Test
 	void insertsOnlyOneNotificationForTheSameUserAndEventKey() {
-		NotificationEventRepository eventRepository = new NotificationEventRepository(jdbcTemplate);
+		NotificationEventRepository eventRepository = new NotificationEventRepository(jdbcTemplate, new ObjectMapper());
 
 		var first = eventRepository.insertOnce(
 			1L,
 			NotificationType.question,
+			NotificationMessage.of(NotificationMessageKey.ANSWER_CREATED),
 			"새 답변",
 			"회원님의 질문에 답변이 달렸어요",
 			50L,
@@ -247,6 +253,7 @@ class NotificationRepositoryIntegrationTest {
 		var duplicate = eventRepository.insertOnce(
 			1L,
 			NotificationType.question,
+			NotificationMessage.of(NotificationMessageKey.ANSWER_CREATED),
 			"새 답변",
 			"회원님의 질문에 답변이 달렸어요",
 			50L,
@@ -267,11 +274,12 @@ class NotificationRepositoryIntegrationTest {
 
 	@Test
 	void doesNotInsertAnotherAiAnswerNotificationForTheSameQuestionWithANewEventKey() {
-		NotificationEventRepository eventRepository = new NotificationEventRepository(jdbcTemplate);
+		NotificationEventRepository eventRepository = new NotificationEventRepository(jdbcTemplate, new ObjectMapper());
 
 		var legacy = eventRepository.insertOnce(
 			1L,
 			NotificationType.question,
+			NotificationMessage.of(NotificationMessageKey.ANSWER_CREATED),
 			"새 답변",
 			"회원님의 질문에 답변이 달렸어요",
 			50L,
@@ -281,6 +289,7 @@ class NotificationRepositoryIntegrationTest {
 		var replacement = eventRepository.insertOnce(
 			1L,
 			NotificationType.question,
+			NotificationMessage.of(NotificationMessageKey.ANSWER_CREATED),
 			"새 답변",
 			"회원님의 질문에 답변이 달렸어요",
 			50L,
@@ -298,11 +307,12 @@ class NotificationRepositoryIntegrationTest {
 
 	@Test
 	void permitsHumanAnswerNotificationWhenAnAiAnswerNotificationAlreadyExistsForTheQuestion() {
-		NotificationEventRepository eventRepository = new NotificationEventRepository(jdbcTemplate);
+		NotificationEventRepository eventRepository = new NotificationEventRepository(jdbcTemplate, new ObjectMapper());
 
 		var aiAnswer = eventRepository.insertOnce(
 			1L,
 			NotificationType.question,
+			NotificationMessage.of(NotificationMessageKey.ANSWER_CREATED),
 			"새 답변",
 			"회원님의 질문에 답변이 달렸어요",
 			50L,
@@ -312,6 +322,7 @@ class NotificationRepositoryIntegrationTest {
 		var humanAnswer = eventRepository.insertOnce(
 			1L,
 			NotificationType.question,
+			NotificationMessage.of(NotificationMessageKey.ANSWER_CREATED),
 			"새 답변",
 			"회원님의 질문에 답변이 달렸어요",
 			50L,

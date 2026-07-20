@@ -12,8 +12,11 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import shinhan.fibri.ieum.main.notification.domain.NotificationType;
+import shinhan.fibri.ieum.main.notification.message.NotificationMessage;
+import shinhan.fibri.ieum.main.notification.message.NotificationMessageKey;
 
 class SseEmitterStateTest {
 
@@ -160,6 +163,7 @@ class SseEmitterStateTest {
 		return OutboundEvent.durable(NotificationSsePayload.durable(
 			id,
 			NotificationType.question,
+			NotificationMessage.of(NotificationMessageKey.ANSWER_CREATED),
 			"durable-" + id,
 			null,
 			id,
@@ -170,6 +174,7 @@ class SseEmitterStateTest {
 	private static OutboundEvent ephemeral(String title) {
 		return OutboundEvent.ephemeral(NotificationSsePayload.ephemeral(
 			NotificationType.location,
+			NotificationMessage.of(NotificationMessageKey.RADIUS_QUESTION, Map.of("subject", title)),
 			title,
 			null,
 			1L,

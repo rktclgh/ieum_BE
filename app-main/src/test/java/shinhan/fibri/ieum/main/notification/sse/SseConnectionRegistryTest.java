@@ -12,6 +12,8 @@ import org.springframework.context.ApplicationEvent;
 import org.springframework.context.ApplicationEventPublisher;
 import org.junit.jupiter.api.Test;
 import shinhan.fibri.ieum.main.notification.domain.NotificationType;
+import shinhan.fibri.ieum.main.notification.message.NotificationMessage;
+import shinhan.fibri.ieum.main.notification.message.NotificationMessageKey;
 import shinhan.fibri.ieum.main.notification.presence.PresenceRegistry;
 import shinhan.fibri.ieum.main.notification.presence.UserPresenceChangedEvent;
 
@@ -304,6 +306,7 @@ class SseConnectionRegistryTest {
 		return OutboundEvent.durable(NotificationSsePayload.durable(
 			id,
 			NotificationType.question,
+			NotificationMessage.of(NotificationMessageKey.ANSWER_CREATED),
 			"새 답변",
 			null,
 			id,

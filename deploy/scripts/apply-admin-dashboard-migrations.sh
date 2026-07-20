@@ -1306,6 +1306,21 @@ SELECT NOT EXISTS (
 \endif
 \i db/migrations/v34_question_ai_ungrounded_answer_validate.sql
 \i db/migrations/v35_knowledge_relation_candidates.sql
+SELECT (
+  to_regclass('public.meeting_schedules') IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1
+    FROM pg_attribute
+    WHERE attrelid = to_regclass('public.meeting_schedules')
+      AND attname = 'starts_on'
+      AND attnum > 0
+      AND NOT attisdropped
+  )
+) AS apply_meeting_schedule_date_time_migration \gset
+\if :apply_meeting_schedule_date_time_migration
+\i db/migrations/v36_meeting_schedule_date_time.sql
+\endif
+\i db/migrations/v37_notification_i18n.sql
 
 DO $verify$
 BEGIN
