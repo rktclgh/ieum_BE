@@ -50,6 +50,11 @@ public class JdbcRadiusAudienceResolver implements RadiusAudienceResolver {
 			  AND ST_DWithin(
 				  u.last_location,
 				  ST_SetSRID(ST_MakePoint(:longitude, :latitude), 4326)::geography,
+				  10000.0
+			  )
+			  AND ST_DWithin(
+				  u.last_location,
+				  ST_SetSRID(ST_MakePoint(:longitude, :latitude), 4326)::geography,
 				  s.notify_radius_km * 1000.0
 			  )
 			ORDER BY u.user_id
