@@ -25,8 +25,18 @@ public class FriendPresenceChangedListener {
 			boolean online = registry.isOnline(event.userId());
 			OutboundEvent outboundEvent = OutboundEvent.presence(new PresenceSsePayload(event.userId(), online));
 			for (Long friendId : friendService.acceptedFriendIdsOf(event.userId())) {
-				if (registry.isOnline(friendId)) {
-					registry.push(friendId, outboundEvent);
+				try {
+					if (registry.isOnline(friendId)) {
+						registry.push(friendId, outboundEvent);
+					}
+				} catch (RuntimeException exception) {
+					log.warn(
+						"event=friend_presence_fanout_recipient_failed userId={} friendId={} online={} failureType={}",
+						event.userId(),
+						friendId,
+						online,
+						exception.getClass().getSimpleName()
+					);
 				}
 			}
 		} catch (RuntimeException exception) {

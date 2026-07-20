@@ -7,6 +7,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import shinhan.fibri.ieum.main.friend.service.FriendService;
@@ -49,13 +51,16 @@ class FriendPresenceChangedListenerTest {
 
 	@Test
 	void listenerFailureDoesNotEscapeLifecyclePublication() {
-		when(friendService.acceptedFriendIdsOf(42L)).thenReturn(Set.of(7L, 8L));
+		when(friendService.acceptedFriendIdsOf(42L)).thenReturn(new LinkedHashSet<>(List.of(7L, 8L)));
 		when(registry.isOnline(42L)).thenReturn(false);
 		when(registry.isOnline(7L)).thenReturn(true);
+		when(registry.isOnline(8L)).thenReturn(true);
 		doThrow(new IllegalStateException("sse unavailable"))
 			.when(registry).push(7L, OutboundEvent.presence(new PresenceSsePayload(42L, false)));
 
 		assertThatCode(() -> listener.onPresenceChanged(new UserPresenceChangedEvent(42L, false)))
 			.doesNotThrowAnyException();
+
+		verify(registry).push(8L, OutboundEvent.presence(new PresenceSsePayload(42L, false)));
 	}
 }
