@@ -27,22 +27,26 @@ public class JdbcKnowledgeGraphAdminRepository {
 			       rel.evidence_chunk_id, rel.created_at, ks.display_name, kc.content AS evidence_preview
 			FROM knowledge_relations rel
 			JOIN knowledge_sources ks ON ks.source_id = rel.source_id
-			JOIN questions q ON q.question_id = ks.question_id
-			JOIN pins p ON p.pin_id = q.pin_id
-			JOIN answers a ON a.answer_id = ks.answer_id AND a.question_id = q.question_id
+			LEFT JOIN questions q ON q.question_id = ks.question_id
+			LEFT JOIN pins p ON p.pin_id = q.pin_id
+			LEFT JOIN answers a ON a.answer_id = ks.answer_id AND a.question_id = q.question_id
 			LEFT JOIN knowledge_chunks kc
 			       ON kc.source_id = rel.source_id AND kc.chunk_id = rel.evidence_chunk_id
-			WHERE ks.source_type = 'accepted_human_answer'
-			  AND ks.status = 'ready'
+			WHERE ks.status = 'ready'
 			  AND ks.active
 			  AND (ks.valid_until IS NULL OR ks.valid_until > clock_timestamp())
-			  AND q.deleted_at IS NULL
-			  AND p.deleted_at IS NULL
-			  AND p.pin_type = 'question'
-			  AND a.is_accepted
-			  AND NOT a.is_ai
-			  AND a.author_id IS NOT NULL
-			  AND btrim(a.content) <> ''
+			  AND (
+			      ks.source_type <> 'accepted_human_answer'
+			      OR (
+			          q.deleted_at IS NULL
+			          AND p.deleted_at IS NULL
+			          AND p.pin_type = 'question'
+			          AND a.is_accepted
+			          AND NOT a.is_ai
+			          AND a.author_id IS NOT NULL
+			          AND btrim(a.content) <> ''
+			      )
+			  )
 			""");
 		if (query != null) {
 			sql.append("  AND (rel.subject LIKE :query ESCAPE '\\' OR rel.object LIKE :query ESCAPE '\\')\n");

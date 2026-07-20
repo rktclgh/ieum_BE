@@ -52,7 +52,7 @@
 
 ## KG 지식 탐색/시각화
 
-- `GET /api/v1/admin/ai/knowledge/graph`는 승인된 KG 관계를 그래프 뷰용으로 조회한다.
+- `GET /api/v1/admin/ai/knowledge/graph`는 현재 KG 관계를 그래프 뷰용으로 조회한다. 모든 source는 `ready`·활성·미만료여야 하며, `accepted_human_answer` source는 질문/핀/사람 채택 답변의 유효성도 충족해야 한다. 따라서 curated source 관계도 포함된다.
 - query parameter는 `query`, `focus`, `predicate`, `limit`이다. `limit` 기본값은 60, 최대값은 80이다.
 - 응답은 `{nodes, edges, truncated}`이며 node는 `{id, label, degree}`, edge는 relation id·source/target·predicate·confidence·근거 source/chunk 메타데이터를 포함한다.
 - 조회 결과가 `limit`을 초과하면 `truncated: true`를 반환하고, 화면에는 `limit`개 edge 기준의 nodes/edges만 노출한다.
