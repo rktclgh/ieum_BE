@@ -1,10 +1,12 @@
 package shinhan.fibri.ieum.main.meeting.repository;
 
+import jakarta.persistence.LockModeType;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingRecurrenceRule;
@@ -13,6 +15,7 @@ public interface MeetingRecurrenceRuleRepository extends JpaRepository<MeetingRe
 
 	Optional<MeetingRecurrenceRule> findByMeetingId(Long meetingId);
 
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("""
 		select rule
 		from MeetingRecurrenceRule rule, Meeting meeting
@@ -37,6 +40,7 @@ public interface MeetingRecurrenceRuleRepository extends JpaRepository<MeetingRe
 					and schedule.startsAt >= :now
 					and schedule.deletedAt is null
 			) < :minimumFutureCount
+		order by rule.id asc
 		""")
 	List<MeetingRecurrenceRule> findRulesNeedingExpansion(
 		@Param("now") OffsetDateTime now,

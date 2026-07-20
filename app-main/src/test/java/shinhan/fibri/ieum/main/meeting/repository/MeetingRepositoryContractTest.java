@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Lock;
 import shinhan.fibri.ieum.main.meeting.domain.Meeting;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingParticipant;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingParticipantId;
+import shinhan.fibri.ieum.main.meeting.domain.MeetingRecurrenceRule;
 import shinhan.fibri.ieum.main.meeting.domain.ParticipantStatus;
 
 class MeetingRepositoryContractTest {
@@ -62,5 +63,20 @@ class MeetingRepositoryContractTest {
 		assertThat(method.getReturnType().getTypeName()).isEqualTo("java.util.Optional");
 		assertThat(method.getGenericReturnType().getTypeName()).contains(MeetingParticipant.class.getSimpleName());
 		assertThat(method.getAnnotation(Lock.class).value()).isEqualTo(LockModeType.PESSIMISTIC_WRITE);
+	}
+
+	@Test
+	void recurrenceRuleRepositoryLocksExpansionCandidates() throws Exception {
+		Method method = MeetingRecurrenceRuleRepository.class.getMethod(
+			"findRulesNeedingExpansion",
+			java.time.OffsetDateTime.class,
+			java.time.LocalDate.class,
+			long.class
+		);
+
+		assertThat(method.getGenericReturnType().getTypeName()).contains(MeetingRecurrenceRule.class.getSimpleName());
+		Lock lock = method.getAnnotation(Lock.class);
+		assertThat(lock).isNotNull();
+		assertThat(lock.value()).isEqualTo(LockModeType.PESSIMISTIC_WRITE);
 	}
 }
