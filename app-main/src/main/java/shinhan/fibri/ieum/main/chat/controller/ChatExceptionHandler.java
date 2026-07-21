@@ -10,6 +10,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import shinhan.fibri.ieum.main.auth.dto.AuthErrorResponse;
 import shinhan.fibri.ieum.main.chat.exception.BlockedChatException;
+import shinhan.fibri.ieum.main.chat.exception.ChatNoticeNotFoundException;
+import shinhan.fibri.ieum.main.chat.exception.ChatNoticeSourceNotFoundException;
 import shinhan.fibri.ieum.main.chat.exception.ChatRoomNotFoundException;
 import shinhan.fibri.ieum.main.chat.exception.GroupLeaveViaMeetingException;
 import shinhan.fibri.ieum.main.chat.exception.NotFriendsException;
@@ -87,6 +89,18 @@ public class ChatExceptionHandler {
 	public ResponseEntity<AuthErrorResponse> handleChatRoomNotFound(ChatRoomNotFoundException exception) {
 		return ResponseEntity.status(HttpStatus.NOT_FOUND)
 			.body(new AuthErrorResponse("ROOM_NOT_FOUND", exception.getMessage()));
+	}
+
+	@ExceptionHandler(ChatNoticeNotFoundException.class)
+	public ResponseEntity<AuthErrorResponse> handleChatNoticeNotFound(ChatNoticeNotFoundException exception) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND)
+			.body(new AuthErrorResponse("NOTICE_NOT_FOUND", exception.getMessage()));
+	}
+
+	@ExceptionHandler(ChatNoticeSourceNotFoundException.class)
+	public ResponseEntity<AuthErrorResponse> handleChatNoticeSourceNotFound(ChatNoticeSourceNotFoundException exception) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND)
+			.body(new AuthErrorResponse("MESSAGE_NOT_FOUND", exception.getMessage()));
 	}
 
 	@ExceptionHandler(NotHostException.class)

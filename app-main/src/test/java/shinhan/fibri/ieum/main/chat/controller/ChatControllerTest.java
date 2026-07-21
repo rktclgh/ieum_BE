@@ -41,16 +41,22 @@ import shinhan.fibri.ieum.common.chat.domain.MessageType;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
 import shinhan.fibri.ieum.main.chat.dto.ChatCursorPage;
 import shinhan.fibri.ieum.main.chat.dto.ChatMessageResponse;
+import shinhan.fibri.ieum.main.chat.dto.ChatNoticePageResponse;
+import shinhan.fibri.ieum.main.chat.dto.ChatNoticeResponse;
 import shinhan.fibri.ieum.main.chat.dto.ChatRoomDetailResponse;
 import shinhan.fibri.ieum.main.chat.dto.ChatRoomMemberResponse;
 import shinhan.fibri.ieum.main.chat.dto.ChatRoomResponse;
 import shinhan.fibri.ieum.main.chat.dto.ChatRoomSummaryResponse;
 import shinhan.fibri.ieum.main.chat.exception.BlockedChatException;
+import shinhan.fibri.ieum.main.chat.exception.ChatNoticeNotFoundException;
+import shinhan.fibri.ieum.main.chat.exception.ChatNoticeSourceNotFoundException;
 import shinhan.fibri.ieum.main.chat.exception.ChatRoomNotFoundException;
 import shinhan.fibri.ieum.main.chat.exception.GroupLeaveViaMeetingException;
 import shinhan.fibri.ieum.main.chat.exception.NotFriendsException;
 import shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException;
 import shinhan.fibri.ieum.main.chat.exception.SelfChatRoomException;
+import shinhan.fibri.ieum.main.chat.service.ChatNoticeRegistrationResult;
+import shinhan.fibri.ieum.main.chat.service.ChatNoticeService;
 import shinhan.fibri.ieum.main.chat.service.ChatService;
 import shinhan.fibri.ieum.main.meeting.exception.NotHostException;
 import shinhan.fibri.ieum.main.question.exception.QuestionForbiddenException;
@@ -67,10 +73,14 @@ class ChatControllerTest {
 	@Autowired
 	private ChatService chatService;
 
+	@Autowired
+	private ChatNoticeService chatNoticeService;
+
 	@AfterEach
 	void clearSecurityContext() {
 		SecurityContextHolder.clearContext();
 		reset(chatService);
+		reset(chatNoticeService);
 	}
 
 	@Test
@@ -244,6 +254,93 @@ class ChatControllerTest {
 				.andExpect(jsonPath("$.items[0].senderProfileImageUrl", is("/api/v1/files/11111111-1111-1111-1111-111111111111")))
 			.andExpect(jsonPath("$.items[0].messageType", is("user")))
 			.andExpect(jsonPath("$.nextCursor", is("next")));
+	}
+
+	@Test
+	void registerNoticeReturnsCreatedForFirstRegistration() throws Exception {
+		ChatNoticeResponse notice = noticeResponse(901L, true);
+		when(chatNoticeService.registerNotice(any(AuthenticatedUser.class), eq(100L), eq(501L)))
+			.thenReturn(new ChatNoticeRegistrationResult(notice, true));
+
+		mockMvc.perform(post("/api/v1/chat/rooms/{roomId}/notices", 100L)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"messageId\":501}")
+				.with(authenticated()))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.noticeId", is(901)))
+			.andExpect(jsonPath("$.message.messageId", is(501)))
+			.andExpect(jsonPath("$.message.content", is("notice text")))
+			.andExpect(jsonPath("$.pinned", is(true)));
+
+		verify(chatNoticeService).registerNotice(any(AuthenticatedUser.class), eq(100L), eq(501L));
+	}
+
+	@Test
+	void registerNoticeReturnsOkForDuplicateCanonicalRegistration() throws Exception {
+		when(chatNoticeService.registerNotice(any(AuthenticatedUser.class), eq(100L), eq(501L)))
+			.thenReturn(new ChatNoticeRegistrationResult(noticeResponse(901L, false), false));
+
+		mockMvc.perform(post("/api/v1/chat/rooms/{roomId}/notices", 100L)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"messageId\":501}")
+				.with(authenticated()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.noticeId", is(901)));
+	}
+
+	@Test
+	void registerNoticeValidatesMessageId() throws Exception {
+		mockMvc.perform(post("/api/v1/chat/rooms/{roomId}/notices", 100L)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{}")
+				.with(authenticated()))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
+			.andExpect(jsonPath("$.fieldErrors[0].field", is("messageId")));
+	}
+
+	@Test
+	void listNoticesReturnsItemsAndPinnedNotice() throws Exception {
+		when(chatNoticeService.listNotices(any(AuthenticatedUser.class), eq(100L), eq("cursor"), eq(2)))
+			.thenReturn(new ChatNoticePageResponse(
+				List.of(noticeResponse(901L, false)),
+				"next",
+				noticeResponse(999L, true)
+			));
+
+		mockMvc.perform(get("/api/v1/chat/rooms/{roomId}/notices", 100L)
+				.param("cursor", "cursor")
+				.param("size", "2")
+				.with(authenticated()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.items[0].noticeId", is(901)))
+			.andExpect(jsonPath("$.items[0].pinned", is(false)))
+			.andExpect(jsonPath("$.nextCursor", is("next")))
+			.andExpect(jsonPath("$.pinnedNotice.noticeId", is(999)))
+			.andExpect(jsonPath("$.pinnedNotice.pinned", is(true)));
+	}
+
+	@Test
+	void pinNoticeReturnsPinnedNotice() throws Exception {
+		when(chatNoticeService.pinNotice(any(AuthenticatedUser.class), eq(100L), eq(901L)))
+			.thenReturn(noticeResponse(901L, true));
+
+		mockMvc.perform(put("/api/v1/chat/rooms/{roomId}/notices/{noticeId}/pin", 100L, 901L)
+				.with(authenticated()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.noticeId", is(901)))
+			.andExpect(jsonPath("$.pinned", is(true)));
+
+		verify(chatNoticeService).pinNotice(any(AuthenticatedUser.class), eq(100L), eq(901L));
+	}
+
+	@Test
+	void unpinNoticeReturnsNoContent() throws Exception {
+		mockMvc.perform(delete("/api/v1/chat/rooms/{roomId}/notices/{noticeId}/pin", 100L, 901L)
+				.with(authenticated()))
+			.andExpect(status().isNoContent());
+
+		verify(chatNoticeService).unpinNotice(any(AuthenticatedUser.class), eq(100L), eq(901L));
 	}
 
 	@Test
@@ -424,6 +521,40 @@ class ChatControllerTest {
 	}
 
 	@Test
+	void mapsNoticeSourceNotFoundToNotFound() throws Exception {
+		when(chatNoticeService.registerNotice(any(AuthenticatedUser.class), eq(100L), eq(501L)))
+			.thenThrow(new ChatNoticeSourceNotFoundException());
+
+		mockMvc.perform(post("/api/v1/chat/rooms/{roomId}/notices", 100L)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"messageId\":501}")
+				.with(authenticated()))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code", is("MESSAGE_NOT_FOUND")));
+	}
+
+	@Test
+	void mapsNoticeRoomNotFoundToNotFound() throws Exception {
+		when(chatNoticeService.listNotices(any(AuthenticatedUser.class), eq(100L), eq(null), eq(null)))
+			.thenThrow(new ChatRoomNotFoundException());
+
+		mockMvc.perform(get("/api/v1/chat/rooms/{roomId}/notices", 100L).with(authenticated()))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code", is("ROOM_NOT_FOUND")));
+	}
+
+	@Test
+	void mapsNoticeNotFoundToNotFound() throws Exception {
+		when(chatNoticeService.pinNotice(any(AuthenticatedUser.class), eq(100L), eq(901L)))
+			.thenThrow(new ChatNoticeNotFoundException());
+
+		mockMvc.perform(put("/api/v1/chat/rooms/{roomId}/notices/{noticeId}/pin", 100L, 901L)
+				.with(authenticated()))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code", is("NOTICE_NOT_FOUND")));
+	}
+
+	@Test
 	void mapsNotRoomMemberToForbidden() throws Exception {
 		when(chatService.getRoom(any(AuthenticatedUser.class), eq(100L)))
 			.thenThrow(new NotRoomMemberException());
@@ -457,6 +588,27 @@ class ChatControllerTest {
 		};
 	}
 
+	private ChatNoticeResponse noticeResponse(Long noticeId, boolean pinned) {
+		return new ChatNoticeResponse(
+			noticeId,
+			100L,
+			new ChatMessageResponse(
+				501L,
+				100L,
+				77L,
+				"sender",
+				null,
+				MessageType.user,
+				"notice text",
+				null,
+				OffsetDateTime.parse("2026-07-21T10:00:00+09:00")
+			),
+			42L,
+			OffsetDateTime.parse("2026-07-21T11:00:00+09:00"),
+			pinned
+		);
+	}
+
 	@TestConfiguration
 	static class TestConfig {
 
@@ -464,6 +616,12 @@ class ChatControllerTest {
 		@Primary
 		ChatService chatService() {
 			return mock(ChatService.class);
+		}
+
+		@Bean
+		@Primary
+		ChatNoticeService chatNoticeService() {
+			return mock(ChatNoticeService.class);
 		}
 
 		@Bean

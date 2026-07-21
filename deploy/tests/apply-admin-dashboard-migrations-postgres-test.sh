@@ -59,6 +59,8 @@ sql "
   CREATE SCHEMA trap;
   CREATE TABLE public.users (user_id bigint PRIMARY KEY);
   CREATE TABLE trap.users (user_id bigint PRIMARY KEY);
+  CREATE TABLE public.chat_rooms (room_id bigint PRIMARY KEY);
+  CREATE TABLE trap.chat_rooms (room_id bigint PRIMARY KEY);
   CREATE TABLE public.messages (
     message_id bigint PRIMARY KEY,
     room_id bigint NOT NULL,
@@ -157,6 +159,43 @@ schema_state="$(sql "
         AND attnum > 0
         AND NOT attisdropped
     ),
+    to_regclass('public.chat_notices') IS NOT NULL,
+    to_regclass('trap.chat_notices') IS NULL,
+    EXISTS (
+      SELECT 1 FROM pg_attribute
+      WHERE attrelid = 'public.chat_rooms'::regclass
+        AND attname = 'pinned_notice_id'
+        AND atttypid = 'bigint'::regtype
+        AND NOT attnotnull
+        AND attnum > 0
+        AND NOT attisdropped
+    ),
+    NOT EXISTS (
+      SELECT 1 FROM pg_attribute
+      WHERE attrelid = 'trap.chat_rooms'::regclass
+        AND attname = 'pinned_notice_id'
+        AND attnum > 0
+        AND NOT attisdropped
+    ),
+    EXISTS (
+      SELECT 1
+      FROM pg_index index_row
+      JOIN pg_class index_class ON index_class.oid = index_row.indexrelid
+      WHERE index_row.indrelid = 'public.chat_notices'::regclass
+        AND index_class.relname = 'uidx_chat_notices_room_message'
+        AND index_row.indisunique
+        AND index_row.indkey::text = '2 3'
+    ),
+    EXISTS (
+      SELECT 1
+      FROM pg_index index_row
+      JOIN pg_class index_class ON index_class.oid = index_row.indexrelid
+      WHERE index_row.indrelid = 'public.chat_notices'::regclass
+        AND index_class.relname = 'idx_chat_notices_room_created'
+        AND NOT index_row.indisunique
+        AND index_row.indkey::text = '2 5 1'
+        AND index_row.indoption::text = '0 3 3'
+    ),
     NOT EXISTS (
       SELECT 1 FROM pg_attribute
       WHERE attrelid = 'trap.notifications'::regclass
@@ -166,7 +205,7 @@ schema_state="$(sql "
     )
   );
 ")"
-[[ "$schema_state" == "t:t:t:t:t:t:t:t:t:t:t:t" ]] \
+[[ "$schema_state" == "t:t:t:t:t:t:t:t:t:t:t:t:t:t:t:t:t:t" ]] \
   || fail "DDL escaped public under a hostile search_path: $schema_state"
 
 constraint_oid_before="$(sql "
@@ -225,6 +264,89 @@ fi
 sql "
   ALTER TABLE public.notifications DROP COLUMN message_params;
   ALTER TABLE public.notifications ADD COLUMN message_params JSONB;
+" >/dev/null
+
+chat_notice_constraint_oids_before="$(sql "
+  SELECT string_agg(oid::text, ':' ORDER BY conname)
+  FROM pg_constraint
+  WHERE conname IN (
+    'chat_notices_pkey',
+    'fk_chat_notices_room',
+    'fk_chat_notices_message',
+    'fk_chat_notices_created_by',
+    'fk_chat_rooms_pinned_notice'
+  );
+")"
+run_helper >/dev/null
+chat_notice_constraint_oids_after="$(sql "
+  SELECT string_agg(oid::text, ':' ORDER BY conname)
+  FROM pg_constraint
+  WHERE conname IN (
+    'chat_notices_pkey',
+    'fk_chat_notices_room',
+    'fk_chat_notices_message',
+    'fk_chat_notices_created_by',
+    'fk_chat_rooms_pinned_notice'
+  );
+")"
+[[ "$chat_notice_constraint_oids_before" =~ ^[0-9]+:[0-9]+:[0-9]+:[0-9]+:[0-9]+$ \
+  && "$chat_notice_constraint_oids_before" == "$chat_notice_constraint_oids_after" ]] \
+  || fail "an exact v38 rerun replaced chat notice constraints"
+
+sql "ALTER TABLE public.chat_notices ALTER COLUMN created_by SET NOT NULL;" >/dev/null
+if run_helper >/dev/null 2>&1; then
+  fail "helper accepted an incompatible chat_notices.created_by column"
+fi
+sql "ALTER TABLE public.chat_notices ALTER COLUMN created_by DROP NOT NULL;" >/dev/null
+
+sql "
+  ALTER TABLE public.chat_notices DROP CONSTRAINT fk_chat_notices_room;
+  ALTER TABLE public.chat_notices
+    ADD CONSTRAINT fk_chat_notices_room
+    FOREIGN KEY (room_id) REFERENCES public.chat_rooms(room_id)
+    ON DELETE SET NULL;
+" >/dev/null
+if run_helper >/dev/null 2>&1; then
+  fail "helper accepted an incompatible chat_notices.room_id foreign key"
+fi
+sql "
+  ALTER TABLE public.chat_notices DROP CONSTRAINT fk_chat_notices_room;
+  ALTER TABLE public.chat_notices
+    ADD CONSTRAINT fk_chat_notices_room
+    FOREIGN KEY (room_id) REFERENCES public.chat_rooms(room_id)
+    ON DELETE CASCADE;
+" >/dev/null
+
+sql "
+  ALTER TABLE public.chat_rooms DROP CONSTRAINT fk_chat_rooms_pinned_notice;
+  ALTER TABLE public.chat_rooms
+    ADD CONSTRAINT fk_chat_rooms_pinned_notice
+    FOREIGN KEY (pinned_notice_id) REFERENCES public.chat_notices(notice_id)
+    ON DELETE CASCADE;
+" >/dev/null
+if run_helper >/dev/null 2>&1; then
+  fail "helper accepted an incompatible chat_rooms.pinned_notice_id foreign key"
+fi
+sql "
+  ALTER TABLE public.chat_rooms DROP CONSTRAINT fk_chat_rooms_pinned_notice;
+  ALTER TABLE public.chat_rooms
+    ADD CONSTRAINT fk_chat_rooms_pinned_notice
+    FOREIGN KEY (pinned_notice_id) REFERENCES public.chat_notices(notice_id)
+    ON DELETE SET NULL;
+" >/dev/null
+
+sql "
+  DROP INDEX public.idx_chat_notices_room_created;
+  CREATE INDEX idx_chat_notices_room_created
+    ON public.chat_notices(room_id, notice_id DESC, created_at DESC);
+" >/dev/null
+if run_helper >/dev/null 2>&1; then
+  fail "helper accepted an incompatible chat notice room-created index"
+fi
+sql "
+  DROP INDEX public.idx_chat_notices_room_created;
+  CREATE INDEX idx_chat_notices_room_created
+    ON public.chat_notices(room_id, created_at DESC, notice_id DESC);
 " >/dev/null
 
 message_type_constraint_oids_before="$(sql "

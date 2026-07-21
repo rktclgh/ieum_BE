@@ -1076,6 +1076,337 @@ BEGIN
 END
 $function$;
 
+CREATE OR REPLACE FUNCTION pg_temp.chat_notice_contract_state()
+RETURNS text
+LANGUAGE plpgsql
+AS $function$
+DECLARE
+  table_oid oid;
+  sequence_exact boolean;
+  columns_exact boolean;
+  chat_notice_constraints_exact boolean;
+  pinned_notice_constraint_exact boolean;
+  indexes_exact boolean;
+BEGIN
+  SELECT table_class.oid
+  INTO table_oid
+  FROM pg_class table_class
+  JOIN pg_namespace table_namespace ON table_namespace.oid = table_class.relnamespace
+  WHERE table_namespace.nspname = 'public'
+    AND table_class.relname = 'chat_notices';
+
+  IF table_oid IS NULL THEN
+    IF to_regclass('public.chat_rooms') IS NULL
+      OR to_regclass('public.messages') IS NULL
+      OR to_regclass('public.users') IS NULL THEN
+      RETURN 'mismatch';
+    END IF;
+
+    IF EXISTS (
+      SELECT 1
+      FROM pg_attribute
+      WHERE attrelid = 'public.chat_rooms'::regclass
+        AND attname = 'pinned_notice_id'
+        AND attnum > 0
+        AND NOT attisdropped
+    ) OR EXISTS (
+      SELECT 1
+      FROM pg_constraint
+      WHERE conrelid = 'public.chat_rooms'::regclass
+        AND conname = 'fk_chat_rooms_pinned_notice'
+    ) OR to_regclass('public.uidx_chat_notices_room_message') IS NOT NULL
+      OR to_regclass('public.idx_chat_notices_room_created') IS NOT NULL THEN
+      RETURN 'mismatch';
+    END IF;
+
+    RETURN 'absent';
+  END IF;
+
+  IF to_regclass('public.chat_rooms') IS NULL
+    OR to_regclass('public.messages') IS NULL
+    OR to_regclass('public.users') IS NULL THEN
+    RETURN 'mismatch';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_class table_class
+    WHERE table_class.oid = table_oid
+      AND table_class.relkind = 'r'
+      AND table_class.relpersistence = 'p'
+      AND NOT table_class.relispartition
+  ) THEN
+    RETURN 'mismatch';
+  END IF;
+
+  WITH expected_columns(attnum, attname, type_name, attnotnull, default_expression) AS (
+    VALUES
+      (1::smallint, 'notice_id'::name, 'bigint'::text, true,
+        'nextval(''chat_notices_notice_id_seq''::regclass)'::text),
+      (2::smallint, 'room_id'::name, 'bigint'::text, true, NULL::text),
+      (3::smallint, 'message_id'::name, 'bigint'::text, true, NULL::text),
+      (4::smallint, 'created_by'::name, 'bigint'::text, false, NULL::text),
+      (5::smallint, 'created_at'::name, 'timestamp with time zone'::text, true, 'now()'::text)
+  )
+  SELECT
+    (
+      SELECT count(*) = 5
+      FROM pg_attribute
+      WHERE attrelid = table_oid
+        AND attnum > 0
+        AND NOT attisdropped
+    )
+    AND count(*) = 5
+    AND bool_and(
+      attribute.attnum = expected.attnum
+      AND attribute.attname = expected.attname
+      AND format_type(attribute.atttypid, attribute.atttypmod) = expected.type_name
+      AND attribute.attnotnull = expected.attnotnull
+      AND attribute.attgenerated = ''
+      AND attribute.attidentity = ''
+      AND attribute.atthasdef = (expected.default_expression IS NOT NULL)
+      AND (
+        (expected.default_expression IS NULL AND default_value.oid IS NULL)
+        OR (
+          expected.default_expression IS NOT NULL
+          AND default_value.oid IS NOT NULL
+          AND regexp_replace(
+            pg_get_expr(default_value.adbin, default_value.adrelid),
+            '[[:space:]]',
+            '',
+            'g'
+          ) = regexp_replace(expected.default_expression, '[[:space:]]', '', 'g')
+        )
+      )
+    )
+  INTO columns_exact
+  FROM expected_columns expected
+  JOIN pg_attribute attribute
+    ON attribute.attrelid = table_oid
+   AND attribute.attnum = expected.attnum
+   AND attribute.attname = expected.attname
+   AND NOT attribute.attisdropped
+  LEFT JOIN pg_attrdef default_value
+    ON default_value.adrelid = attribute.attrelid
+   AND default_value.adnum = attribute.attnum;
+
+  SELECT
+    to_regclass(pg_get_serial_sequence('public.chat_notices', 'notice_id'))
+      = to_regclass('public.chat_notices_notice_id_seq')
+    AND count(*) = 1
+    AND bool_and(
+      sequence_class.relkind = 'S'
+      AND sequence_class.relpersistence = 'p'
+      AND sequence_row.seqtypid = 'bigint'::regtype
+      AND sequence_row.seqstart = 1
+      AND sequence_row.seqincrement = 1
+      AND sequence_row.seqmax = 9223372036854775807
+      AND sequence_row.seqmin = 1
+      AND sequence_row.seqcache = 1
+      AND NOT sequence_row.seqcycle
+      AND dependency.classid = 'pg_class'::regclass
+      AND dependency.objsubid = 0
+      AND dependency.refclassid = 'pg_class'::regclass
+      AND dependency.refobjid = table_oid
+      AND dependency.refobjsubid = 1
+      AND dependency.deptype = 'a'
+    )
+  INTO sequence_exact
+  FROM pg_class sequence_class
+  JOIN pg_namespace sequence_namespace ON sequence_namespace.oid = sequence_class.relnamespace
+  JOIN pg_sequence sequence_row ON sequence_row.seqrelid = sequence_class.oid
+  JOIN pg_depend dependency
+    ON dependency.objid = sequence_class.oid
+   AND dependency.classid = 'pg_class'::regclass
+   AND dependency.objsubid = 0
+   AND dependency.refclassid = 'pg_class'::regclass
+   AND dependency.deptype = 'a'
+  WHERE sequence_namespace.nspname = 'public'
+    AND sequence_class.relname = 'chat_notices_notice_id_seq';
+
+  SELECT count(*) = 4
+    AND count(*) FILTER (
+      WHERE conname = 'chat_notices_pkey'
+        AND contype = 'p'
+        AND constraint_row.convalidated
+        AND NOT constraint_row.condeferrable
+        AND NOT constraint_row.condeferred
+        AND constraint_row.conkey = ARRAY[1]::smallint[]
+    ) = 1
+    AND count(*) FILTER (
+      WHERE conname = 'fk_chat_notices_room'
+        AND contype = 'f'
+        AND constraint_row.convalidated
+        AND constraint_row.conkey = ARRAY[2]::smallint[]
+        AND constraint_row.confrelid = 'public.chat_rooms'::regclass
+        AND constraint_row.confkey = ARRAY[
+          (
+            SELECT attnum
+            FROM pg_attribute
+            WHERE attrelid = 'public.chat_rooms'::regclass
+              AND attname = 'room_id'
+              AND attnum > 0
+              AND NOT attisdropped
+          )
+        ]::smallint[]
+        AND constraint_row.confmatchtype = 's'
+        AND constraint_row.confupdtype = 'a'
+        AND constraint_row.confdeltype = 'c'
+        AND NOT constraint_row.condeferrable
+        AND NOT constraint_row.condeferred
+    ) = 1
+    AND count(*) FILTER (
+      WHERE conname = 'fk_chat_notices_message'
+        AND contype = 'f'
+        AND constraint_row.convalidated
+        AND constraint_row.conkey = ARRAY[3]::smallint[]
+        AND constraint_row.confrelid = 'public.messages'::regclass
+        AND constraint_row.confkey = ARRAY[
+          (
+            SELECT attnum
+            FROM pg_attribute
+            WHERE attrelid = 'public.messages'::regclass
+              AND attname = 'message_id'
+              AND attnum > 0
+              AND NOT attisdropped
+          )
+        ]::smallint[]
+        AND constraint_row.confmatchtype = 's'
+        AND constraint_row.confupdtype = 'a'
+        AND constraint_row.confdeltype = 'c'
+        AND NOT constraint_row.condeferrable
+        AND NOT constraint_row.condeferred
+    ) = 1
+    AND count(*) FILTER (
+      WHERE conname = 'fk_chat_notices_created_by'
+        AND contype = 'f'
+        AND constraint_row.convalidated
+        AND constraint_row.conkey = ARRAY[4]::smallint[]
+        AND constraint_row.confrelid = 'public.users'::regclass
+        AND constraint_row.confkey = ARRAY[
+          (
+            SELECT attnum
+            FROM pg_attribute
+            WHERE attrelid = 'public.users'::regclass
+              AND attname = 'user_id'
+              AND attnum > 0
+              AND NOT attisdropped
+          )
+        ]::smallint[]
+        AND constraint_row.confmatchtype = 's'
+        AND constraint_row.confupdtype = 'a'
+        AND constraint_row.confdeltype = 'n'
+        AND NOT constraint_row.condeferrable
+        AND NOT constraint_row.condeferred
+    ) = 1
+  INTO chat_notice_constraints_exact
+  FROM pg_constraint constraint_row
+  WHERE constraint_row.conrelid = table_oid
+    AND constraint_row.contype <> 'n';
+
+  SELECT count(*) = 1
+    AND bool_and(
+      attribute.atttypid = 'bigint'::regtype
+      AND attribute.atttypmod = -1
+      AND NOT attribute.attnotnull
+      AND attribute.attgenerated = ''
+      AND attribute.attidentity = ''
+      AND NOT attribute.atthasdef
+      AND constraint_row.contype = 'f'
+      AND constraint_row.convalidated
+      AND constraint_row.conkey = ARRAY[attribute.attnum]
+      AND constraint_row.confrelid = table_oid
+      AND constraint_row.confkey = ARRAY[1]::smallint[]
+      AND constraint_row.confmatchtype = 's'
+      AND constraint_row.confupdtype = 'a'
+      AND constraint_row.confdeltype = 'n'
+      AND NOT constraint_row.condeferrable
+      AND NOT constraint_row.condeferred
+    )
+  INTO pinned_notice_constraint_exact
+  FROM pg_attribute attribute
+  JOIN pg_constraint constraint_row
+    ON constraint_row.conrelid = attribute.attrelid
+   AND constraint_row.conname = 'fk_chat_rooms_pinned_notice'
+  WHERE attribute.attrelid = 'public.chat_rooms'::regclass
+    AND attribute.attname = 'pinned_notice_id'
+    AND attribute.attnum > 0
+    AND NOT attribute.attisdropped;
+
+  SELECT count(*) = 3
+    AND count(*) FILTER (
+      WHERE index_class.relname = 'chat_notices_pkey'
+        AND index_method.amname = 'btree'
+        AND index_class.relkind = 'i'
+        AND index_class.relpersistence = 'p'
+        AND index_row.indisvalid
+        AND index_row.indisready
+        AND index_row.indislive
+        AND index_row.indisunique
+        AND index_row.indisprimary
+        AND NOT index_row.indisexclusion
+        AND index_row.indpred IS NULL
+        AND index_row.indexprs IS NULL
+        AND index_row.indnatts = 1
+        AND index_row.indnkeyatts = 1
+        AND index_row.indkey::text = '1'
+        AND index_row.indoption::text = '0'
+    ) = 1
+    AND count(*) FILTER (
+      WHERE index_class.relname = 'uidx_chat_notices_room_message'
+        AND index_method.amname = 'btree'
+        AND index_class.relkind = 'i'
+        AND index_class.relpersistence = 'p'
+        AND index_row.indisvalid
+        AND index_row.indisready
+        AND index_row.indislive
+        AND index_row.indisunique
+        AND NOT index_row.indisprimary
+        AND NOT index_row.indisexclusion
+        AND index_row.indpred IS NULL
+        AND index_row.indexprs IS NULL
+        AND index_row.indnatts = 2
+        AND index_row.indnkeyatts = 2
+        AND index_row.indkey::text = '2 3'
+        AND index_row.indoption::text = '0 0'
+    ) = 1
+    AND count(*) FILTER (
+      WHERE index_class.relname = 'idx_chat_notices_room_created'
+        AND index_method.amname = 'btree'
+        AND index_class.relkind = 'i'
+        AND index_class.relpersistence = 'p'
+        AND index_row.indisvalid
+        AND index_row.indisready
+        AND index_row.indislive
+        AND NOT index_row.indisunique
+        AND NOT index_row.indisprimary
+        AND NOT index_row.indisexclusion
+        AND index_row.indpred IS NULL
+        AND index_row.indexprs IS NULL
+        AND index_row.indnatts = 3
+        AND index_row.indnkeyatts = 3
+        AND index_row.indkey::text = '2 5 1'
+        AND index_row.indoption::text = '0 3 3'
+    ) = 1
+  INTO indexes_exact
+  FROM pg_index index_row
+  JOIN pg_class index_class ON index_class.oid = index_row.indexrelid
+  JOIN pg_namespace index_namespace ON index_namespace.oid = index_class.relnamespace
+  JOIN pg_am index_method ON index_method.oid = index_class.relam
+  WHERE index_row.indrelid = table_oid
+    AND index_namespace.nspname = 'public';
+
+  RETURN CASE
+    WHEN columns_exact
+      AND sequence_exact
+      AND chat_notice_constraints_exact
+      AND pinned_notice_constraint_exact
+      AND indexes_exact THEN 'exact'
+    ELSE 'mismatch'
+  END;
+END
+$function$;
+
 DO $preflight$
 DECLARE
   schedule_title_exists boolean;
@@ -1101,6 +1432,9 @@ BEGIN
   END IF;
   IF pg_temp.web_push_subscription_contract_state() = 'mismatch' THEN
     RAISE EXCEPTION 'partial or incompatible web_push_subscriptions schema';
+  END IF;
+  IF pg_temp.chat_notice_contract_state() = 'mismatch' THEN
+    RAISE EXCEPTION 'partial or incompatible chat_notices schema';
   END IF;
 
   IF to_regclass('public.meeting_schedules') IS NOT NULL THEN
@@ -1212,6 +1546,7 @@ SELECT pg_temp.auth_version_contract_state() = 'absent' AS apply_auth_version_mi
 SELECT pg_temp.admin_audit_contract_state() = 'absent' AS apply_admin_audit_migration \gset
 SELECT pg_temp.web_push_subscription_contract_state() = 'absent' AS apply_web_push_subscription_base_migration \gset
 SELECT pg_temp.message_type_contract_state() = 'absent' AS apply_message_type_migration \gset
+SELECT pg_temp.chat_notice_contract_state() = 'absent' AS apply_chat_notice_migration \gset
 SELECT (
   to_regclass('public.meeting_schedules') IS NOT NULL
   AND (
@@ -1321,6 +1656,9 @@ SELECT (
 \i db/migrations/v36_meeting_schedule_date_time.sql
 \endif
 \i db/migrations/v37_notification_i18n.sql
+\if :apply_chat_notice_migration
+\i db/migrations/v38_chat_notices.sql
+\endif
 
 DO $verify$
 BEGIN
@@ -1338,6 +1676,9 @@ BEGIN
   END IF;
   IF pg_temp.web_push_subscription_contract_state() <> 'exact' THEN
     RAISE EXCEPTION 'web_push_subscriptions schema verification failed: expected exact v25/v26 contract';
+  END IF;
+  IF pg_temp.chat_notice_contract_state() <> 'exact' THEN
+    RAISE EXCEPTION 'chat_notices schema verification failed';
   END IF;
 END
 $verify$;

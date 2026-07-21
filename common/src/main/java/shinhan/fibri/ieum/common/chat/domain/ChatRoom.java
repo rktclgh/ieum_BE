@@ -36,6 +36,9 @@ public class ChatRoom {
 	@Column(name = "room_key", length = 80, unique = true)
 	private String roomKey;
 
+	@Column(name = "pinned_notice_id")
+	private Long pinnedNoticeId;
+
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private OffsetDateTime createdAt;
 
@@ -108,5 +111,13 @@ public class ChatRoom {
 
 	public OffsetDateTime getCreatedAt() {
 		return createdAt;
+	}
+
+	public Long getPinnedNoticeId() {
+		return pinnedNoticeId;
+	}
+
+	public void pinNotice(Long noticeId) {
+		this.pinnedNoticeId = Objects.requireNonNull(noticeId, "noticeId must not be null");
 	}
 }

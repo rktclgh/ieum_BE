@@ -42,6 +42,30 @@ grep -Fq 'notifications.message_key schema verification failed' "$v37_migration"
 grep -Fq 'notifications.message_params schema verification failed' "$v37_migration" \
   || fail "v37 must reject an incompatible notification message_params column"
 
+v38_migration="$root/db/migrations/v38_chat_notices.sql"
+test -s "$v38_migration" || fail "v38 chat notices migration is missing"
+grep -Fq 'CREATE TABLE IF NOT EXISTS public.chat_notices' "$v38_migration" \
+  || fail "v38 must create chat_notices idempotently"
+grep -Fq 'uidx_chat_notices_room_message' "$v38_migration" \
+  || fail "v38 must enforce one notice per source message per room"
+grep -Fq 'ADD COLUMN IF NOT EXISTS pinned_notice_id' "$v38_migration" \
+  || fail "v38 must add nullable chat_rooms.pinned_notice_id idempotently"
+grep -Fq "column_row.atttypid = 'bigint'::regtype" "$v38_migration" \
+  || fail "v38 must verify pinned_notice_id with a bigint catalog predicate"
+grep -Fq 'NOT column_row.attnotnull' "$v38_migration" \
+  || fail "v38 must verify pinned_notice_id is nullable with a boolean catalog predicate"
+if grep -Fq "'bigint:false'" "$v38_migration"; then
+  fail "v38 must not compare PostgreSQL boolean catalog values as the text false"
+fi
+grep -Fq 'fk_chat_rooms_pinned_notice' "$v38_migration" \
+  || fail "v38 must add the representative notice foreign key"
+grep -Fq 'fk_chat_notices_room' "$v38_migration" \
+  || fail "v38 must verify chat notice room foreign key"
+grep -Fq 'fk_chat_notices_message' "$v38_migration" \
+  || fail "v38 must verify chat notice message foreign key"
+grep -Fq 'fk_chat_notices_created_by' "$v38_migration" \
+  || fail "v38 must verify chat notice creator foreign key"
+
 fake_bin="$work_dir/bin"
 capture_dir="$work_dir/capture"
 mkdir -p "$fake_bin" "$capture_dir"
@@ -133,6 +157,8 @@ grep -Fq "message_type_contract_state" "$stdin_file" \
   || fail "message type preflight/final verification is missing"
 grep -Fq "message_reply_contract_state" "$stdin_file" \
   || fail "message reply preflight/final verification is missing"
+grep -Fq "chat_notice_contract_state" "$stdin_file" \
+  || fail "chat notice preflight/final verification is missing"
 grep -Fq "partial or incompatible users.auth_version schema" "$stdin_file" \
   || fail "partial auth schema must fail explicitly"
 grep -Fq "partial or incompatible admin_audit_logs schema" "$stdin_file" \
@@ -141,6 +167,8 @@ grep -Fq "partial or incompatible messages.message_type schema" "$stdin_file" \
   || fail "partial message type schema must fail explicitly"
 grep -Fq "partial or incompatible messages.reply_to_message_id schema" "$stdin_file" \
   || fail "partial message reply schema must fail explicitly"
+grep -Fq "partial or incompatible chat_notices schema" "$stdin_file" \
+  || fail "partial chat notice schema must fail explicitly"
 grep -Fq "apply_admin_audit_migration" "$stdin_file" \
   || fail "an exact existing audit schema must skip the non-idempotent v26 file"
 grep -Fq "apply_auth_version_migration" "$stdin_file" \
@@ -149,6 +177,8 @@ grep -Fq "apply_message_type_migration" "$stdin_file" \
   || fail "an exact existing message type schema must skip the non-idempotent v28 file"
 grep -Fq "apply_message_reply_migration" "$stdin_file" \
   || fail "an exact existing message reply schema must skip the non-idempotent v32 file"
+grep -Fq "apply_chat_notice_migration" "$stdin_file" \
+  || fail "an exact existing chat notice schema must skip the v38 file"
 grep -Fq "SET search_path = pg_catalog, public" "$stdin_file" \
   || fail "migration session must pin trusted catalog resolution before running qualified DDL"
 search_path_line="$(grep -n -m1 -F 'SET search_path = pg_catalog, public' "$stdin_file" | cut -d: -f1)"
@@ -204,6 +234,32 @@ for token in "${required_message_type_catalog_tokens[@]}"; do
   grep -Fq "$token" "$stdin_file" \
     || fail "message type exact catalog verification is missing: $token"
 done
+required_chat_notice_catalog_tokens=(
+  "CREATE OR REPLACE FUNCTION pg_temp.chat_notice_contract_state()"
+  "table_class.relname = 'chat_notices'"
+  "'public.chat_rooms'::regclass"
+  "'public.messages'::regclass"
+  "'public.users'::regclass"
+  "format_type(attribute.atttypid, attribute.atttypmod) = expected.type_name"
+  "chat_notices_notice_id_seq"
+  "fk_chat_notices_room"
+  "fk_chat_notices_message"
+  "fk_chat_notices_created_by"
+  "fk_chat_rooms_pinned_notice"
+  "constraint_row.confdeltype = 'c'"
+  "constraint_row.confdeltype = 'n'"
+  "uidx_chat_notices_room_message"
+  "idx_chat_notices_room_created"
+  "index_row.indkey::text = '2 3'"
+  "index_row.indoption::text = '0 0'"
+  "index_row.indkey::text = '2 5 1'"
+  "index_row.indoption::text = '0 3 3'"
+  "RAISE EXCEPTION 'chat_notices schema verification failed'"
+)
+for token in "${required_chat_notice_catalog_tokens[@]}"; do
+  grep -Fq "$token" "$stdin_file" \
+    || fail "chat notice exact catalog verification is missing: $token"
+done
 if grep -Fq "indexdef LIKE" "$stdin_file"; then
   fail "index verification must not rely on permissive text matching"
 fi
@@ -225,10 +281,12 @@ v34_line="$(grep -n -m1 -F '\i db/migrations/v34_question_ai_ungrounded_answer_v
 v35_line="$(grep -n -m1 -F '\i db/migrations/v35_knowledge_relation_candidates.sql' "$stdin_file" | cut -d: -f1 || true)"
 v36_line="$(grep -n -m1 -F '\i db/migrations/v36_meeting_schedule_date_time.sql' "$stdin_file" | cut -d: -f1 || true)"
 v37_line="$(grep -n -m1 -F '\i db/migrations/v37_notification_i18n.sql' "$stdin_file" | cut -d: -f1 || true)"
+v38_line="$(grep -n -m1 -F '\i db/migrations/v38_chat_notices.sql' "$stdin_file" | cut -d: -f1 || true)"
 test -n "$v24_line" && test -n "$v25_line" && test -n "$v26_line" && test -n "$v27_line" && test -n "$v28_line" \
   && test -n "$v29_line" && test -n "$v30_line" && test -n "$v31_line" && test -n "$v32_line" \
   && test -n "$v33_line" && test -n "$v34_line" && test -n "$v35_line" && test -n "$v36_line" && test -n "$v37_line" \
-	|| fail "all v24-v37 migrations must be applied"
+  && test -n "$v38_line" \
+	|| fail "all v24-v38 migrations must be applied"
 (( v24_line < v27_line )) || fail "v24 must run before v27"
 (( v25_line < v26_line )) || fail "v25 must run before v26"
 (( v26_line < v28_line )) || fail "v26 must run before v28"
@@ -241,6 +299,7 @@ test -n "$v24_line" && test -n "$v25_line" && test -n "$v26_line" && test -n "$v
 (( v34_line < v35_line )) || fail "v34 must run before v35"
 (( v35_line < v36_line )) || fail "v35 must run before v36"
 (( v36_line < v37_line )) || fail "v36 must run before v37"
+(( v37_line < v38_line )) || fail "v37 must run before v38"
 report_policy_guard_line="$(grep -n -m1 -F '\if :apply_report_policy_migrations' "$stdin_file" | cut -d: -f1 || true)"
 test -n "$report_policy_guard_line" && (( report_policy_guard_line < v24_line )) \
 	|| fail "report policy migrations must be guarded by table presence"
@@ -268,9 +327,19 @@ test -n "$question_ai_ungrounded_guard_line" && (( question_ai_ungrounded_guard_
 meeting_schedule_date_time_guard_line="$(grep -n -m1 -F '\if :apply_meeting_schedule_date_time_migration' "$stdin_file" | cut -d: -f1 || true)"
 test -n "$meeting_schedule_date_time_guard_line" && (( meeting_schedule_date_time_guard_line < v36_line )) \
   || fail "v36 must be guarded by a missing starts_on column"
+chat_notice_guard_line="$(grep -n -m1 -F '\if :apply_chat_notice_migration' "$stdin_file" | cut -d: -f1 || true)"
+test -n "$chat_notice_guard_line" && (( chat_notice_guard_line < v38_line )) \
+  || fail "v38 must be guarded by missing chat notice schema"
+grep -Fq "conname = 'fk_chat_rooms_pinned_notice'" "$stdin_file" \
+  || fail "v38 guard must catch a missing pinned notice foreign key"
+grep -Fq "index_class.relname = 'uidx_chat_notices_room_message'" "$stdin_file" \
+  || fail "v38 guard must catch a missing chat notice unique index"
+if grep -Fq "to_regclass('public.chat_notices') IS NULL" "$stdin_file"; then
+  fail "v38 guard must use the exact chat notice contract state instead of a permissive table-presence check"
+fi
 
 for workflow in "$root/.github/workflows/deploy-app-main.yml" "$root/.github/workflows/deploy-app-ai.yml"; do
-  for migration in v28_chat_system_messages v29_meeting_schedule_details v30_report_schedule_target_enum v31_report_schedule_target v32_chat_message_reply v33_question_ai_ungrounded_answer v34_question_ai_ungrounded_answer_validate v35_knowledge_relation_candidates v36_meeting_schedule_date_time v37_notification_i18n; do
+  for migration in v28_chat_system_messages v29_meeting_schedule_details v30_report_schedule_target_enum v31_report_schedule_target v32_chat_message_reply v33_question_ai_ungrounded_answer v34_question_ai_ungrounded_answer_validate v35_knowledge_relation_candidates v36_meeting_schedule_date_time v37_notification_i18n v38_chat_notices; do
     scp_line="$(grep -n -F "db/migrations/${migration}.sql" "$workflow" | grep -F 'scp ' | cut -d: -f1 || true)"
     chmod_line="$(grep -n -F "${migration}.sql" "$workflow" | grep -F 'chmod 600' | cut -d: -f1 || true)"
     test -n "$scp_line" || fail "workflow must copy ${migration}: $workflow"

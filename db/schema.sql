@@ -891,6 +891,7 @@ CREATE TABLE chat_rooms (
     meeting_id BIGINT UNIQUE REFERENCES meetings(meeting_id) ON DELETE CASCADE,
     question_id BIGINT REFERENCES questions(question_id) ON DELETE CASCADE,
     room_key VARCHAR(80) UNIQUE,                 -- [변경 v6] direct_key → room_key
+    pinned_notice_id BIGINT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CHECK (room_type <> 'group'    OR meeting_id IS NOT NULL),
     CHECK (room_type <> 'question' OR (question_id IS NOT NULL AND room_key IS NOT NULL)),  -- [변경 v6]
@@ -934,6 +935,22 @@ CREATE TABLE messages (
     )
 );
 CREATE INDEX idx_messages_room ON messages(room_id, created_at DESC);
+
+CREATE TABLE chat_notices (
+    notice_id BIGSERIAL PRIMARY KEY,
+    room_id BIGINT NOT NULL,
+    message_id BIGINT NOT NULL,
+    created_by BIGINT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT fk_chat_notices_room FOREIGN KEY (room_id) REFERENCES chat_rooms(room_id) ON DELETE CASCADE,
+    CONSTRAINT fk_chat_notices_message FOREIGN KEY (message_id) REFERENCES messages(message_id) ON DELETE CASCADE,
+    CONSTRAINT fk_chat_notices_created_by FOREIGN KEY (created_by) REFERENCES users(user_id) ON DELETE SET NULL
+);
+CREATE UNIQUE INDEX uidx_chat_notices_room_message ON chat_notices(room_id, message_id);
+CREATE INDEX idx_chat_notices_room_created ON chat_notices(room_id, created_at DESC, notice_id DESC);
+ALTER TABLE chat_rooms
+    ADD CONSTRAINT fk_chat_rooms_pinned_notice
+    FOREIGN KEY (pinned_notice_id) REFERENCES chat_notices(notice_id) ON DELETE SET NULL;
 
 -- ============================================================
 -- 신고 / 제재
