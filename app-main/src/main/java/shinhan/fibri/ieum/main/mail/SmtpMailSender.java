@@ -4,6 +4,7 @@ import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import java.nio.charset.StandardCharsets;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.mail.MailPreparationException;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
@@ -11,6 +12,8 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class SmtpMailSender {
+
+	private static final ClassPathResource LOGO_RESOURCE = new ClassPathResource("mail/ieum-logo.png");
 
 	private final JavaMailSender mailSender;
 	private final String fromAddress;
@@ -34,6 +37,7 @@ public class SmtpMailSender {
 			}
 			helper.setSubject(sanitizeHeader(email.subject()));
 			helper.setText(email.plainText(), email.htmlText());
+			helper.addInline(EmailTemplateRenderer.LOGO_CONTENT_ID, LOGO_RESOURCE, "image/png");
 		} catch (MessagingException exception) {
 			throw new MailPreparationException("Unable to prepare SMTP message", exception);
 		}

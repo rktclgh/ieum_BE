@@ -41,6 +41,8 @@ class SmtpMailSenderTest {
 			.contains("text/plain")
 			.contains("plain body")
 			.contains("text/html")
-			.contains("<strong>html body</strong>");
+			.contains("<strong>html body</strong>")
+			.contains("Content-ID: <ieum-logo>")
+			.contains("image/png");
 	}
 }

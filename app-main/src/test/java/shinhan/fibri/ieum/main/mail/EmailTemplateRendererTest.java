@@ -36,9 +36,12 @@ class EmailTemplateRendererTest {
 			.contains("본 메일은 발신 전용입니다.");
 		assertThat(email.htmlText())
 			.contains("<html lang=\"ko\">")
-			.contains("IEUM")
+			.contains("src=\"cid:ieum-logo\"")
+			.contains("alt=\"이음\"")
+			.contains("#FC7045")
 			.contains("&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;")
 			.contains("첫 줄<br>둘째 줄")
+			.doesNotContain("#123D35")
 			.doesNotContain("<script>");
 	}
 
