@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/assets/logo.png" width="120" alt="이음 로고" />
+
 # 이음 · Ieum — Backend
 
 ### 위치 기반 커뮤니티를 떠받치는 2-서버 아키텍처
