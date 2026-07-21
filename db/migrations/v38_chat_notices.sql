@@ -71,18 +71,17 @@ END
 $$;
 
 DO $$
-DECLARE
-    column_state text;
 BEGIN
-    SELECT concat_ws(':', column_row.atttypid::regtype::text, column_row.attnotnull)
-    INTO column_state
-    FROM pg_attribute column_row
-    WHERE column_row.attrelid = 'public.chat_rooms'::regclass
-      AND column_row.attname = 'pinned_notice_id'
-      AND column_row.attnum > 0
-      AND NOT column_row.attisdropped;
-
-    IF column_state IS DISTINCT FROM 'bigint:false' THEN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_attribute column_row
+        WHERE column_row.attrelid = 'public.chat_rooms'::regclass
+          AND column_row.attname = 'pinned_notice_id'
+          AND column_row.atttypid = 'bigint'::regtype
+          AND NOT column_row.attnotnull
+          AND column_row.attnum > 0
+          AND NOT column_row.attisdropped
+    ) THEN
         RAISE EXCEPTION 'chat_rooms.pinned_notice_id schema verification failed';
     END IF;
 

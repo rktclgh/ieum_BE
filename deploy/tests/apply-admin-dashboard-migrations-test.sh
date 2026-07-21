@@ -50,6 +50,13 @@ grep -Fq 'uidx_chat_notices_room_message' "$v38_migration" \
   || fail "v38 must enforce one notice per source message per room"
 grep -Fq 'ADD COLUMN IF NOT EXISTS pinned_notice_id' "$v38_migration" \
   || fail "v38 must add nullable chat_rooms.pinned_notice_id idempotently"
+grep -Fq "column_row.atttypid = 'bigint'::regtype" "$v38_migration" \
+  || fail "v38 must verify pinned_notice_id with a bigint catalog predicate"
+grep -Fq 'NOT column_row.attnotnull' "$v38_migration" \
+  || fail "v38 must verify pinned_notice_id is nullable with a boolean catalog predicate"
+if grep -Fq "'bigint:false'" "$v38_migration"; then
+  fail "v38 must not compare PostgreSQL boolean catalog values as the text false"
+fi
 grep -Fq 'fk_chat_rooms_pinned_notice' "$v38_migration" \
   || fail "v38 must add the representative notice foreign key"
 grep -Fq 'fk_chat_notices_room' "$v38_migration" \
