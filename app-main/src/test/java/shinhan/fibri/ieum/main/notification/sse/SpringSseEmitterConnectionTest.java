@@ -10,6 +10,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import shinhan.fibri.ieum.main.notification.domain.NotificationType;
+import shinhan.fibri.ieum.main.notification.message.NotificationMessage;
+import shinhan.fibri.ieum.main.notification.message.NotificationMessageKey;
 
 class SpringSseEmitterConnectionTest {
 
@@ -31,6 +33,7 @@ class SpringSseEmitterConnectionTest {
 		NotificationSsePayload payload = NotificationSsePayload.durable(
 			15L,
 			NotificationType.question,
+			NotificationMessage.of(NotificationMessageKey.ANSWER_CREATED),
 			"새 답변",
 			null,
 			7L,

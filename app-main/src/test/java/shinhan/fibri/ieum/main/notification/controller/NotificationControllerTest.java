@@ -16,6 +16,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,6 +43,7 @@ import shinhan.fibri.ieum.main.notification.dto.NotificationListResponse;
 import shinhan.fibri.ieum.main.notification.dto.NotificationReadAllResponse;
 import shinhan.fibri.ieum.main.notification.exception.InvalidNotificationCursorException;
 import shinhan.fibri.ieum.main.notification.exception.NotificationNotFoundException;
+import shinhan.fibri.ieum.main.notification.message.NotificationMessageKey;
 import shinhan.fibri.ieum.main.notification.service.NotificationService;
 
 @WebMvcTest(NotificationController.class)
@@ -171,6 +173,8 @@ class NotificationControllerTest {
 			NotificationType.question,
 			"새 답변",
 			"질문에 답변이 달렸어요",
+			NotificationMessageKey.ANSWER_CREATED,
+			Map.of(),
 			5L,
 			true,
 			false,

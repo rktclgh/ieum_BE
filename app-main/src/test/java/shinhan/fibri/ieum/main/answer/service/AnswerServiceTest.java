@@ -46,6 +46,8 @@ import shinhan.fibri.ieum.main.question.exception.QuestionForbiddenException;
 import shinhan.fibri.ieum.main.question.exception.QuestionNotFoundException;
 import shinhan.fibri.ieum.main.question.repository.QuestionRepository;
 import shinhan.fibri.ieum.main.notification.domain.NotificationType;
+import shinhan.fibri.ieum.main.notification.message.NotificationMessage;
+import shinhan.fibri.ieum.main.notification.message.NotificationMessageKey;
 import shinhan.fibri.ieum.main.notification.service.NotificationPublisher;
 
 class AnswerServiceTest {
@@ -83,8 +85,7 @@ class AnswerServiceTest {
 		verify(notificationPublisher).publishDurable(
 			99L,
 			NotificationType.question,
-			"새 답변",
-			"회원님의 질문에 답변이 달렸어요",
+			NotificationMessage.of(NotificationMessageKey.ANSWER_CREATED),
 			200L,
 			false
 		);
@@ -188,7 +189,7 @@ class AnswerServiceTest {
 		verify(fileRepository, never()).findAllByFileIdInAndUploaderId(any(), any());
 		verify(answerRepository, never()).save(any());
 		verify(answerImageRepository, never()).saveAll(any());
-		verify(notificationPublisher, never()).publishDurable(any(), any(), any(), any(), any(), any());
+		verify(notificationPublisher, never()).publishDurable(any(), any(), any(), any(), any());
 	}
 
 	@Test
@@ -313,8 +314,7 @@ class AnswerServiceTest {
 		verify(notificationPublisher).publishDurableOnce(
 			77L,
 			NotificationType.question,
-			"답변 채택",
-			"회원님의 답변이 채택됐어요",
+			NotificationMessage.of(NotificationMessageKey.ANSWER_ACCEPTED),
 			200L,
 			false,
 			"answer-accepted:300"
@@ -322,8 +322,7 @@ class AnswerServiceTest {
 		verify(notificationPublisher).publishDurableOnce(
 			88L,
 			NotificationType.question,
-			"답변 채택",
-			"회원님의 답변이 채택됐어요",
+			NotificationMessage.of(NotificationMessageKey.ANSWER_ACCEPTED),
 			200L,
 			false,
 			"answer-accepted:302"
@@ -331,7 +330,6 @@ class AnswerServiceTest {
 		verify(eventPublisher).publishEvent(new AcceptedHumanAnswerEvent(300L));
 		verify(eventPublisher).publishEvent(new AcceptedHumanAnswerEvent(302L));
 		verify(notificationPublisher, never()).publishDurableOnce(
-			any(),
 			any(),
 			any(),
 			any(),
@@ -365,7 +363,7 @@ class AnswerServiceTest {
 		assertThat(response).isEqualTo(new FinalizeAcceptedAnswersResponse(200L, true, List.of(300L, 302L)));
 		verify(answerRepository, never()).findAllByQuestionIdAndIdInForUpdate(any(), any());
 		verify(userRepository, never()).findByIdForUpdate(any());
-		verify(notificationPublisher, never()).publishDurableOnce(any(), any(), any(), any(), any(), any(), any());
+		verify(notificationPublisher, never()).publishDurableOnce(any(), any(), any(), any(), any(), any());
 		verify(eventPublisher, never()).publishEvent(any());
 	}
 
@@ -385,7 +383,7 @@ class AnswerServiceTest {
 
 		verify(answerRepository, never()).findAllByQuestionIdAndIdInForUpdate(any(), any());
 		verify(userRepository, never()).findByIdForUpdate(any());
-		verify(notificationPublisher, never()).publishDurableOnce(any(), any(), any(), any(), any(), any(), any());
+		verify(notificationPublisher, never()).publishDurableOnce(any(), any(), any(), any(), any(), any());
 		verify(eventPublisher, never()).publishEvent(any());
 	}
 
@@ -401,7 +399,7 @@ class AnswerServiceTest {
 		verify(questionRepository, never()).findByIdForUpdate(any());
 		verify(answerRepository, never()).findAllByQuestionIdAndIdInForUpdate(any(), any());
 		verify(userRepository, never()).findByIdForUpdate(any());
-		verify(notificationPublisher, never()).publishDurableOnce(any(), any(), any(), any(), any(), any(), any());
+		verify(notificationPublisher, never()).publishDurableOnce(any(), any(), any(), any(), any(), any());
 		verify(eventPublisher, never()).publishEvent(any());
 	}
 
@@ -421,7 +419,7 @@ class AnswerServiceTest {
 		verify(answerRepository, never()).findAcceptedIdsByQuestionIdOrderByIdAsc(any());
 		verify(answerRepository, never()).findAllByQuestionIdAndIdInForUpdate(any(), any());
 		verify(userRepository, never()).findByIdForUpdate(any());
-		verify(notificationPublisher, never()).publishDurableOnce(any(), any(), any(), any(), any(), any(), any());
+		verify(notificationPublisher, never()).publishDurableOnce(any(), any(), any(), any(), any(), any());
 		verify(eventPublisher, never()).publishEvent(any());
 	}
 
@@ -441,7 +439,7 @@ class AnswerServiceTest {
 		verify(answerRepository, never()).findAcceptedIdsByQuestionIdOrderByIdAsc(any());
 		verify(answerRepository, never()).findAllByQuestionIdAndIdInForUpdate(any(), any());
 		verify(userRepository, never()).findByIdForUpdate(any());
-		verify(notificationPublisher, never()).publishDurableOnce(any(), any(), any(), any(), any(), any(), any());
+		verify(notificationPublisher, never()).publishDurableOnce(any(), any(), any(), any(), any(), any());
 		verify(eventPublisher, never()).publishEvent(any());
 	}
 
@@ -461,7 +459,7 @@ class AnswerServiceTest {
 		verify(answerRepository, never()).findAcceptedIdsByQuestionIdOrderByIdAsc(any());
 		verify(answerRepository, never()).findAllByQuestionIdAndIdInForUpdate(any(), any());
 		verify(userRepository, never()).findByIdForUpdate(any());
-		verify(notificationPublisher, never()).publishDurableOnce(any(), any(), any(), any(), any(), any(), any());
+		verify(notificationPublisher, never()).publishDurableOnce(any(), any(), any(), any(), any(), any());
 		verify(eventPublisher, never()).publishEvent(any());
 	}
 
@@ -484,7 +482,7 @@ class AnswerServiceTest {
 		assertThat(answer.isAccepted()).isFalse();
 		assertThat(question.isResolved()).isFalse();
 		verify(userRepository, never()).findByIdForUpdate(any());
-		verify(notificationPublisher, never()).publishDurableOnce(any(), any(), any(), any(), any(), any(), any());
+		verify(notificationPublisher, never()).publishDurableOnce(any(), any(), any(), any(), any(), any());
 		verify(eventPublisher, never()).publishEvent(any());
 	}
 
@@ -506,7 +504,7 @@ class AnswerServiceTest {
 		assertThat(selfAnswer.isAccepted()).isFalse();
 		assertThat(question.isResolved()).isFalse();
 		verify(userRepository, never()).findByIdForUpdate(any());
-		verify(notificationPublisher, never()).publishDurableOnce(any(), any(), any(), any(), any(), any(), any());
+		verify(notificationPublisher, never()).publishDurableOnce(any(), any(), any(), any(), any(), any());
 		verify(eventPublisher, never()).publishEvent(any());
 	}
 
@@ -530,8 +528,7 @@ class AnswerServiceTest {
 		verify(notificationPublisher).publishDurableOnce(
 			77L,
 			NotificationType.question,
-			"답변 채택",
-			"회원님의 답변이 채택됐어요",
+			NotificationMessage.of(NotificationMessageKey.ANSWER_ACCEPTED),
 			200L,
 			false,
 			"answer-accepted:300"
@@ -539,8 +536,7 @@ class AnswerServiceTest {
 		verify(notificationPublisher).publishDurableOnce(
 			77L,
 			NotificationType.question,
-			"답변 채택",
-			"회원님의 답변이 채택됐어요",
+			NotificationMessage.of(NotificationMessageKey.ANSWER_ACCEPTED),
 			200L,
 			false,
 			"answer-accepted:301"

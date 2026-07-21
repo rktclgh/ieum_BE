@@ -35,6 +35,8 @@ import shinhan.fibri.ieum.main.question.exception.QuestionForbiddenException;
 import shinhan.fibri.ieum.main.question.exception.QuestionNotFoundException;
 import shinhan.fibri.ieum.main.question.repository.QuestionRepository;
 import shinhan.fibri.ieum.main.notification.domain.NotificationType;
+import shinhan.fibri.ieum.main.notification.message.NotificationMessage;
+import shinhan.fibri.ieum.main.notification.message.NotificationMessageKey;
 import shinhan.fibri.ieum.main.notification.service.NotificationPublisher;
 
 @Service
@@ -70,8 +72,7 @@ public class AnswerService {
 			notificationPublisher.publishDurable(
 				question.getAuthorId(),
 				NotificationType.question,
-				"새 답변",
-				"회원님의 질문에 답변이 달렸어요",
+				NotificationMessage.of(NotificationMessageKey.ANSWER_CREATED),
 				questionId,
 				false
 			);
@@ -126,8 +127,7 @@ public class AnswerService {
 			notificationPublisher.publishDurableOnce(
 				answer.getAuthorId(),
 				NotificationType.question,
-				"답변 채택",
-				"회원님의 답변이 채택됐어요",
+				NotificationMessage.of(NotificationMessageKey.ANSWER_ACCEPTED),
 				questionId,
 				false,
 				"answer-accepted:%d".formatted(answer.getId())

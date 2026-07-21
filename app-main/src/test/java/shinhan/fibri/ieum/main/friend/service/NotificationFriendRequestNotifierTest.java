@@ -9,12 +9,15 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
 import shinhan.fibri.ieum.main.notification.domain.NotificationType;
+import shinhan.fibri.ieum.main.notification.message.NotificationMessage;
+import shinhan.fibri.ieum.main.notification.message.NotificationMessageKey;
 import shinhan.fibri.ieum.main.notification.service.NotificationPublisher;
 
 class NotificationFriendRequestNotifierTest {
@@ -33,8 +36,7 @@ class NotificationFriendRequestNotifierTest {
 		verify(notificationPublisher).publishDurable(
 			77L,
 			NotificationType.friend,
-			"친구 요청",
-			"요청자님이 친구 요청을 보냈어요",
+			NotificationMessage.of(NotificationMessageKey.FRIEND_REQUEST, Map.of("nickname", "요청자")),
 			42L
 		);
 	}
@@ -56,8 +58,7 @@ class NotificationFriendRequestNotifierTest {
 			verify(notificationPublisher).publishDurable(
 				77L,
 				NotificationType.friend,
-				"친구 요청",
-				"사용자님이 친구 요청을 보냈어요",
+				NotificationMessage.of(NotificationMessageKey.FRIEND_REQUEST, Map.of("nickname", "사용자")),
 				42L
 			);
 			assertThat(appender.list)

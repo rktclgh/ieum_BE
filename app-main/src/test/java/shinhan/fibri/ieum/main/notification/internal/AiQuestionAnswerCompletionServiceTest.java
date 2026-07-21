@@ -15,6 +15,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 import org.springframework.transaction.annotation.Transactional;
 import shinhan.fibri.ieum.main.notification.domain.NotificationType;
+import shinhan.fibri.ieum.main.notification.message.NotificationMessage;
+import shinhan.fibri.ieum.main.notification.message.NotificationMessageKey;
 import shinhan.fibri.ieum.main.notification.service.NotificationPublisher;
 
 class AiQuestionAnswerCompletionServiceTest {
@@ -26,6 +28,8 @@ class AiQuestionAnswerCompletionServiceTest {
 	private static final long REPLACEMENT_ANSWER_ID = 41L;
 	private static final String EVENT_KEY =
 		AiQuestionAnswerCompletionService.AI_ANSWER_EVENT_KEY_PREFIX + QUESTION_ID;
+	private static final NotificationMessage MESSAGE =
+		NotificationMessage.of(NotificationMessageKey.ANSWER_CREATED);
 
 	private final AiQuestionAnswerCompletionRepository repository =
 		mock(AiQuestionAnswerCompletionRepository.class);
@@ -39,8 +43,7 @@ class AiQuestionAnswerCompletionServiceTest {
 		when(publisher.publishDurableOnce(
 			USER_ID,
 			NotificationType.question,
-			"새 답변",
-			"회원님의 질문에 답변이 달렸어요",
+			MESSAGE,
 			QUESTION_ID,
 			true,
 			EVENT_KEY
@@ -57,8 +60,7 @@ class AiQuestionAnswerCompletionServiceTest {
 		order.verify(publisher).publishDurableOnce(
 			USER_ID,
 			NotificationType.question,
-			"새 답변",
-			"회원님의 질문에 답변이 달렸어요",
+			MESSAGE,
 			QUESTION_ID,
 			true,
 			EVENT_KEY
@@ -75,8 +77,7 @@ class AiQuestionAnswerCompletionServiceTest {
 		verify(publisher, never()).publishDurableOnce(
 			USER_ID,
 			NotificationType.question,
-			"새 답변",
-			"회원님의 질문에 답변이 달렸어요",
+			MESSAGE,
 			QUESTION_ID,
 			true,
 			EVENT_KEY
@@ -94,8 +95,7 @@ class AiQuestionAnswerCompletionServiceTest {
 		verify(publisher, never()).publishDurableOnce(
 			USER_ID,
 			NotificationType.question,
-			"새 답변",
-			"회원님의 질문에 답변이 달렸어요",
+			MESSAGE,
 			QUESTION_ID,
 			true,
 			EVENT_KEY
@@ -109,8 +109,7 @@ class AiQuestionAnswerCompletionServiceTest {
 		when(publisher.publishDurableOnce(
 			USER_ID,
 			NotificationType.question,
-			"새 답변",
-			"회원님의 질문에 답변이 달렸어요",
+			MESSAGE,
 			QUESTION_ID,
 			true,
 			EVENT_KEY
@@ -147,8 +146,7 @@ class AiQuestionAnswerCompletionServiceTest {
 		verify(publisher, times(2)).publishDurableOnce(
 			USER_ID,
 			NotificationType.question,
-			"새 답변",
-			"회원님의 질문에 답변이 달렸어요",
+			MESSAGE,
 			QUESTION_ID,
 			true,
 			EVENT_KEY
@@ -183,8 +181,7 @@ class AiQuestionAnswerCompletionServiceTest {
 		when(publisher.publishDurableOnce(
 			USER_ID,
 			NotificationType.question,
-			"새 답변",
-			"회원님의 질문에 답변이 달렸어요",
+			MESSAGE,
 			QUESTION_ID,
 			true,
 			EVENT_KEY

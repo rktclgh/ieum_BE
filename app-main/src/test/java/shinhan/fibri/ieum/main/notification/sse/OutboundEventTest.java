@@ -4,8 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.OffsetDateTime;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import shinhan.fibri.ieum.main.notification.domain.NotificationType;
+import shinhan.fibri.ieum.main.notification.message.NotificationMessage;
+import shinhan.fibri.ieum.main.notification.message.NotificationMessageKey;
 
 class OutboundEventTest {
 
@@ -14,6 +17,7 @@ class OutboundEventTest {
 		NotificationSsePayload durable = NotificationSsePayload.durable(
 			1L,
 			NotificationType.question,
+			NotificationMessage.of(NotificationMessageKey.ANSWER_CREATED),
 			"새 답변",
 			null,
 			3L,
@@ -21,6 +25,7 @@ class OutboundEventTest {
 		);
 		NotificationSsePayload ephemeral = NotificationSsePayload.ephemeral(
 			NotificationType.location,
+			NotificationMessage.of(NotificationMessageKey.RADIUS_QUESTION, Map.of("subject", "주변 질문")),
 			"주변 질문",
 			null,
 			4L,
@@ -49,6 +54,7 @@ class OutboundEventTest {
 	void rejectsPayloadWithWrongDeliveryKind() {
 		NotificationSsePayload ephemeral = NotificationSsePayload.ephemeral(
 			NotificationType.location,
+			NotificationMessage.of(NotificationMessageKey.RADIUS_QUESTION, Map.of("subject", "주변 질문")),
 			"주변 질문",
 			null,
 			4L,
@@ -64,6 +70,7 @@ class OutboundEventTest {
 	void rejectsEventNameThatDoesNotMatchPayloadContract() {
 		NotificationSsePayload notification = NotificationSsePayload.ephemeral(
 			NotificationType.location,
+			NotificationMessage.of(NotificationMessageKey.RADIUS_QUESTION, Map.of("subject", "주변 질문")),
 			"주변 질문",
 			null,
 			4L,
