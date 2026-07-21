@@ -37,6 +37,7 @@ class ChatNoticeRepositoryIntegrationTest {
 	private static final long NO_MEMBER_USER_ID = 3L;
 	private static final long LEFT_USER_ID = 4L;
 	private static final OffsetDateTime BASE_TIME = OffsetDateTime.parse("2026-07-21T12:00:00+09:00");
+	private static final UUID IMAGE_FILE_ID = UUID.fromString("00000000-0000-0000-0000-000000000104");
 
 	@DynamicPropertySource
 	static void registerDataSourceProperties(DynamicPropertyRegistry registry) {
@@ -86,6 +87,7 @@ class ChatNoticeRepositoryIntegrationTest {
 	}
 
 	@Test
+	@Transactional
 	void insertIgnoreUsesPostgresOnConflictReturningForCanonicalDuplicateBehavior() {
 		assertThat(repository.insertIgnore(ROOM_ID, 101L, CURRENT_USER_ID)).contains(1L);
 		assertThat(repository.insertIgnore(ROOM_ID, 101L, SENDER_ID)).isEmpty();
@@ -204,14 +206,22 @@ class ChatNoticeRepositoryIntegrationTest {
 		insertTextMessage(101L, ROOM_ID, "visible-message", "user", null);
 		insertTextMessage(102L, ROOM_ID, "deleted-message", "user", BASE_TIME);
 		insertTextMessage(103L, ROOM_ID, "system-message", "system", null);
+		insertImageFile();
 		jdbc.update("""
 			INSERT INTO messages (message_id, room_id, sender_id, image_file_id, message_type, created_at)
 			VALUES (?, ?, ?, ?, 'user', ?)
-			""", 104L, ROOM_ID, SENDER_ID, UUID.fromString("00000000-0000-0000-0000-000000000104"), BASE_TIME);
+			""", 104L, ROOM_ID, SENDER_ID, IMAGE_FILE_ID, BASE_TIME);
 		insertTextMessage(105L, ROOM_ID, "notice-one", "user", null);
 		insertTextMessage(106L, ROOM_ID, "notice-two", "user", null);
 		insertTextMessage(107L, ROOM_ID, "notice-three", "user", null);
 		insertTextMessage(201L, OTHER_ROOM_ID, "foreign-room", "user", null);
+	}
+
+	private void insertImageFile() {
+		jdbc.update("""
+			INSERT INTO files (file_id, uploader_id, s3_key, content_type, size_bytes, uploaded_at)
+			VALUES (?, ?, 'chat-notice/image-only-message.webp', 'image/webp', 1024, ?)
+			""", IMAGE_FILE_ID, SENDER_ID, BASE_TIME);
 	}
 
 	private void insertTextMessage(Long messageId, Long roomId, String content, String messageType, OffsetDateTime deletedAt) {
