@@ -42,7 +42,11 @@ public class AdminAuditLogWriter {
 			"newStatus",
 			"version",
 			"reason"
-		))
+		)),
+		AdminAuditAction.QUESTION_HARD_DELETED,
+		new AuditContract("question", Set.of("deletedFileCount", "wasSoftDeleted")),
+		AdminAuditAction.MEETING_HARD_DELETED,
+		new AuditContract("meeting", Set.of("deletedFileCount", "wasSoftDeleted"))
 	);
 
 	private final JdbcClient jdbc;

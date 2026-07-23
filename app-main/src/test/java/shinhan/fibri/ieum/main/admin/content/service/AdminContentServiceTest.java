@@ -13,12 +13,16 @@ import static org.mockito.Mockito.when;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.Optional;
+import java.util.concurrent.Executor;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
+import shinhan.fibri.ieum.main.admin.audit.repository.AdminAuditLogWriter;
 import shinhan.fibri.ieum.main.admin.content.exception.ContentNotFoundException;
 import shinhan.fibri.ieum.main.admin.content.exception.UnsupportedContentTypeException;
+import shinhan.fibri.ieum.main.admin.content.repository.AdminContentHardDeleteRepository;
 import shinhan.fibri.ieum.main.ai.question.repository.QuestionAnswerTicketWriter;
+import shinhan.fibri.ieum.main.file.service.S3FileDeletionService;
 import shinhan.fibri.ieum.main.pin.repository.PinWriter;
 import shinhan.fibri.ieum.main.question.domain.Question;
 import shinhan.fibri.ieum.main.question.repository.QuestionDeletionState;
@@ -35,7 +39,14 @@ class AdminContentServiceTest {
 		pinWriter,
 		questionAnswerTicketWriter
 	);
-	private final AdminContentService service = new AdminContentService(questionDeletionExecutor);
+	private final AdminContentService service = new AdminContentService(
+		questionDeletionExecutor,
+		mock(AdminContentHardDeleteRepository.class),
+		questionAnswerTicketWriter,
+		mock(AdminAuditLogWriter.class),
+		mock(S3FileDeletionService.class),
+		mock(Executor.class)
+	);
 
 	@Test
 	void hideQuestionCancelsAiThenSoftDeletesQuestionAndPinAtSameTimeWithoutAuthorCheck() {

@@ -4,9 +4,11 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import shinhan.fibri.ieum.main.admin.content.exception.ContentNotFoundException;
+import shinhan.fibri.ieum.main.admin.content.exception.HardDeleteConfirmationMismatchException;
 import shinhan.fibri.ieum.main.admin.content.exception.UnsupportedContentTypeException;
 import shinhan.fibri.ieum.main.auth.dto.AuthErrorResponse;
 
@@ -24,5 +26,23 @@ public class AdminContentExceptionHandler {
 	public ResponseEntity<AuthErrorResponse> handleUnsupportedContentType(UnsupportedContentTypeException exception) {
 		return ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED)
 			.body(new AuthErrorResponse("CONTENT_TYPE_NOT_IMPLEMENTED", exception.getMessage()));
+	}
+
+	@ExceptionHandler(HardDeleteConfirmationMismatchException.class)
+	public ResponseEntity<AuthErrorResponse> handleHardDeleteConfirmationMismatch(
+		HardDeleteConfirmationMismatchException exception
+	) {
+		return ResponseEntity.badRequest()
+			.body(new AuthErrorResponse(
+				"VALIDATION_FAILED",
+				exception.getMessage(),
+				java.util.List.of(new AuthErrorResponse.FieldError(exception.field(), exception.getMessage()))
+			));
+	}
+
+	@ExceptionHandler(MethodArgumentNotValidException.class)
+	public ResponseEntity<AuthErrorResponse> handleInvalidRequest(MethodArgumentNotValidException exception) {
+		return ResponseEntity.badRequest()
+			.body(new AuthErrorResponse("VALIDATION_FAILED", "Invalid request"));
 	}
 }
