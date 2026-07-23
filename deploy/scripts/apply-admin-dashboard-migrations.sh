@@ -452,6 +452,7 @@ DECLARE
   columns_exact boolean;
   sequence_exact boolean;
   constraints_exact boolean;
+  constraints_base boolean;
   indexes_exact boolean;
 BEGIN
   SELECT table_class.oid
@@ -600,6 +601,78 @@ BEGIN
           '[[:space:]()]',
           '',
           'g'
+        ) = 'action=ANYARRAY[''USER_SANCTION_CREATED''::text,''USER_ACTIVATED''::text,''USER_ROLE_CHANGED''::text,''REPORT_CONFIRMED''::text,''REPORT_DISMISSED''::text,''INQUIRY_ANSWERED''::text,''KNOWLEDGE_RELATION_APPROVED''::text,''KNOWLEDGE_RELATION_REJECTED''::text,''QUESTION_HARD_DELETED''::text,''MEETING_HARD_DELETED''::text]'
+    ) = 1
+    AND count(*) FILTER (
+      WHERE conname = 'ck_admin_audit_logs_target_type'
+        AND contype = 'c'
+        AND constraint_row.convalidated
+        AND NOT constraint_row.connoinherit
+        AND regexp_replace(
+          pg_get_expr(constraint_row.conbin, constraint_row.conrelid),
+          '[[:space:]()]',
+          '',
+          'g'
+        ) = 'target_type=ANYARRAY[''user''::text,''report''::text,''inquiry''::text,''knowledge_relation_candidate''::text,''question''::text,''meeting''::text]'
+    ) = 1
+    AND count(*) FILTER (
+      WHERE conname = 'ck_admin_audit_logs_details_object'
+        AND contype = 'c'
+        AND constraint_row.convalidated
+        AND NOT constraint_row.connoinherit
+        AND regexp_replace(
+          pg_get_expr(constraint_row.conbin, constraint_row.conrelid),
+          '[[:space:]()]',
+          '',
+          'g'
+        ) = 'jsonb_typeofdetails=''object''::text'
+    ) = 1
+  INTO constraints_exact
+  FROM pg_constraint constraint_row
+  WHERE constraint_row.conrelid = table_oid
+    AND constraint_row.contype <> 'n';
+
+  SELECT count(*) = 5
+    AND count(*) FILTER (
+      WHERE conname = 'admin_audit_logs_pkey'
+        AND contype = 'p'
+        AND constraint_row.convalidated
+        AND NOT constraint_row.condeferrable
+        AND NOT constraint_row.condeferred
+        AND constraint_row.conkey = ARRAY[1]::smallint[]
+    ) = 1
+    AND count(*) FILTER (
+      WHERE conname = 'admin_audit_logs_actor_user_id_fkey'
+        AND contype = 'f'
+        AND constraint_row.convalidated
+        AND constraint_row.conkey = ARRAY[2]::smallint[]
+        AND constraint_row.confrelid = 'public.users'::regclass
+        AND constraint_row.confkey = ARRAY[
+          (
+            SELECT attnum
+            FROM pg_attribute
+            WHERE attrelid = 'public.users'::regclass
+              AND attname = 'user_id'
+              AND attnum > 0
+              AND NOT attisdropped
+          )
+        ]::smallint[]
+        AND constraint_row.confmatchtype = 's'
+        AND constraint_row.confupdtype = 'a'
+        AND constraint_row.confdeltype = 'n'
+        AND NOT constraint_row.condeferrable
+        AND NOT constraint_row.condeferred
+    ) = 1
+    AND count(*) FILTER (
+      WHERE conname = 'ck_admin_audit_logs_action'
+        AND contype = 'c'
+        AND constraint_row.convalidated
+        AND NOT constraint_row.connoinherit
+        AND regexp_replace(
+          pg_get_expr(constraint_row.conbin, constraint_row.conrelid),
+          '[[:space:]()]',
+          '',
+          'g'
         ) = 'action=ANYARRAY[''USER_SANCTION_CREATED''::text,''USER_ACTIVATED''::text,''USER_ROLE_CHANGED''::text,''REPORT_CONFIRMED''::text,''REPORT_DISMISSED''::text,''INQUIRY_ANSWERED''::text,''KNOWLEDGE_RELATION_APPROVED''::text,''KNOWLEDGE_RELATION_REJECTED''::text]'
     ) = 1
     AND count(*) FILTER (
@@ -626,7 +699,7 @@ BEGIN
           'g'
         ) = 'jsonb_typeofdetails=''object''::text'
     ) = 1
-  INTO constraints_exact
+  INTO constraints_base
   FROM pg_constraint constraint_row
   WHERE constraint_row.conrelid = table_oid
     AND constraint_row.contype <> 'n';
@@ -714,6 +787,7 @@ BEGIN
 
   RETURN CASE
     WHEN columns_exact AND sequence_exact AND constraints_exact AND indexes_exact THEN 'exact'
+    WHEN columns_exact AND sequence_exact AND constraints_base AND indexes_exact THEN 'base'
     ELSE 'mismatch'
   END;
 END
@@ -1544,6 +1618,7 @@ $preflight$;
 SELECT to_regclass('public.ai_report_policy_rules') IS NOT NULL AS apply_report_policy_migrations \gset
 SELECT pg_temp.auth_version_contract_state() = 'absent' AS apply_auth_version_migration \gset
 SELECT pg_temp.admin_audit_contract_state() = 'absent' AS apply_admin_audit_migration \gset
+SELECT pg_temp.admin_audit_contract_state() = 'base' AS apply_admin_audit_content_hard_delete_migration \gset
 SELECT pg_temp.web_push_subscription_contract_state() = 'absent' AS apply_web_push_subscription_base_migration \gset
 SELECT pg_temp.message_type_contract_state() = 'absent' AS apply_message_type_migration \gset
 SELECT pg_temp.chat_notice_contract_state() = 'absent' AS apply_chat_notice_migration \gset
@@ -1594,6 +1669,7 @@ SELECT pg_temp.web_push_subscription_contract_state() = 'base' AS apply_web_push
 \if :apply_admin_audit_migration
 \i db/migrations/v26_admin_audit_logs.sql
 \endif
+SELECT pg_temp.admin_audit_contract_state() = 'base' AS apply_admin_audit_content_hard_delete_migration \gset
 \if :apply_web_push_session_cardinality_migration
 \i db/migrations/v26_web_push_session_cardinality.sql
 \endif
@@ -1641,6 +1717,7 @@ SELECT NOT EXISTS (
 \endif
 \i db/migrations/v34_question_ai_ungrounded_answer_validate.sql
 \i db/migrations/v35_knowledge_relation_candidates.sql
+SELECT pg_temp.admin_audit_contract_state() = 'base' AS apply_admin_audit_content_hard_delete_migration \gset
 SELECT (
   to_regclass('public.meeting_schedules') IS NOT NULL
   AND NOT EXISTS (
@@ -1659,6 +1736,10 @@ SELECT (
 \if :apply_chat_notice_migration
 \i db/migrations/v38_chat_notices.sql
 \endif
+\if :apply_admin_audit_content_hard_delete_migration
+\i db/migrations/v39_admin_audit_content_hard_delete.sql
+\endif
+\i db/migrations/v40_admin_content_file_cleanup_tasks.sql
 
 DO $verify$
 BEGIN
