@@ -32,7 +32,7 @@ class FallbackReportReviewModelGatewayTest {
 	@Test
 	void fallsBackWhenPrimaryOutputViolatesThePolicyContract() {
 		StubProvider primary = new StubProvider("bedrock", "amazon.nova-lite-v1:0", new ReportModelReviewOutput(List.of(
-			new ReportModelRuleMatch("UNKNOWN-RULE", new java.math.BigDecimal("0.99"), List.of(2L), "invalid")
+			new ReportModelRuleMatch("UNKNOWN-RULE", new java.math.BigDecimal("0.99"), List.of(2L), "잘못된 근거")
 		), false));
 		StubProvider fallback = new StubProvider("gemini", "gemini-3.1-flash-lite", new ReportModelReviewOutput(List.of(), false));
 		FallbackReportReviewModelGateway gateway = new FallbackReportReviewModelGateway(primary, fallback, "report-review-v1");

@@ -53,6 +53,7 @@ import shinhan.fibri.ieum.main.admin.user.exception.AdminUserNotFoundException;
 import shinhan.fibri.ieum.main.admin.user.exception.CannotChangeOwnRoleException;
 import shinhan.fibri.ieum.main.admin.user.exception.CannotDeleteSelfException;
 import shinhan.fibri.ieum.main.admin.user.exception.CannotHardDeleteUserException;
+import shinhan.fibri.ieum.main.admin.user.exception.CannotPromoteAdminException;
 import shinhan.fibri.ieum.main.admin.user.exception.HardDeleteConfirmationMismatchException;
 import shinhan.fibri.ieum.main.admin.user.exception.InvalidAdminCursorException;
 import shinhan.fibri.ieum.main.admin.user.exception.LastAdminRequiredException;
@@ -153,6 +154,15 @@ class AdminUserControllerTest {
 	}
 
 	@Test
+	void promoteReturnsNoContentWithoutRequestBody() throws Exception {
+		mockMvc.perform(post("/api/v1/admin/users/10/promote").with(admin()))
+			.andExpect(status().isNoContent())
+			.andExpect(content().string(""));
+
+		verify(roleService).promoteToAdmin(any(AuthenticatedUser.class), eq(10L));
+	}
+
+	@Test
 	void selfDemotionMapsToConflict() throws Exception {
 		doThrow(new CannotChangeOwnRoleException())
 			.when(roleService)
@@ -198,6 +208,17 @@ class AdminUserControllerTest {
 					"""))
 			.andExpect(status().isConflict())
 			.andExpect(jsonPath("$.code", is("ADMIN_ROLE_REQUIRED")));
+	}
+
+	@Test
+	void duplicateOrInactivePromotionMapsToConflict() throws Exception {
+		doThrow(new CannotPromoteAdminException())
+			.when(roleService)
+			.promoteToAdmin(any(AuthenticatedUser.class), eq(10L));
+
+		mockMvc.perform(post("/api/v1/admin/users/10/promote").with(admin()))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code", is("CANNOT_PROMOTE_ADMIN")));
 	}
 
 	@Test

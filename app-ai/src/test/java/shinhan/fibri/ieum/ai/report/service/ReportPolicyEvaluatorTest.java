@@ -110,9 +110,25 @@ class ReportPolicyEvaluatorTest {
 		assertThat(result.severity()).isEqualTo(ReportPolicySeverity.low);
 		assertThat(result.confidence()).isEqualByComparingTo("0.0000");
 		assertThat(result.sourceRuleCode()).isNull();
-		assertThat(result.reason()).isEqualTo("Model uncertainty requires manual review");
+		assertThat(result.reason()).isEqualTo("모델 판단이 불확실하여 관리자 검토가 필요합니다");
 		assertThat(result.evidenceMessageIds()).isEmpty();
 		assertThat(result.matchedRules()).isEmpty();
+	}
+
+	@Test
+	void finalEvaluationReasonMustBeKorean() {
+		assertThatThrownBy(() -> new ReportPolicyEvaluationResult(
+			ReportPolicyDecision.normal,
+			null,
+			null,
+			BigDecimal.ZERO,
+			"No policy rule matched",
+			null,
+			List.of(),
+			List.of()
+		))
+			.isInstanceOf(IllegalArgumentException.class)
+			.hasMessageContaining("reason");
 	}
 
 	@Test
@@ -128,6 +144,7 @@ class ReportPolicyEvaluatorTest {
 		assertThat(noMatch.decision()).isEqualTo(ReportPolicyDecision.normal);
 		assertThat(noMatch.category()).isNull();
 		assertThat(noMatch.severity()).isNull();
+		assertThat(noMatch.reason()).isEqualTo("정책 위반 근거가 확인되지 않았습니다");
 	}
 
 	@Test
@@ -189,7 +206,7 @@ class ReportPolicyEvaluatorTest {
 	}
 
 	private ReportModelRuleMatch match(String ruleCode, String confidence) {
-		return new ReportModelRuleMatch(ruleCode, new BigDecimal(confidence), List.of(2L), ruleCode + " reason");
+		return new ReportModelRuleMatch(ruleCode, new BigDecimal(confidence), List.of(2L), ruleCode + " 위반 근거");
 	}
 
 	private ReportPolicyEvaluationResult evaluate(ReportPolicySnapshot snapshot, ReportModelReviewOutput output) {

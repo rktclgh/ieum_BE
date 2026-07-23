@@ -58,6 +58,7 @@ class StaticPageControllerTest {
 		"/admin/users/detail",
 		"/admin/knowledge",
 		"/admin/content",
+		"/admin/content/detail",
 		"/admin/reports",
 		"/admin/reports/detail",
 		"/admin/inquiries"
@@ -83,6 +84,9 @@ class StaticPageControllerTest {
 		mockMvc.perform(get("/admin/users/detail").queryParam("userId", "10"))
 			.andExpect(status().isOk())
 			.andExpect(forwardedUrl("/admin/users/detail/index.html"));
+		mockMvc.perform(get("/admin/content/detail").queryParam("type", "question").queryParam("id", "10"))
+			.andExpect(status().isOk())
+			.andExpect(forwardedUrl("/admin/content/detail/index.html"));
 	}
 
 	@Test

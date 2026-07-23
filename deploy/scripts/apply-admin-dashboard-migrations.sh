@@ -601,7 +601,10 @@ BEGIN
           '[[:space:]()]',
           '',
           'g'
-        ) = 'action=ANYARRAY[''USER_SANCTION_CREATED''::text,''USER_ACTIVATED''::text,''USER_ROLE_CHANGED''::text,''REPORT_CONFIRMED''::text,''REPORT_DISMISSED''::text,''INQUIRY_ANSWERED''::text,''KNOWLEDGE_RELATION_APPROVED''::text,''KNOWLEDGE_RELATION_REJECTED''::text,''QUESTION_HARD_DELETED''::text,''MEETING_HARD_DELETED''::text]'
+        ) IN (
+          'action=ANYARRAY[''USER_SANCTION_CREATED''::text,''USER_ACTIVATED''::text,''USER_ROLE_CHANGED''::text,''REPORT_CONFIRMED''::text,''REPORT_DISMISSED''::text,''INQUIRY_ANSWERED''::text,''KNOWLEDGE_RELATION_APPROVED''::text,''KNOWLEDGE_RELATION_REJECTED''::text,''QUESTION_HARD_DELETED''::text,''MEETING_HARD_DELETED''::text]',
+          'action=ANYARRAY[''USER_SANCTION_CREATED''::text,''USER_ACTIVATED''::text,''USER_ROLE_CHANGED''::text,''REPORT_CONFIRMED''::text,''REPORT_DISMISSED''::text,''INQUIRY_ANSWERED''::text,''KNOWLEDGE_RELATION_APPROVED''::text,''KNOWLEDGE_RELATION_REJECTED''::text,''USER_PROMOTED_TO_ADMIN''::text,''QUESTION_UPDATED''::text,''MEETING_UPDATED''::text,''QUESTION_HARD_DELETED''::text,''MEETING_HARD_DELETED''::text]'
+        )
     ) = 1
     AND count(*) FILTER (
       WHERE conname = 'ck_admin_audit_logs_target_type'
@@ -1740,6 +1743,7 @@ SELECT (
 \i db/migrations/v39_admin_audit_content_hard_delete.sql
 \endif
 \i db/migrations/v40_admin_content_file_cleanup_tasks.sql
+\i db/migrations/v41_admin_audit_content_management.sql
 
 DO $verify$
 BEGIN

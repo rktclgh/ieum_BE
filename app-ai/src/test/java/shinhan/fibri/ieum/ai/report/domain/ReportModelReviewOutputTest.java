@@ -35,7 +35,7 @@ class ReportModelReviewOutputTest {
 	@Test
 	void rejectsConfidenceOutsideThePolicyRange() {
 		assertThatThrownBy(() -> new ReportModelRuleMatch(
-			"CONTENT-ABUSE-001", new BigDecimal("1.0001"), List.of(2L), "reason"
+			"CONTENT-ABUSE-001", new BigDecimal("1.0001"), List.of(2L), "위반 근거"
 		))
 			.isInstanceOf(IllegalArgumentException.class)
 			.hasMessageContaining("confidence");
@@ -43,33 +43,33 @@ class ReportModelReviewOutputTest {
 
 	@Test
 	void acceptsPolicyConfidenceBoundaries() {
-		assertThat(new ReportModelRuleMatch("CONTENT-ABUSE-001", BigDecimal.ZERO, List.of(1L), "reason").confidence())
+		assertThat(new ReportModelRuleMatch("CONTENT-ABUSE-001", BigDecimal.ZERO, List.of(1L), "위반 근거").confidence())
 			.isEqualByComparingTo(BigDecimal.ZERO);
-		assertThat(new ReportModelRuleMatch("CONTENT-ABUSE-002", BigDecimal.ONE, List.of(2L), "reason").confidence())
+		assertThat(new ReportModelRuleMatch("CONTENT-ABUSE-002", BigDecimal.ONE, List.of(2L), "위반 근거").confidence())
 			.isEqualByComparingTo(BigDecimal.ONE);
 	}
 
 	@Test
 	void rejectsMalformedModelMatchFields() {
-		assertThatThrownBy(() -> new ReportModelRuleMatch("invalid", new BigDecimal("0.9"), List.of(1L), "reason"))
+		assertThatThrownBy(() -> new ReportModelRuleMatch("invalid", new BigDecimal("0.9"), List.of(1L), "위반 근거"))
 			.isInstanceOf(IllegalArgumentException.class)
 			.hasMessageContaining("ruleCode");
-		assertThatThrownBy(() -> new ReportModelRuleMatch("CONTENT-ABUSE-001", null, List.of(1L), "reason"))
+		assertThatThrownBy(() -> new ReportModelRuleMatch("CONTENT-ABUSE-001", null, List.of(1L), "위반 근거"))
 			.isInstanceOf(IllegalArgumentException.class)
 			.hasMessageContaining("confidence");
-		assertThatThrownBy(() -> new ReportModelRuleMatch("CONTENT-ABUSE-001", new BigDecimal("-0.0001"), List.of(1L), "reason"))
+		assertThatThrownBy(() -> new ReportModelRuleMatch("CONTENT-ABUSE-001", new BigDecimal("-0.0001"), List.of(1L), "위반 근거"))
 			.isInstanceOf(IllegalArgumentException.class)
 			.hasMessageContaining("confidence");
-		assertThatThrownBy(() -> new ReportModelRuleMatch("CONTENT-ABUSE-001", new BigDecimal("0.9"), null, "reason"))
+		assertThatThrownBy(() -> new ReportModelRuleMatch("CONTENT-ABUSE-001", new BigDecimal("0.9"), null, "위반 근거"))
 			.isInstanceOf(IllegalArgumentException.class)
 			.hasMessageContaining("evidenceMessageIds");
-		assertThatThrownBy(() -> new ReportModelRuleMatch("CONTENT-ABUSE-001", new BigDecimal("0.9"), List.of(), "reason"))
+		assertThatThrownBy(() -> new ReportModelRuleMatch("CONTENT-ABUSE-001", new BigDecimal("0.9"), List.of(), "위반 근거"))
 			.isInstanceOf(IllegalArgumentException.class)
 			.hasMessageContaining("evidenceMessageIds");
-		assertThatThrownBy(() -> new ReportModelRuleMatch("CONTENT-ABUSE-001", new BigDecimal("0.9"), List.of(1L, 1L), "reason"))
+		assertThatThrownBy(() -> new ReportModelRuleMatch("CONTENT-ABUSE-001", new BigDecimal("0.9"), List.of(1L, 1L), "위반 근거"))
 			.isInstanceOf(IllegalArgumentException.class)
 			.hasMessageContaining("evidenceMessageIds");
-		assertThatThrownBy(() -> new ReportModelRuleMatch("CONTENT-ABUSE-001", new BigDecimal("0.9"), List.of(0L), "reason"))
+		assertThatThrownBy(() -> new ReportModelRuleMatch("CONTENT-ABUSE-001", new BigDecimal("0.9"), List.of(0L), "위반 근거"))
 			.isInstanceOf(IllegalArgumentException.class)
 			.hasMessageContaining("evidenceMessageIds");
 		assertThatThrownBy(() -> new ReportModelRuleMatch("CONTENT-ABUSE-001", new BigDecimal("0.9"), List.of(1L), " "))
@@ -78,13 +78,16 @@ class ReportModelReviewOutputTest {
 		assertThatThrownBy(() -> new ReportModelRuleMatch("CONTENT-ABUSE-001", new BigDecimal("0.9"), List.of(1L), null))
 			.isInstanceOf(IllegalArgumentException.class)
 			.hasMessageContaining("reason");
+		assertThatThrownBy(() -> new ReportModelRuleMatch("CONTENT-ABUSE-001", new BigDecimal("0.9"), List.of(1L), "clear abuse"))
+			.isInstanceOf(IllegalArgumentException.class)
+			.hasMessageContaining("Korean");
 	}
 
 	@Test
 	void copiesEvidenceAndMatchListsDefensively() {
 		List<Long> mutableEvidenceIds = new ArrayList<>(List.of(2L));
 		ReportModelRuleMatch match = new ReportModelRuleMatch(
-			"CONTENT-ABUSE-001", new BigDecimal("0.9"), mutableEvidenceIds, "reason"
+			"CONTENT-ABUSE-001", new BigDecimal("0.9"), mutableEvidenceIds, "욕설 근거"
 		);
 		List<ReportModelRuleMatch> mutableMatches = new ArrayList<>(List.of(match));
 		ReportModelReviewOutput output = new ReportModelReviewOutput(mutableMatches, false);
@@ -108,6 +111,6 @@ class ReportModelReviewOutputTest {
 	}
 
 	private ReportModelRuleMatch match(String ruleCode) {
-		return new ReportModelRuleMatch(ruleCode, new BigDecimal("0.9000"), List.of(2L), "clear abuse");
+		return new ReportModelRuleMatch(ruleCode, new BigDecimal("0.9000"), List.of(2L), "명확한 위반");
 	}
 }

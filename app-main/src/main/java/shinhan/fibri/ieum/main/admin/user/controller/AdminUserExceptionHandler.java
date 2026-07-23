@@ -19,6 +19,7 @@ import shinhan.fibri.ieum.main.admin.user.exception.AdminUserNotFoundException;
 import shinhan.fibri.ieum.main.admin.user.exception.CannotChangeOwnRoleException;
 import shinhan.fibri.ieum.main.admin.user.exception.CannotDeleteSelfException;
 import shinhan.fibri.ieum.main.admin.user.exception.CannotHardDeleteUserException;
+import shinhan.fibri.ieum.main.admin.user.exception.CannotPromoteAdminException;
 import shinhan.fibri.ieum.main.admin.user.exception.CannotSanctionAdminException;
 import shinhan.fibri.ieum.main.admin.user.exception.HardDeleteConfirmationMismatchException;
 import shinhan.fibri.ieum.main.admin.user.exception.InvalidAdminCursorException;
@@ -88,6 +89,12 @@ public class AdminUserExceptionHandler {
 	public ResponseEntity<AuthErrorResponse> handleCannotHardDeleteUser(CannotHardDeleteUserException exception) {
 		return ResponseEntity.status(HttpStatus.CONFLICT)
 			.body(new AuthErrorResponse("CANNOT_HARD_DELETE_USER", exception.getMessage()));
+	}
+
+	@ExceptionHandler(CannotPromoteAdminException.class)
+	public ResponseEntity<AuthErrorResponse> handleCannotPromoteAdmin(CannotPromoteAdminException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+			.body(new AuthErrorResponse("CANNOT_PROMOTE_ADMIN", exception.getMessage()));
 	}
 
 	@ExceptionHandler(CannotDeleteSelfException.class)

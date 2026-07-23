@@ -26,7 +26,7 @@ class GeminiReportReviewModelProviderTest {
 	@Test
 	void sendsJsonOnlyPromptWithoutSearchGroundingAndWithInlineWebpImages() {
 		FakeGeminiReportReviewClient client = new FakeGeminiReportReviewClient("""
-			{"matchedRules":[{"ruleCode":"TEXT-SPAM-001","confidence":0.91,"evidenceMessageIds":[8],"reason":"Repeated spam"}],"uncertain":false}
+			{"matchedRules":[{"ruleCode":"TEXT-SPAM-001","confidence":0.91,"evidenceMessageIds":[8],"reason":"반복적인 스팸 메시지입니다"}],"uncertain":false}
 			""");
 		GeminiReportReviewModelProvider provider = provider(client);
 

@@ -51,7 +51,7 @@ class ReportReviewInferenceOrchestratorTest {
 		);
 		ReportReviewModelGateway gateway = (review, policySnapshot, outputValidator) -> new ReportReviewInference(
 			outputValidator.evaluate(new ReportModelReviewOutput(List.of(
-				new ReportModelRuleMatch("CONTENT-ABUSE-001", new BigDecimal("0.9900"), List.of(2L), "abuse found")
+				new ReportModelRuleMatch("CONTENT-ABUSE-001", new BigDecimal("0.9900"), List.of(2L), "욕설 근거가 확인됩니다")
 			), false)),
 			"amazon.nova-lite-v1:0",
 			"report-review-v1",
@@ -71,7 +71,7 @@ class ReportReviewInferenceOrchestratorTest {
 		assertThat(response.category()).isEqualTo("abuse");
 		assertThat(response.severity()).isEqualTo("medium");
 		assertThat(response.confidence()).isEqualByComparingTo("0.9900");
-		assertThat(response.reason()).isEqualTo("abuse found");
+		assertThat(response.reason()).isEqualTo("욕설 근거가 확인됩니다");
 		assertThat(response.evidence().get(0).path("messageId").asLong()).isEqualTo(2L);
 		assertThat(response.evidence().get(0).path("type").asText()).isEqualTo("text");
 		assertThat(response.matchedRules().get(0).path("ruleCode").asText()).isEqualTo("CONTENT-ABUSE-001");

@@ -1234,6 +1234,9 @@ CREATE TABLE admin_audit_logs (
             'INQUIRY_ANSWERED',
             'KNOWLEDGE_RELATION_APPROVED',
             'KNOWLEDGE_RELATION_REJECTED',
+            'USER_PROMOTED_TO_ADMIN',
+            'QUESTION_UPDATED',
+            'MEETING_UPDATED',
             'QUESTION_HARD_DELETED',
             'MEETING_HARD_DELETED'
         )

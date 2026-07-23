@@ -112,7 +112,7 @@ class ReportPolicyEvidenceValidationTest {
 	}
 
 	private ReportModelRuleMatch match(String ruleCode, List<Long> evidenceMessageIds) {
-		return new ReportModelRuleMatch(ruleCode, new BigDecimal("0.99"), evidenceMessageIds, "reason");
+		return new ReportModelRuleMatch(ruleCode, new BigDecimal("0.99"), evidenceMessageIds, "위반 근거");
 	}
 
 	private ReportReviewEvidenceMessage message(long messageId, String actor, String content, boolean verifiedImage) {

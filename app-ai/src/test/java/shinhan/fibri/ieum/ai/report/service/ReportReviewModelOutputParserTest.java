@@ -17,7 +17,7 @@ class ReportReviewModelOutputParserTest {
 			    "ruleCode": "CONTENT-ABUSE-001",
 			    "confidence": 0.99,
 			    "evidenceMessageIds": [2, 3],
-			    "reason": "abuse found"
+			    "reason": "욕설 근거가 확인됩니다"
 			  }],
 			  "uncertain": false
 			}
@@ -48,7 +48,7 @@ class ReportReviewModelOutputParserTest {
 			    "ruleCode": "CONTENT-OTHER-001",
 			    "confidence": 0.99,
 			    "evidenceMessageIds": [2],
-			    "reason": "abuse found"
+			    "reason": "욕설 근거가 확인됩니다"
 			  }],
 			  "uncertain": false
 			}

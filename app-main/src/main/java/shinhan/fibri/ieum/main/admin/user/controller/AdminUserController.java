@@ -79,6 +79,15 @@ public class AdminUserController {
 		return ResponseEntity.noContent().build();
 	}
 
+	@PostMapping("/{userId}/promote")
+	public ResponseEntity<Void> promote(
+		@AuthenticationPrincipal AuthenticatedUser principal,
+		@PathVariable Long userId
+	) {
+		adminUserRoleService.promoteToAdmin(principal, userId);
+		return ResponseEntity.noContent().build();
+	}
+
 	@DeleteMapping("/{userId}")
 	public ResponseEntity<Void> hardDelete(
 		@AuthenticationPrincipal AuthenticatedUser principal,

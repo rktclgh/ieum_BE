@@ -26,6 +26,7 @@ import shinhan.fibri.ieum.main.admin.content.repository.AdminContentFileCleanupT
 import shinhan.fibri.ieum.main.admin.content.repository.AdminContentHardDeleteRepository;
 import shinhan.fibri.ieum.main.admin.content.repository.AdminContentHardDeleteResult;
 import shinhan.fibri.ieum.main.admin.content.repository.AdminContentHardDeleteTarget;
+import shinhan.fibri.ieum.main.admin.content.repository.AdminContentQueryRepository;
 import shinhan.fibri.ieum.main.ai.question.repository.QuestionAnswerTicketWriter;
 import shinhan.fibri.ieum.main.question.service.QuestionDeletionExecutor;
 
@@ -41,7 +42,8 @@ class AdminContentHardDeleteServiceTest {
 		hardDeleteRepository,
 		questionAnswerTicketWriter,
 		auditLogWriter,
-		fileCleanupTaskRepository
+		fileCleanupTaskRepository,
+		mock(AdminContentQueryRepository.class)
 	);
 
 	@Test

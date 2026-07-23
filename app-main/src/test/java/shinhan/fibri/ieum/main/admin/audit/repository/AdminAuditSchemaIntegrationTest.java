@@ -39,7 +39,7 @@ class AdminAuditSchemaIntegrationTest {
 
 		SqlScriptRunner.run(DATABASE, "migrations/v26_admin_audit_logs.sql");
 
-		assertAuditTableContract(false);
+		assertAuditTableContract(false, false);
 		assertForeignKeyAndJsonConstraints();
 	}
 
@@ -50,8 +50,20 @@ class AdminAuditSchemaIntegrationTest {
 
 		SqlScriptRunner.run(DATABASE, "migrations/v39_admin_audit_content_hard_delete.sql");
 
-		assertAuditTableContract(true);
-		assertContentHardDeleteAuditWrites();
+		assertAuditTableContract(true, false);
+		assertContentAuditWrites(false);
+	}
+
+	@Test
+	void v41MigrationExpandsAuditActionConstraintsForContentManagementAndPromotion() {
+		createLegacyUsersTable();
+		SqlScriptRunner.run(DATABASE, "migrations/v26_admin_audit_logs.sql");
+		SqlScriptRunner.run(DATABASE, "migrations/v39_admin_audit_content_hard_delete.sql");
+
+		SqlScriptRunner.run(DATABASE, "migrations/v41_admin_audit_content_management.sql");
+
+		assertAuditTableContract(true, true);
+		assertContentAuditWrites(true);
 	}
 
 	@Test
@@ -71,12 +83,12 @@ class AdminAuditSchemaIntegrationTest {
 	void canonicalSchemaContainsTheSameAuditStorageContract() {
 		SqlScriptRunner.run(DATABASE, "schema.sql");
 
-		assertAuditTableContract(true);
+		assertAuditTableContract(true, true);
 		assertForeignKeyAndJsonConstraints();
-		assertContentHardDeleteAuditWrites();
+		assertContentAuditWrites(true);
 	}
 
-	private void assertAuditTableContract(boolean contentHardDeleteEnabled) {
+	private void assertAuditTableContract(boolean contentHardDeleteEnabled, boolean contentManagementEnabled) {
 		assertThat(columns()).containsExactly(
 			"audit_id",
 			"actor_user_id",
@@ -137,6 +149,23 @@ class AdminAuditSchemaIntegrationTest {
 					.contains("'question'"))
 				.noneSatisfy(definition -> assertThat(definition)
 					.contains("'meeting'"));
+		}
+		if (contentManagementEnabled) {
+			assertThat(constraintDefinitions())
+				.anySatisfy(definition -> assertThat(definition)
+					.contains("action")
+					.contains("'USER_PROMOTED_TO_ADMIN'")
+					.contains("'QUESTION_UPDATED'")
+					.contains("'MEETING_UPDATED'"));
+		}
+		else {
+			assertThat(constraintDefinitions())
+				.noneSatisfy(definition -> assertThat(definition)
+					.contains("'USER_PROMOTED_TO_ADMIN'"))
+				.noneSatisfy(definition -> assertThat(definition)
+					.contains("'QUESTION_UPDATED'"))
+				.noneSatisfy(definition -> assertThat(definition)
+					.contains("'MEETING_UPDATED'"));
 		}
 
 		assertThat(indexDefinitions())
@@ -211,7 +240,7 @@ class AdminAuditSchemaIntegrationTest {
 			.isInstanceOf(DataAccessException.class);
 	}
 
-	private void assertContentHardDeleteAuditWrites() {
+	private void assertContentAuditWrites(boolean contentManagementEnabled) {
 		jdbc.sql("""
 			INSERT INTO admin_audit_logs(action, target_type, target_id, details)
 			VALUES ('QUESTION_HARD_DELETED', 'question', 42, '{"deletedFileCount":1,"wasSoftDeleted":true}')
@@ -227,6 +256,25 @@ class AdminAuditSchemaIntegrationTest {
 			WHERE action IN ('QUESTION_HARD_DELETED', 'MEETING_HARD_DELETED')
 			  AND target_type IN ('question', 'meeting')
 			""").query(Long.class).single()).isEqualTo(2);
+		if (contentManagementEnabled) {
+			jdbc.sql("""
+				INSERT INTO admin_audit_logs(action, target_type, target_id, details)
+				VALUES ('USER_PROMOTED_TO_ADMIN', 'user', 10, '{"previousRole":"user","newRole":"admin"}')
+				""").update();
+			jdbc.sql("""
+				INSERT INTO admin_audit_logs(action, target_type, target_id, details)
+				VALUES ('QUESTION_UPDATED', 'question', 42, '{"previousTitle":"old","newTitle":"new","previousContentLength":3,"newContentLength":3}')
+				""").update();
+			jdbc.sql("""
+				INSERT INTO admin_audit_logs(action, target_type, target_id, details)
+				VALUES ('MEETING_UPDATED', 'meeting', 7, '{"previousTitle":"old","newTitle":"new","previousContentLength":3,"newContentLength":3}')
+				""").update();
+			assertThat(jdbc.sql("""
+				SELECT count(*)
+				FROM admin_audit_logs
+				WHERE action IN ('USER_PROMOTED_TO_ADMIN', 'QUESTION_UPDATED', 'MEETING_UPDATED')
+				""").query(Long.class).single()).isEqualTo(3);
+		}
 	}
 
 	private void createLegacyUsersTable() {

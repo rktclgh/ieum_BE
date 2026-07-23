@@ -14,39 +14,71 @@ import shinhan.fibri.ieum.main.admin.audit.domain.AdminAuditAction;
 @Repository
 public class AdminAuditLogWriter {
 
-	private static final Map<AdminAuditAction, AuditContract> CONTRACTS = Map.of(
-		AdminAuditAction.USER_SANCTION_CREATED,
-		new AuditContract("user", Set.of("sanctionId", "type", "reason", "endsAt")),
-		AdminAuditAction.USER_ACTIVATED,
-		new AuditContract("user", Set.of("releasedSanctionIds", "previousStatus", "newStatus")),
-		AdminAuditAction.USER_ROLE_CHANGED,
-		new AuditContract("user", Set.of("previousRole", "newRole")),
-		AdminAuditAction.REPORT_CONFIRMED,
-		new AuditContract("report", Set.of("previousDecision", "newDecision")),
-		AdminAuditAction.REPORT_DISMISSED,
-		new AuditContract("report", Set.of("previousDecision", "newDecision")),
-		AdminAuditAction.INQUIRY_ANSWERED,
-		new AuditContract("inquiry", Set.of("answerLength")),
-		AdminAuditAction.KNOWLEDGE_RELATION_APPROVED,
-		new AuditContract("knowledge_relation_candidate", Set.of(
+	private static final Map<AdminAuditAction, AuditContract> CONTRACTS = Map.ofEntries(
+		Map.entry(
+			AdminAuditAction.USER_SANCTION_CREATED,
+			new AuditContract("user", Set.of("sanctionId", "type", "reason", "endsAt"))
+		),
+		Map.entry(
+			AdminAuditAction.USER_ACTIVATED,
+			new AuditContract("user", Set.of("releasedSanctionIds", "previousStatus", "newStatus"))
+		),
+		Map.entry(
+			AdminAuditAction.USER_ROLE_CHANGED,
+			new AuditContract("user", Set.of("previousRole", "newRole"))
+		),
+		Map.entry(
+			AdminAuditAction.REPORT_CONFIRMED,
+			new AuditContract("report", Set.of("previousDecision", "newDecision"))
+		),
+		Map.entry(
+			AdminAuditAction.REPORT_DISMISSED,
+			new AuditContract("report", Set.of("previousDecision", "newDecision"))
+		),
+		Map.entry(
+			AdminAuditAction.INQUIRY_ANSWERED,
+			new AuditContract("inquiry", Set.of("answerLength"))
+		),
+		Map.entry(
+			AdminAuditAction.KNOWLEDGE_RELATION_APPROVED,
+			new AuditContract("knowledge_relation_candidate", Set.of(
 			"sourceId",
 			"relationId",
 			"previousStatus",
 			"newStatus",
 			"version"
-		)),
-		AdminAuditAction.KNOWLEDGE_RELATION_REJECTED,
-		new AuditContract("knowledge_relation_candidate", Set.of(
+			))
+		),
+		Map.entry(
+			AdminAuditAction.KNOWLEDGE_RELATION_REJECTED,
+			new AuditContract("knowledge_relation_candidate", Set.of(
 			"sourceId",
 			"previousStatus",
 			"newStatus",
 			"version",
 			"reason"
-		)),
-		AdminAuditAction.QUESTION_HARD_DELETED,
-		new AuditContract("question", Set.of("deletedFileCount", "wasSoftDeleted")),
-		AdminAuditAction.MEETING_HARD_DELETED,
-		new AuditContract("meeting", Set.of("deletedFileCount", "wasSoftDeleted"))
+			))
+		),
+		Map.entry(
+			AdminAuditAction.USER_PROMOTED_TO_ADMIN,
+			new AuditContract("user", Set.of("previousRole", "newRole"))
+		),
+		Map.entry(
+			AdminAuditAction.QUESTION_UPDATED,
+			new AuditContract("question", Set.of("previousTitle", "newTitle", "previousContentLength", "newContentLength"))
+		),
+		Map.entry(
+			AdminAuditAction.MEETING_UPDATED,
+			new AuditContract("meeting", Set.of("previousTitle", "newTitle", "previousContentLength", "newContentLength"))
+		),
+		Map.entry(
+			AdminAuditAction.QUESTION_HARD_DELETED,
+			new AuditContract("question", Set.of("deletedFileCount", "wasSoftDeleted"))
+		),
+		Map.entry(
+			AdminAuditAction.MEETING_HARD_DELETED,
+			new AuditContract("meeting", Set.of("deletedFileCount", "wasSoftDeleted"))
+		)
 	);
 
 	private final JdbcClient jdbc;

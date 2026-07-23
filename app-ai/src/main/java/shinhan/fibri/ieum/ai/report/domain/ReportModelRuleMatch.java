@@ -14,6 +14,7 @@ public record ReportModelRuleMatch(
 ) {
 
 	private static final Pattern RULE_CODE = Pattern.compile("^[A-Z0-9][A-Z0-9_-]{2,99}$");
+	private static final Pattern HANGUL = Pattern.compile("[가-힣]");
 
 	public ReportModelRuleMatch {
 		if (ruleCode == null || !RULE_CODE.matcher(ruleCode).matches()) {
@@ -33,6 +34,9 @@ public record ReportModelRuleMatch(
 		}
 		if (reason == null || reason.isBlank()) {
 			throw new IllegalArgumentException("reason must not be blank");
+		}
+		if (!HANGUL.matcher(reason).find()) {
+			throw new IllegalArgumentException("reason must be Korean and include Hangul");
 		}
 		evidenceMessageIds = List.copyOf(evidenceMessageIds);
 	}

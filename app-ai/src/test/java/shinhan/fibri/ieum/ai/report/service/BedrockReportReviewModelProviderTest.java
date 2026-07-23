@@ -31,7 +31,7 @@ import shinhan.fibri.ieum.ai.report.domain.ReportReviewEvidenceMessage;
 class BedrockReportReviewModelProviderTest {
 
 	private final CapturingChatModel chatModel = new CapturingChatModel("""
-		{"matchedRules":[{"ruleCode":"TEXT-SPAM-001","confidence":0.91,"evidenceMessageIds":[8],"reason":"spam"}],"uncertain":false}
+			{"matchedRules":[{"ruleCode":"TEXT-SPAM-001","confidence":0.91,"evidenceMessageIds":[8],"reason":"스팸 근거가 확인됩니다"}],"uncertain":false}
 		""");
 	private final BedrockReportReviewModelProvider provider = new BedrockReportReviewModelProvider(
 		chatModel,

@@ -29,6 +29,7 @@ import shinhan.fibri.ieum.main.admin.audit.repository.AdminAuditLogWriter;
 import shinhan.fibri.ieum.main.admin.user.exception.AdminRoleRequiredException;
 import shinhan.fibri.ieum.main.admin.user.exception.AdminUserNotFoundException;
 import shinhan.fibri.ieum.main.admin.user.exception.CannotChangeOwnRoleException;
+import shinhan.fibri.ieum.main.admin.user.exception.CannotPromoteAdminException;
 import shinhan.fibri.ieum.main.admin.user.exception.LastAdminRequiredException;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
 import shinhan.fibri.ieum.main.notification.push.WebPushSubscriptionCleanup;
@@ -148,6 +149,62 @@ class AdminUserRoleServiceTest {
 
 		verify(sessionStore).revokeAllSessionsOfUser(10L);
 		verify(webPushSubscriptionCleanup).deleteForUser(10L);
+	}
+
+	@Test
+	void dedicatedPromotionUsesFixedAdminRoleAuditAndRevokesAfterCommit() {
+		TransactionSynchronizationManager.initSynchronization();
+		User actor = user(1L, UserRole.admin);
+		User target = user(10L, UserRole.user);
+		when(userRepository.findAllAdminsForUpdate()).thenReturn(List.of(actor));
+		when(userRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(target));
+
+		service.promoteToAdmin(adminPrincipal(), 10L);
+
+		assertThat(target.getRole()).isEqualTo(UserRole.admin);
+		assertThat(target.getAuthVersion()).isEqualTo(1L);
+		verify(auditLogWriter).append(
+			1L,
+			AdminAuditAction.USER_PROMOTED_TO_ADMIN,
+			"user",
+			10L,
+			java.util.Map.of("previousRole", "user", "newRole", "admin")
+		);
+		for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
+			synchronization.afterCommit();
+		}
+		verify(sessionStore).revokeAllSessionsOfUser(10L);
+		verify(webPushSubscriptionCleanup).deleteForUser(10L);
+	}
+
+	@Test
+	void dedicatedPromotionRejectsAlreadyAdminTarget() {
+		User actor = user(1L, UserRole.admin);
+		User target = user(10L, UserRole.admin);
+		when(userRepository.findAllAdminsForUpdate()).thenReturn(List.of(actor, target));
+
+		assertThatThrownBy(() -> service.promoteToAdmin(adminPrincipal(), 10L))
+			.isInstanceOf(CannotPromoteAdminException.class);
+
+		verify(auditLogWriter, never()).append(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any(),
+			org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any());
+		verify(sessionStore, never()).revokeAllSessionsOfUser(10L);
+	}
+
+	@Test
+	void dedicatedPromotionRejectsSuspendedTarget() {
+		User actor = user(1L, UserRole.admin);
+		User target = user(10L, UserRole.user);
+		target.suspend();
+		when(userRepository.findAllAdminsForUpdate()).thenReturn(List.of(actor));
+		when(userRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(target));
+
+		assertThatThrownBy(() -> service.promoteToAdmin(adminPrincipal(), 10L))
+			.isInstanceOf(CannotPromoteAdminException.class);
+
+		verify(auditLogWriter, never()).append(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any(),
+			org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any());
+		verify(sessionStore, never()).revokeAllSessionsOfUser(10L);
 	}
 
 	@Test

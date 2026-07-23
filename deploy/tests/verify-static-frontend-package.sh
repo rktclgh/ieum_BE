@@ -53,6 +53,7 @@ routes=(
   admin/users
   admin/users/detail
   admin/content
+  admin/content/detail
   admin/reports
   admin/reports/detail
   admin/inquiries

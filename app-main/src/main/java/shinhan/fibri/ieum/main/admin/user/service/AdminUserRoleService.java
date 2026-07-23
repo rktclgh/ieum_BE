@@ -18,6 +18,7 @@ import shinhan.fibri.ieum.main.admin.audit.repository.AdminAuditLogWriter;
 import shinhan.fibri.ieum.main.admin.user.exception.AdminRoleRequiredException;
 import shinhan.fibri.ieum.main.admin.user.exception.AdminUserNotFoundException;
 import shinhan.fibri.ieum.main.admin.user.exception.CannotChangeOwnRoleException;
+import shinhan.fibri.ieum.main.admin.user.exception.CannotPromoteAdminException;
 import shinhan.fibri.ieum.main.admin.user.exception.LastAdminRequiredException;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
 import shinhan.fibri.ieum.main.notification.push.WebPushSubscriptionCleanup;
@@ -71,6 +72,40 @@ public class AdminUserRoleService {
 			userId,
 			previousRole,
 			role
+		);
+
+		revokeSessionsAfterCommit(userId);
+	}
+
+	@Transactional
+	public void promoteToAdmin(AuthenticatedUser principal, Long userId) {
+		List<User> lockedAdmins = userRepository.findAllAdminsForUpdate();
+		if (lockedAdmins.stream().noneMatch(admin -> admin.getId().equals(principal.userId()))) {
+			throw new AdminRoleRequiredException();
+		}
+		if (lockedAdmins.stream().anyMatch(admin -> admin.getId().equals(userId))) {
+			throw new CannotPromoteAdminException();
+		}
+
+		User target = userRepository.findByIdForUpdate(userId)
+			.orElseThrow(AdminUserNotFoundException::new);
+		if (target.getStatus() != shinhan.fibri.ieum.common.auth.domain.UserStatus.active
+			|| target.getRole() != UserRole.user) {
+			throw new CannotPromoteAdminException();
+		}
+		UserRole previousRole = target.getRole();
+		target.changeRole(UserRole.admin);
+		auditLogWriter.append(
+			principal.userId(),
+			AdminAuditAction.USER_PROMOTED_TO_ADMIN,
+			"user",
+			userId,
+			java.util.Map.of("previousRole", previousRole.name(), "newRole", UserRole.admin.name())
+		);
+		log.info(
+			"Admin promoted user to administrator: adminUserId={} targetUserId={}",
+			principal.userId(),
+			userId
 		);
 
 		revokeSessionsAfterCommit(userId);

@@ -17,6 +17,7 @@ public class ReportReviewModelPromptFactory {
 		Never match a suspend rule when target, intent, consent, authorship, or context is ambiguous.
 		When any fact required by a policy rule remains ambiguous, set uncertain to true instead of guessing.
 		Return JSON only with this exact schema: {\"matchedRules\":[{\"ruleCode\":string,\"confidence\":number,\"evidenceMessageIds\":[number],\"reason\":string}],\"uncertain\":boolean}.
+		Every matchedRules[].reason value must be written in Korean and include Hangul.
 		Do not add markdown, commentary, or fields outside that schema.
 		""";
 
