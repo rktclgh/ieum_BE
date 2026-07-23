@@ -1252,6 +1252,42 @@ CREATE INDEX idx_admin_audit_logs_target_created
 CREATE INDEX idx_admin_audit_logs_created_desc
     ON admin_audit_logs(created_at DESC, audit_id DESC);
 
+-- ============================================================
+-- 관리자 콘텐츠 하드삭제 S3 파일 정리 큐
+-- ============================================================
+CREATE TABLE file_cleanup_tasks (
+    task_id BIGSERIAL PRIMARY KEY,
+    s3_key TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempts SMALLINT NOT NULL DEFAULT 0,
+    lease_token UUID,
+    lease_until TIMESTAMPTZ,
+    locked_by TEXT,
+    next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_error_code VARCHAR(80),
+    last_error_message TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMPTZ,
+    CONSTRAINT ck_file_cleanup_tasks_status
+        CHECK (status IN ('pending', 'processing', 'retry', 'completed', 'dead')),
+    CONSTRAINT ck_file_cleanup_tasks_attempts_nonnegative
+        CHECK (attempts >= 0 AND attempts <= 20),
+    CONSTRAINT ck_file_cleanup_tasks_completed_at_status
+        CHECK (
+            (status <> 'completed' AND completed_at IS NULL)
+            OR (status = 'completed' AND completed_at IS NOT NULL)
+        )
+);
+
+CREATE INDEX idx_file_cleanup_tasks_claim
+    ON file_cleanup_tasks (status, next_attempt_at, created_at, task_id)
+    WHERE status IN ('pending', 'retry');
+
+CREATE INDEX idx_file_cleanup_tasks_expired_lease
+    ON file_cleanup_tasks (lease_until)
+    WHERE status = 'processing';
+
 CREATE TABLE notifications (
     notification_id BIGSERIAL PRIMARY KEY,
     user_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,

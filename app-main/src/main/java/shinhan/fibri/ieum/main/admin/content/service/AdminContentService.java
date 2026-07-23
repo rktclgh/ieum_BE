@@ -1,16 +1,10 @@
 package shinhan.fibri.ieum.main.admin.content.service;
 
-import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Executor;
-import java.util.concurrent.RejectedExecutionException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.main.admin.audit.domain.AdminAuditAction;
 import shinhan.fibri.ieum.main.admin.audit.repository.AdminAuditLogWriter;
@@ -19,11 +13,11 @@ import shinhan.fibri.ieum.main.admin.content.dto.AdminContentPreviewResponse;
 import shinhan.fibri.ieum.main.admin.content.exception.ContentNotFoundException;
 import shinhan.fibri.ieum.main.admin.content.exception.HardDeleteConfirmationMismatchException;
 import shinhan.fibri.ieum.main.admin.content.exception.UnsupportedContentTypeException;
+import shinhan.fibri.ieum.main.admin.content.repository.AdminContentFileCleanupTaskRepository;
 import shinhan.fibri.ieum.main.admin.content.repository.AdminContentHardDeleteRepository;
 import shinhan.fibri.ieum.main.admin.content.repository.AdminContentHardDeleteResult;
 import shinhan.fibri.ieum.main.admin.content.repository.AdminContentHardDeleteTarget;
 import shinhan.fibri.ieum.main.ai.question.repository.QuestionAnswerTicketWriter;
-import shinhan.fibri.ieum.main.file.service.S3FileDeletionService;
 import shinhan.fibri.ieum.main.question.exception.QuestionForbiddenException;
 import shinhan.fibri.ieum.main.question.service.QuestionDeletionExecutor;
 
@@ -37,23 +31,20 @@ public class AdminContentService {
 	private final AdminContentHardDeleteRepository hardDeleteRepository;
 	private final QuestionAnswerTicketWriter questionAnswerTicketWriter;
 	private final AdminAuditLogWriter auditLogWriter;
-	private final S3FileDeletionService s3FileDeletionService;
-	private final Executor cleanupExecutor;
+	private final AdminContentFileCleanupTaskRepository fileCleanupTaskRepository;
 
 	public AdminContentService(
 		QuestionDeletionExecutor questionDeletionExecutor,
 		AdminContentHardDeleteRepository hardDeleteRepository,
 		QuestionAnswerTicketWriter questionAnswerTicketWriter,
 		AdminAuditLogWriter auditLogWriter,
-		S3FileDeletionService s3FileDeletionService,
-		@Qualifier("fileCleanupTaskExecutor") Executor cleanupExecutor
+		AdminContentFileCleanupTaskRepository fileCleanupTaskRepository
 	) {
 		this.questionDeletionExecutor = questionDeletionExecutor;
 		this.hardDeleteRepository = hardDeleteRepository;
 		this.questionAnswerTicketWriter = questionAnswerTicketWriter;
 		this.auditLogWriter = auditLogWriter;
-		this.s3FileDeletionService = s3FileDeletionService;
-		this.cleanupExecutor = cleanupExecutor;
+		this.fileCleanupTaskRepository = fileCleanupTaskRepository;
 	}
 
 	@Transactional
@@ -108,6 +99,7 @@ public class AdminContentService {
 			id
 		);
 		AdminContentHardDeleteResult result = hardDeleteRepository.hardDelete(contentType, target);
+		fileCleanupTaskRepository.enqueue(result.s3Keys());
 		auditLogWriter.append(
 			principal.userId(),
 			auditAction(contentType),
@@ -118,50 +110,12 @@ public class AdminContentService {
 				"wasSoftDeleted", target.wasSoftDeleted()
 			)
 		);
-		cleanupAfterCommit(contentType, id, result.s3Keys());
 	}
 
-	private AdminAuditAction auditAction(AdminContentType contentType) {
+	private static AdminAuditAction auditAction(AdminContentType contentType) {
 		return switch (contentType) {
 			case QUESTION -> AdminAuditAction.QUESTION_HARD_DELETED;
 			case MEETING -> AdminAuditAction.MEETING_HARD_DELETED;
 		};
-	}
-
-	private void cleanupAfterCommit(AdminContentType contentType, Long id, List<String> s3Keys) {
-		if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-			scheduleCleanup(contentType, id, s3Keys);
-			return;
-		}
-		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-			@Override
-			public void afterCommit() {
-				scheduleCleanup(contentType, id, s3Keys);
-			}
-		});
-	}
-
-	private void scheduleCleanup(AdminContentType contentType, Long id, List<String> s3Keys) {
-		try {
-			cleanupExecutor.execute(() -> deleteS3Objects(contentType, id, s3Keys));
-		} catch (RejectedExecutionException exception) {
-			log.error(
-				"Failed to schedule hard-deleted content S3 cleanup. type={}, id={}, s3KeyCount={}",
-				contentType.pathValue(),
-				id,
-				s3Keys.size(),
-				exception
-			);
-		}
-	}
-
-	private void deleteS3Objects(AdminContentType contentType, Long id, List<String> s3Keys) {
-		for (String s3Key : s3Keys) {
-			try {
-				s3FileDeletionService.deleteOriginAndVariantsLogOnly(s3Key);
-			} catch (RuntimeException exception) {
-				log.error("Failed to delete S3 object for hard-deleted content. type={}, id={}", contentType.pathValue(), id, exception);
-			}
-		}
 	}
 }

@@ -9,14 +9,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.OffsetDateTime;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.Executor;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
@@ -24,11 +19,11 @@ import shinhan.fibri.ieum.main.admin.audit.domain.AdminAuditAction;
 import shinhan.fibri.ieum.main.admin.audit.repository.AdminAuditLogWriter;
 import shinhan.fibri.ieum.main.admin.content.domain.AdminContentType;
 import shinhan.fibri.ieum.main.admin.content.exception.HardDeleteConfirmationMismatchException;
+import shinhan.fibri.ieum.main.admin.content.repository.AdminContentFileCleanupTaskRepository;
 import shinhan.fibri.ieum.main.admin.content.repository.AdminContentHardDeleteRepository;
 import shinhan.fibri.ieum.main.admin.content.repository.AdminContentHardDeleteResult;
 import shinhan.fibri.ieum.main.admin.content.repository.AdminContentHardDeleteTarget;
 import shinhan.fibri.ieum.main.ai.question.repository.QuestionAnswerTicketWriter;
-import shinhan.fibri.ieum.main.file.service.S3FileDeletionService;
 import shinhan.fibri.ieum.main.question.service.QuestionDeletionExecutor;
 
 class AdminContentHardDeleteServiceTest {
@@ -37,23 +32,14 @@ class AdminContentHardDeleteServiceTest {
 	private final AdminContentHardDeleteRepository hardDeleteRepository = mock(AdminContentHardDeleteRepository.class);
 	private final QuestionAnswerTicketWriter questionAnswerTicketWriter = mock(QuestionAnswerTicketWriter.class);
 	private final AdminAuditLogWriter auditLogWriter = mock(AdminAuditLogWriter.class);
-	private final S3FileDeletionService s3FileDeletionService = mock(S3FileDeletionService.class);
-	private final ManualExecutor cleanupExecutor = new ManualExecutor();
+	private final AdminContentFileCleanupTaskRepository fileCleanupTaskRepository = mock(AdminContentFileCleanupTaskRepository.class);
 	private final AdminContentService service = new AdminContentService(
 		questionDeletionExecutor,
 		hardDeleteRepository,
 		questionAnswerTicketWriter,
 		auditLogWriter,
-		s3FileDeletionService,
-		cleanupExecutor
+		fileCleanupTaskRepository
 	);
-
-	@AfterEach
-	void clearSynchronization() {
-		if (TransactionSynchronizationManager.isSynchronizationActive()) {
-			TransactionSynchronizationManager.clearSynchronization();
-		}
-	}
 
 	@Test
 	void hardDeleteRejectsATokenThatDoesNotMatchTheTarget() {
@@ -64,8 +50,7 @@ class AdminContentHardDeleteServiceTest {
 	}
 
 	@Test
-	void hardDeleteCancelsQuestionAiWorkWritesAuditAndSchedulesS3AfterCommit() {
-		TransactionSynchronizationManager.initSynchronization();
+	void hardDeleteCancelsQuestionAiWorkWritesAuditAndEnqueuesCleanupTask() {
 		AdminContentHardDeleteTarget target = target(AdminContentType.QUESTION, 42L, 420L, true);
 		when(hardDeleteRepository.findForHardDelete(AdminContentType.QUESTION, 42L)).thenReturn(Optional.of(target));
 		when(hardDeleteRepository.hardDelete(AdminContentType.QUESTION, target))
@@ -81,16 +66,7 @@ class AdminContentHardDeleteServiceTest {
 			eq(42L),
 			anyMap()
 		);
-		verify(s3FileDeletionService, never()).deleteOriginAndVariantsLogOnly("final/question/42/original.jpg");
-
-		for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
-			synchronization.afterCommit();
-		}
-		verify(s3FileDeletionService, never()).deleteOriginAndVariantsLogOnly("final/question/42/original.jpg");
-
-		cleanupExecutor.runAll();
-
-		verify(s3FileDeletionService).deleteOriginAndVariantsLogOnly("final/question/42/original.jpg");
+		verify(fileCleanupTaskRepository).enqueue(List.of("final/question/42/original.jpg"));
 	}
 
 	@Test
@@ -134,19 +110,4 @@ class AdminContentHardDeleteServiceTest {
 		);
 	}
 
-	private static final class ManualExecutor implements Executor {
-
-		private final List<Runnable> tasks = new ArrayList<>();
-
-		@Override
-		public void execute(Runnable command) {
-			tasks.add(command);
-		}
-
-		private void runAll() {
-			List<Runnable> pending = List.copyOf(tasks);
-			tasks.clear();
-			pending.forEach(Runnable::run);
-		}
-	}
 }
