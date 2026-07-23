@@ -75,7 +75,7 @@ class ReportReviewInferenceTest {
 				null,
 				null,
 				BigDecimal.ZERO,
-				"No policy rule matched",
+				"정책 위반 근거가 확인되지 않았습니다",
 				null,
 				List.of(),
 				List.of()

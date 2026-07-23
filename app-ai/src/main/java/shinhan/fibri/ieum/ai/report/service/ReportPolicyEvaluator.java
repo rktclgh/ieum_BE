@@ -22,8 +22,8 @@ public class ReportPolicyEvaluator {
 
 	private static final BigDecimal SYSTEM_HOLD_CONFIDENCE = new BigDecimal("0.0000");
 	private static final String SYSTEM_HOLD_CATEGORY = "model_uncertain";
-	private static final String SYSTEM_HOLD_REASON = "Model uncertainty requires manual review";
-	private static final String NO_MATCH_REASON = "No policy rule matched";
+	private static final String SYSTEM_HOLD_REASON = "모델 판단이 불확실하여 관리자 검토가 필요합니다";
+	private static final String NO_MATCH_REASON = "정책 위반 근거가 확인되지 않았습니다";
 	private static final Comparator<PolicyCandidate> CANDIDATE_ORDER = Comparator
 		.comparingInt((PolicyCandidate candidate) -> candidate.rule().severity().ordinal()).reversed()
 		.thenComparing(Comparator.comparingInt((PolicyCandidate candidate) -> candidate.rule().priority()).reversed())

@@ -38,6 +38,7 @@ import shinhan.fibri.ieum.main.admin.content.dto.AdminContentListResponse;
 import shinhan.fibri.ieum.main.admin.content.dto.AdminContentUpdateRequest;
 import shinhan.fibri.ieum.main.admin.content.exception.ContentNotFoundException;
 import shinhan.fibri.ieum.main.admin.content.exception.HardDeleteConfirmationMismatchException;
+import shinhan.fibri.ieum.main.admin.content.exception.InvalidAdminContentCursorException;
 import shinhan.fibri.ieum.main.admin.content.exception.UnsupportedContentTypeException;
 import shinhan.fibri.ieum.main.admin.content.service.AdminContentService;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
@@ -246,6 +247,41 @@ class AdminContentControllerTest {
 					"""))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")));
+	}
+
+	@Test
+	void listSizeValidationMapsToValidationFailed() throws Exception {
+		mockMvc.perform(get("/api/v1/admin/content/questions")
+				.with(admin())
+				.param("size", "0"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
+			.andExpect(jsonPath("$.message", is("Request validation failed")))
+			.andExpect(jsonPath("$.fieldErrors[0].field", is("size")));
+	}
+
+	@Test
+	void invalidCursorMapsToValidationFailed() throws Exception {
+		when(adminContentService.getQuestions(org.mockito.ArgumentMatchers.any()))
+			.thenThrow(new InvalidAdminContentCursorException());
+
+		mockMvc.perform(get("/api/v1/admin/content/questions")
+				.with(admin())
+				.param("cursor", "invalid"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
+			.andExpect(jsonPath("$.message", is("Request validation failed")))
+			.andExpect(jsonPath("$.fieldErrors[0].field", is("cursor")));
+	}
+
+	@Test
+	void pathIdTypeMismatchMapsToValidationFailed() throws Exception {
+		mockMvc.perform(get("/api/v1/admin/content/question/not-a-number").with(admin()))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
+			.andExpect(jsonPath("$.message", is("Request validation failed")))
+			.andExpect(jsonPath("$.fieldErrors[0].field", is("id")))
+			.andExpect(jsonPath("$.fieldErrors[0].message", is("Invalid value")));
 	}
 
 	private static RequestPostProcessor admin() {
