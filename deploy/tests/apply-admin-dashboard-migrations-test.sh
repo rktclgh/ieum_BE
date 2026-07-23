@@ -66,6 +66,34 @@ grep -Fq 'fk_chat_notices_message' "$v38_migration" \
 grep -Fq 'fk_chat_notices_created_by' "$v38_migration" \
   || fail "v38 must verify chat notice creator foreign key"
 
+v39_migration="$root/db/migrations/v39_admin_audit_content_hard_delete.sql"
+test -s "$v39_migration" || fail "v39 admin audit content hard-delete migration is missing"
+grep -Fq 'QUESTION_HARD_DELETED' "$v39_migration" \
+  || fail "v39 must allow question hard-delete audit actions"
+grep -Fq 'MEETING_HARD_DELETED' "$v39_migration" \
+  || fail "v39 must allow meeting hard-delete audit actions"
+grep -Fq "'question'" "$v39_migration" \
+  || fail "v39 must allow question audit targets"
+grep -Fq "'meeting'" "$v39_migration" \
+  || fail "v39 must allow meeting audit targets"
+grep -Fq 'admin_audit_logs.action content hard-delete verification failed' "$v39_migration" \
+  || fail "v39 must verify the expanded action constraint"
+grep -Fq 'admin_audit_logs.target_type content hard-delete verification failed' "$v39_migration" \
+  || fail "v39 must verify the expanded target type constraint"
+
+v40_migration="$root/db/migrations/v40_admin_content_file_cleanup_tasks.sql"
+test -s "$v40_migration" || fail "v40 admin content file cleanup task migration is missing"
+grep -Fq 'CREATE TABLE IF NOT EXISTS public.file_cleanup_tasks' "$v40_migration" \
+  || fail "v40 must create file_cleanup_tasks idempotently"
+grep -Fq 'ck_file_cleanup_tasks_status' "$v40_migration" \
+  || fail "v40 must constrain file cleanup task status values"
+grep -Fq 'uq_file_cleanup_tasks_s3_key' "$v40_migration" \
+  || fail "v40 must enforce one durable cleanup task per S3 key"
+grep -Fq 'idx_file_cleanup_tasks_claim' "$v40_migration" \
+  || fail "v40 must index due cleanup task claims"
+grep -Fq 'idx_file_cleanup_tasks_expired_lease' "$v40_migration" \
+  || fail "v40 must index expired lease recovery"
+
 fake_bin="$work_dir/bin"
 capture_dir="$work_dir/capture"
 mkdir -p "$fake_bin" "$capture_dir"
@@ -151,8 +179,16 @@ grep -Fq "KNOWLEDGE_RELATION_APPROVED" "$stdin_file" \
   || fail "audit action verification must accept knowledge relation approval actions"
 grep -Fq "KNOWLEDGE_RELATION_REJECTED" "$stdin_file" \
   || fail "audit action verification must accept knowledge relation rejection actions"
+grep -Fq "QUESTION_HARD_DELETED" "$stdin_file" \
+  || fail "audit action verification must accept question hard-delete actions"
+grep -Fq "MEETING_HARD_DELETED" "$stdin_file" \
+  || fail "audit action verification must accept meeting hard-delete actions"
 grep -Fq "knowledge_relation_candidate" "$stdin_file" \
   || fail "audit target verification must accept knowledge relation candidates"
+grep -Fq "''question''::text" "$stdin_file" \
+  || fail "audit target verification must accept question targets"
+grep -Fq "''meeting''::text" "$stdin_file" \
+  || fail "audit target verification must accept meeting targets"
 grep -Fq "message_type_contract_state" "$stdin_file" \
   || fail "message type preflight/final verification is missing"
 grep -Fq "message_reply_contract_state" "$stdin_file" \
@@ -171,6 +207,8 @@ grep -Fq "partial or incompatible chat_notices schema" "$stdin_file" \
   || fail "partial chat notice schema must fail explicitly"
 grep -Fq "apply_admin_audit_migration" "$stdin_file" \
   || fail "an exact existing audit schema must skip the non-idempotent v26 file"
+grep -Fq "apply_admin_audit_content_hard_delete_migration" "$stdin_file" \
+  || fail "a base audit schema must apply the v39 content hard-delete constraint expansion"
 grep -Fq "apply_auth_version_migration" "$stdin_file" \
   || fail "an exact existing auth schema must skip the locking v25 file"
 grep -Fq "apply_message_type_migration" "$stdin_file" \
@@ -282,11 +320,13 @@ v35_line="$(grep -n -m1 -F '\i db/migrations/v35_knowledge_relation_candidates.s
 v36_line="$(grep -n -m1 -F '\i db/migrations/v36_meeting_schedule_date_time.sql' "$stdin_file" | cut -d: -f1 || true)"
 v37_line="$(grep -n -m1 -F '\i db/migrations/v37_notification_i18n.sql' "$stdin_file" | cut -d: -f1 || true)"
 v38_line="$(grep -n -m1 -F '\i db/migrations/v38_chat_notices.sql' "$stdin_file" | cut -d: -f1 || true)"
+v39_line="$(grep -n -m1 -F '\i db/migrations/v39_admin_audit_content_hard_delete.sql' "$stdin_file" | cut -d: -f1 || true)"
+v40_line="$(grep -n -m1 -F '\i db/migrations/v40_admin_content_file_cleanup_tasks.sql' "$stdin_file" | cut -d: -f1 || true)"
 test -n "$v24_line" && test -n "$v25_line" && test -n "$v26_line" && test -n "$v27_line" && test -n "$v28_line" \
   && test -n "$v29_line" && test -n "$v30_line" && test -n "$v31_line" && test -n "$v32_line" \
   && test -n "$v33_line" && test -n "$v34_line" && test -n "$v35_line" && test -n "$v36_line" && test -n "$v37_line" \
-  && test -n "$v38_line" \
-	|| fail "all v24-v38 migrations must be applied"
+  && test -n "$v38_line" && test -n "$v39_line" && test -n "$v40_line" \
+	|| fail "all v24-v40 migrations must be applied"
 (( v24_line < v27_line )) || fail "v24 must run before v27"
 (( v25_line < v26_line )) || fail "v25 must run before v26"
 (( v26_line < v28_line )) || fail "v26 must run before v28"
@@ -300,6 +340,8 @@ test -n "$v24_line" && test -n "$v25_line" && test -n "$v26_line" && test -n "$v
 (( v35_line < v36_line )) || fail "v35 must run before v36"
 (( v36_line < v37_line )) || fail "v36 must run before v37"
 (( v37_line < v38_line )) || fail "v37 must run before v38"
+(( v38_line < v39_line )) || fail "v38 must run before v39"
+(( v39_line < v40_line )) || fail "v39 must run before v40"
 report_policy_guard_line="$(grep -n -m1 -F '\if :apply_report_policy_migrations' "$stdin_file" | cut -d: -f1 || true)"
 test -n "$report_policy_guard_line" && (( report_policy_guard_line < v24_line )) \
 	|| fail "report policy migrations must be guarded by table presence"
@@ -330,6 +372,16 @@ test -n "$meeting_schedule_date_time_guard_line" && (( meeting_schedule_date_tim
 chat_notice_guard_line="$(grep -n -m1 -F '\if :apply_chat_notice_migration' "$stdin_file" | cut -d: -f1 || true)"
 test -n "$chat_notice_guard_line" && (( chat_notice_guard_line < v38_line )) \
   || fail "v38 must be guarded by missing chat notice schema"
+admin_audit_content_hard_delete_guard_line="$(grep -n -m1 -F '\if :apply_admin_audit_content_hard_delete_migration' "$stdin_file" | cut -d: -f1 || true)"
+test -n "$admin_audit_content_hard_delete_guard_line" && (( admin_audit_content_hard_delete_guard_line < v39_line )) \
+  || fail "v39 must be guarded by the base audit schema state"
+admin_audit_content_hard_delete_recompute_after_v35="$(
+  grep -n -F "SELECT pg_temp.admin_audit_contract_state() = 'base' AS apply_admin_audit_content_hard_delete_migration" "$stdin_file" \
+    | cut -d: -f1 \
+    | awk -v after="$v35_line" -v before="$v39_line" '$1 > after && $1 < before { print; exit }'
+)"
+test -n "$admin_audit_content_hard_delete_recompute_after_v35" \
+  || fail "v39 guard must be recomputed after v35 because v35 can rewrite audit constraints"
 grep -Fq "conname = 'fk_chat_rooms_pinned_notice'" "$stdin_file" \
   || fail "v38 guard must catch a missing pinned notice foreign key"
 grep -Fq "index_class.relname = 'uidx_chat_notices_room_message'" "$stdin_file" \
@@ -339,7 +391,7 @@ if grep -Fq "to_regclass('public.chat_notices') IS NULL" "$stdin_file"; then
 fi
 
 for workflow in "$root/.github/workflows/deploy-app-main.yml" "$root/.github/workflows/deploy-app-ai.yml"; do
-  for migration in v28_chat_system_messages v29_meeting_schedule_details v30_report_schedule_target_enum v31_report_schedule_target v32_chat_message_reply v33_question_ai_ungrounded_answer v34_question_ai_ungrounded_answer_validate v35_knowledge_relation_candidates v36_meeting_schedule_date_time v37_notification_i18n v38_chat_notices; do
+  for migration in v28_chat_system_messages v29_meeting_schedule_details v30_report_schedule_target_enum v31_report_schedule_target v32_chat_message_reply v33_question_ai_ungrounded_answer v34_question_ai_ungrounded_answer_validate v35_knowledge_relation_candidates v36_meeting_schedule_date_time v37_notification_i18n v38_chat_notices v39_admin_audit_content_hard_delete v40_admin_content_file_cleanup_tasks; do
     scp_line="$(grep -n -F "db/migrations/${migration}.sql" "$workflow" | grep -F 'scp ' | cut -d: -f1 || true)"
     chmod_line="$(grep -n -F "${migration}.sql" "$workflow" | grep -F 'chmod 600' | cut -d: -f1 || true)"
     test -n "$scp_line" || fail "workflow must copy ${migration}: $workflow"

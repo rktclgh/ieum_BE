@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.main.admin.content.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 import jakarta.persistence.EntityManager;
 import java.time.OffsetDateTime;
@@ -10,10 +11,15 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import shinhan.fibri.ieum.main.admin.audit.repository.AdminAuditLogWriter;
+import shinhan.fibri.ieum.main.admin.content.repository.AdminContentFileCleanupTaskRepository;
+import shinhan.fibri.ieum.main.admin.content.repository.AdminContentHardDeleteRepository;
 import shinhan.fibri.ieum.main.ai.question.repository.JdbcQuestionAnswerTicketWriter;
 import shinhan.fibri.ieum.main.pin.repository.JdbcPinWriter;
 import shinhan.fibri.ieum.main.question.service.QuestionDeletionExecutor;
@@ -22,7 +28,13 @@ import shinhan.fibri.ieum.testsupport.SqlScriptRunner;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import({AdminContentService.class, QuestionDeletionExecutor.class, JdbcPinWriter.class, JdbcQuestionAnswerTicketWriter.class})
+@Import({
+	AdminContentService.class,
+	QuestionDeletionExecutor.class,
+	JdbcPinWriter.class,
+	JdbcQuestionAnswerTicketWriter.class,
+	AdminContentServiceIntegrationTest.TestConfig.class
+})
 class AdminContentServiceIntegrationTest {
 
 	private static final String DATABASE = "ieum_admin_content_service";
@@ -126,5 +138,24 @@ class AdminContentServiceIntegrationTest {
 			pinId,
 			userId
 		);
+	}
+
+	@TestConfiguration
+	static class TestConfig {
+
+		@Bean
+		AdminContentHardDeleteRepository adminContentHardDeleteRepository() {
+			return mock(AdminContentHardDeleteRepository.class);
+		}
+
+		@Bean
+		AdminAuditLogWriter adminAuditLogWriter() {
+			return mock(AdminAuditLogWriter.class);
+		}
+
+		@Bean
+		AdminContentFileCleanupTaskRepository adminContentFileCleanupTaskRepository() {
+			return mock(AdminContentFileCleanupTaskRepository.class);
+		}
 	}
 }
