@@ -39,8 +39,19 @@ class AdminAuditSchemaIntegrationTest {
 
 		SqlScriptRunner.run(DATABASE, "migrations/v26_admin_audit_logs.sql");
 
-		assertAuditTableContract();
+		assertAuditTableContract(false);
 		assertForeignKeyAndJsonConstraints();
+	}
+
+	@Test
+	void v39MigrationExpandsAuditActionAndTargetConstraintsForContentHardDelete() {
+		createLegacyUsersTable();
+		SqlScriptRunner.run(DATABASE, "migrations/v26_admin_audit_logs.sql");
+
+		SqlScriptRunner.run(DATABASE, "migrations/v39_admin_audit_content_hard_delete.sql");
+
+		assertAuditTableContract(true);
+		assertContentHardDeleteAuditWrites();
 	}
 
 	@Test
@@ -60,11 +71,12 @@ class AdminAuditSchemaIntegrationTest {
 	void canonicalSchemaContainsTheSameAuditStorageContract() {
 		SqlScriptRunner.run(DATABASE, "schema.sql");
 
-		assertAuditTableContract();
+		assertAuditTableContract(true);
 		assertForeignKeyAndJsonConstraints();
+		assertContentHardDeleteAuditWrites();
 	}
 
-	private void assertAuditTableContract() {
+	private void assertAuditTableContract(boolean contentHardDeleteEnabled) {
 		assertThat(columns()).containsExactly(
 			"audit_id",
 			"actor_user_id",
@@ -104,6 +116,28 @@ class AdminAuditSchemaIntegrationTest {
 				.contains("'REPORT_CONFIRMED'")
 				.contains("'REPORT_DISMISSED'")
 				.contains("'INQUIRY_ANSWERED'"));
+		if (contentHardDeleteEnabled) {
+			assertThat(constraintDefinitions())
+				.anySatisfy(definition -> assertThat(definition)
+					.contains("action")
+					.contains("'QUESTION_HARD_DELETED'")
+					.contains("'MEETING_HARD_DELETED'"))
+				.anySatisfy(definition -> assertThat(definition)
+					.contains("target_type")
+					.contains("'question'")
+					.contains("'meeting'"));
+		}
+		else {
+			assertThat(constraintDefinitions())
+				.noneSatisfy(definition -> assertThat(definition)
+					.contains("'QUESTION_HARD_DELETED'"))
+				.noneSatisfy(definition -> assertThat(definition)
+					.contains("'MEETING_HARD_DELETED'"))
+				.noneSatisfy(definition -> assertThat(definition)
+					.contains("'question'"))
+				.noneSatisfy(definition -> assertThat(definition)
+					.contains("'meeting'"));
+		}
 
 		assertThat(indexDefinitions())
 			.anySatisfy(definition -> assertThat(definition)
@@ -175,6 +209,24 @@ class AdminAuditSchemaIntegrationTest {
 			VALUES ('USER_ROLE_CHANGED', 'user', 20, CAST('{bad json' AS jsonb))
 			""").update())
 			.isInstanceOf(DataAccessException.class);
+	}
+
+	private void assertContentHardDeleteAuditWrites() {
+		jdbc.sql("""
+			INSERT INTO admin_audit_logs(action, target_type, target_id, details)
+			VALUES ('QUESTION_HARD_DELETED', 'question', 42, '{"deletedFileCount":1,"wasSoftDeleted":true}')
+			""").update();
+		jdbc.sql("""
+			INSERT INTO admin_audit_logs(action, target_type, target_id, details)
+			VALUES ('MEETING_HARD_DELETED', 'meeting', 7, '{"deletedFileCount":0,"wasSoftDeleted":false}')
+			""").update();
+
+		assertThat(jdbc.sql("""
+			SELECT count(*)
+			FROM admin_audit_logs
+			WHERE action IN ('QUESTION_HARD_DELETED', 'MEETING_HARD_DELETED')
+			  AND target_type IN ('question', 'meeting')
+			""").query(Long.class).single()).isEqualTo(2);
 	}
 
 	private void createLegacyUsersTable() {

@@ -1233,11 +1233,13 @@ CREATE TABLE admin_audit_logs (
             'REPORT_DISMISSED',
             'INQUIRY_ANSWERED',
             'KNOWLEDGE_RELATION_APPROVED',
-            'KNOWLEDGE_RELATION_REJECTED'
+            'KNOWLEDGE_RELATION_REJECTED',
+            'QUESTION_HARD_DELETED',
+            'MEETING_HARD_DELETED'
         )
     ),
     CONSTRAINT ck_admin_audit_logs_target_type CHECK (
-        target_type IN ('user', 'report', 'inquiry', 'knowledge_relation_candidate')
+        target_type IN ('user', 'report', 'inquiry', 'knowledge_relation_candidate', 'question', 'meeting')
     ),
     CONSTRAINT ck_admin_audit_logs_details_object CHECK (
         jsonb_typeof(details) = 'object'
