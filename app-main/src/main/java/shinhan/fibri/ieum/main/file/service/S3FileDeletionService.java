@@ -20,6 +20,28 @@ public class S3FileDeletionService {
 		deleteVariantLogOnly(originKey, FileVariant.THUMB);
 	}
 
+	public void deleteOriginAndVariantsStrict(String originKey) {
+		RuntimeException failure = deleteStrict(originKey, null);
+		failure = deleteStrict(FileObjectKeys.variantKey(originKey, FileVariant.DISPLAY), failure);
+		failure = deleteStrict(FileObjectKeys.variantKey(originKey, FileVariant.THUMB), failure);
+		if (failure != null) {
+			throw failure;
+		}
+	}
+
+	private RuntimeException deleteStrict(String s3Key, RuntimeException previousFailure) {
+		try {
+			fileStorage.delete(s3Key);
+			return previousFailure;
+		} catch (RuntimeException exception) {
+			if (previousFailure != null) {
+				previousFailure.addSuppressed(exception);
+				return previousFailure;
+			}
+			return exception;
+		}
+	}
+
 	private void deleteVariantLogOnly(String originKey, FileVariant variant) {
 		try {
 			fileStorage.delete(FileObjectKeys.variantKey(originKey, variant));

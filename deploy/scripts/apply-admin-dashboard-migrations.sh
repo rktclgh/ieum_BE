@@ -1739,6 +1739,7 @@ SELECT (
 \if :apply_admin_audit_content_hard_delete_migration
 \i db/migrations/v39_admin_audit_content_hard_delete.sql
 \endif
+\i db/migrations/v40_admin_content_file_cleanup_tasks.sql
 
 DO $verify$
 BEGIN

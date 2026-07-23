@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS public.file_cleanup_tasks (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     completed_at TIMESTAMPTZ,
+    CONSTRAINT uq_file_cleanup_tasks_s3_key UNIQUE (s3_key),
     CONSTRAINT ck_file_cleanup_tasks_status
         CHECK (status IN ('pending', 'processing', 'retry', 'completed', 'dead')),
     CONSTRAINT ck_file_cleanup_tasks_attempts_nonnegative
@@ -37,6 +38,15 @@ DO $$
 BEGIN
     IF to_regclass('public.file_cleanup_tasks') IS NULL THEN
         RAISE EXCEPTION 'file_cleanup_tasks table was not created';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+          FROM pg_constraint
+         WHERE conrelid = 'public.file_cleanup_tasks'::regclass
+           AND conname = 'uq_file_cleanup_tasks_s3_key'
+    ) THEN
+        RAISE EXCEPTION 'file_cleanup_tasks s3_key uniqueness constraint is missing';
     END IF;
 
     IF NOT EXISTS (

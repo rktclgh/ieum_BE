@@ -36,6 +36,7 @@ public class JdbcAdminContentHardDeleteRepository implements AdminContentHardDel
 	@Override
 	@Transactional
 	public AdminContentHardDeleteResult hardDelete(AdminContentType type, AdminContentHardDeleteTarget target) {
+		lockTargetChatRooms(type, target.contentId());
 		List<FileRow> candidates = selectCandidateFiles(type, target.contentId());
 		logCollectedKeys(type, target.contentId(), candidates);
 
@@ -107,20 +108,21 @@ public class JdbcAdminContentHardDeleteRepository implements AdminContentHardDel
 		};
 	}
 
+	private void lockTargetChatRooms(AdminContentType type, Long id) {
+		String sql = switch (type) {
+			case QUESTION -> "SELECT room_id FROM chat_rooms WHERE question_id = :id FOR UPDATE";
+			case MEETING -> "SELECT room_id FROM chat_rooms WHERE meeting_id = :id FOR UPDATE";
+		};
+		jdbc.query(sql, new MapSqlParameterSource("id", id), (rs, rowNum) -> rs.getLong("room_id"));
+	}
+
 	private List<FileRow> selectQuestionCandidateFiles(Long questionId) {
 		return jdbc.query(
 			"""
-				WITH target_questions AS (
-					SELECT question_id
-					  FROM questions
-					 WHERE question_id = :id
-					 FOR UPDATE OF questions
-				),
-				target_rooms AS (
+				WITH target_rooms AS (
 					SELECT room_id
 					  FROM chat_rooms
 					 WHERE question_id = :id
-					 FOR UPDATE OF chat_rooms
 				),
 				target_answers AS (
 					SELECT answer_id
@@ -142,11 +144,8 @@ public class JdbcAdminContentHardDeleteRepository implements AdminContentHardDel
 					   AND image_file_id IS NOT NULL
 				)
 				SELECT DISTINCT f.file_id, f.s3_key
-				  FROM target_questions tq
-				  LEFT JOIN target_rooms tr ON TRUE
-				  JOIN files f
-				  JOIN file_refs fr
-				    ON fr.file_id = f.file_id
+				  FROM files f
+				  JOIN file_refs fr ON fr.file_id = f.file_id
 				 ORDER BY f.file_id
 			""",
 				new MapSqlParameterSource("id", questionId),
@@ -157,13 +156,7 @@ public class JdbcAdminContentHardDeleteRepository implements AdminContentHardDel
 	private List<FileRow> selectMeetingCandidateFiles(Long meetingId) {
 		return jdbc.query(
 			"""
-				WITH target_meetings AS (
-					SELECT meeting_id
-					  FROM meetings
-					 WHERE meeting_id = :id
-					 FOR UPDATE OF meetings
-				),
-				target_meeting AS (
+				WITH target_meeting AS (
 					SELECT meeting_id, image_file_id, thumbnail_file_id
 					  FROM meetings
 					 WHERE meeting_id = :id
@@ -172,7 +165,6 @@ public class JdbcAdminContentHardDeleteRepository implements AdminContentHardDel
 					SELECT room_id
 					  FROM chat_rooms
 					 WHERE meeting_id = :id
-					 FOR UPDATE OF chat_rooms
 				),
 				file_refs AS (
 					SELECT image_file_id AS file_id
@@ -182,19 +174,15 @@ public class JdbcAdminContentHardDeleteRepository implements AdminContentHardDel
 					SELECT thumbnail_file_id AS file_id
 					  FROM target_meeting
 					 WHERE thumbnail_file_id IS NOT NULL
-				UNION
+					UNION
 					SELECT image_file_id AS file_id
 					  FROM messages
 					 WHERE room_id IN (SELECT room_id FROM target_rooms)
 					   AND image_file_id IS NOT NULL
 				)
 				SELECT DISTINCT f.file_id, f.s3_key
-				  FROM target_meetings tm
-				  JOIN target_meeting q ON TRUE
-				  LEFT JOIN target_rooms tr ON TRUE
-				  JOIN files f ON TRUE
-				  JOIN file_refs fr
-				    ON fr.file_id = f.file_id
+				  FROM files f
+				  JOIN file_refs fr ON fr.file_id = f.file_id
 				 ORDER BY f.file_id
 			""",
 				new MapSqlParameterSource("id", meetingId),

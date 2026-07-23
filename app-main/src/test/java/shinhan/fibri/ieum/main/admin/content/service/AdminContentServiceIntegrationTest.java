@@ -5,7 +5,6 @@ import static org.mockito.Mockito.mock;
 
 import jakarta.persistence.EntityManager;
 import java.time.OffsetDateTime;
-import java.util.concurrent.Executor;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -19,8 +18,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import shinhan.fibri.ieum.main.admin.audit.repository.AdminAuditLogWriter;
+import shinhan.fibri.ieum.main.admin.content.repository.AdminContentFileCleanupTaskRepository;
 import shinhan.fibri.ieum.main.admin.content.repository.AdminContentHardDeleteRepository;
-import shinhan.fibri.ieum.main.file.service.S3FileDeletionService;
 import shinhan.fibri.ieum.main.ai.question.repository.JdbcQuestionAnswerTicketWriter;
 import shinhan.fibri.ieum.main.pin.repository.JdbcPinWriter;
 import shinhan.fibri.ieum.main.question.service.QuestionDeletionExecutor;
@@ -155,13 +154,8 @@ class AdminContentServiceIntegrationTest {
 		}
 
 		@Bean
-		S3FileDeletionService s3FileDeletionService() {
-			return mock(S3FileDeletionService.class);
-		}
-
-		@Bean("fileCleanupTaskExecutor")
-		Executor fileCleanupTaskExecutor() {
-			return Runnable::run;
+		AdminContentFileCleanupTaskRepository adminContentFileCleanupTaskRepository() {
+			return mock(AdminContentFileCleanupTaskRepository.class);
 		}
 	}
 }

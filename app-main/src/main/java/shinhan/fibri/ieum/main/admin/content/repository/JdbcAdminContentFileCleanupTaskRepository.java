@@ -70,6 +70,7 @@ public class JdbcAdminContentFileCleanupTaskRepository implements AdminContentFi
 		String sql = """
 			INSERT INTO file_cleanup_tasks (s3_key, status, next_attempt_at, created_at, updated_at)
 			VALUES (:s3Key, 'pending', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+			ON CONFLICT (s3_key) DO NOTHING
 			""";
 		for (String s3Key : s3Keys) {
 			if (s3Key == null || s3Key.isBlank()) {

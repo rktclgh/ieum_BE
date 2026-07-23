@@ -48,7 +48,7 @@ public class FileCleanupTaskProcessor {
 			claimed.leaseUntil()
 		);
 		try {
-			s3FileDeletionService.deleteOriginAndVariantsLogOnly(claimed.s3Key());
+			s3FileDeletionService.deleteOriginAndVariantsStrict(claimed.s3Key());
 			boolean transitioned = repository.markCompleted(claimed.taskId(), claimed.leaseToken());
 			if (!transitioned) {
 				log.warn(

@@ -86,11 +86,11 @@ public class AdminContentService {
 		if (!contentType.expectedConfirmationToken(id).equals(confirmationToken)) {
 			throw new HardDeleteConfirmationMismatchException();
 		}
-		AdminContentHardDeleteTarget target = hardDeleteRepository.findForHardDelete(contentType, id)
-			.orElseThrow(ContentNotFoundException::new);
 		if (contentType == AdminContentType.QUESTION) {
 			questionAnswerTicketWriter.requestCancellation(id);
 		}
+		AdminContentHardDeleteTarget target = hardDeleteRepository.findForHardDelete(contentType, id)
+			.orElseThrow(ContentNotFoundException::new);
 
 		log.info(
 			"Admin hard deleting content. adminUserId={}, type={}, id={}",

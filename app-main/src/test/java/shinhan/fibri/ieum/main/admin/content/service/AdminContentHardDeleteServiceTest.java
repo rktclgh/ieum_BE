@@ -1,8 +1,10 @@
 package shinhan.fibri.ieum.main.admin.content.service;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -12,6 +14,7 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
@@ -47,6 +50,9 @@ class AdminContentHardDeleteServiceTest {
 			.isInstanceOf(HardDeleteConfirmationMismatchException.class);
 
 		verify(hardDeleteRepository, never()).findForHardDelete(AdminContentType.QUESTION, 42L);
+		verify(hardDeleteRepository, never()).hardDelete(any(), any());
+		verify(questionAnswerTicketWriter, never()).requestCancellation(42L);
+		verify(fileCleanupTaskRepository, never()).enqueue(any());
 	}
 
 	@Test
@@ -58,15 +64,18 @@ class AdminContentHardDeleteServiceTest {
 
 		service.hardDelete(admin(), "question", 42L, "DELETE QUESTION 42");
 
-		verify(questionAnswerTicketWriter).requestCancellation(42L);
-		verify(auditLogWriter).append(
+		InOrder inOrder = inOrder(questionAnswerTicketWriter, hardDeleteRepository, fileCleanupTaskRepository, auditLogWriter);
+		inOrder.verify(questionAnswerTicketWriter).requestCancellation(42L);
+		inOrder.verify(hardDeleteRepository).findForHardDelete(AdminContentType.QUESTION, 42L);
+		inOrder.verify(hardDeleteRepository).hardDelete(AdminContentType.QUESTION, target);
+		inOrder.verify(fileCleanupTaskRepository).enqueue(List.of("final/question/42/original.jpg"));
+		inOrder.verify(auditLogWriter).append(
 			eq(1L),
 			eq(AdminAuditAction.QUESTION_HARD_DELETED),
 			eq("question"),
 			eq(42L),
 			anyMap()
 		);
-		verify(fileCleanupTaskRepository).enqueue(List.of("final/question/42/original.jpg"));
 	}
 
 	@Test

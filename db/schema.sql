@@ -1269,6 +1269,7 @@ CREATE TABLE file_cleanup_tasks (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     completed_at TIMESTAMPTZ,
+    CONSTRAINT uq_file_cleanup_tasks_s3_key UNIQUE (s3_key),
     CONSTRAINT ck_file_cleanup_tasks_status
         CHECK (status IN ('pending', 'processing', 'retry', 'completed', 'dead')),
     CONSTRAINT ck_file_cleanup_tasks_attempts_nonnegative
