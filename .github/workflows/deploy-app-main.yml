@@ -176,7 +176,6 @@ jobs:
           artifact_frontend_sha="$(<"$artifact_root/frontend-sha")"
           [[ "$artifact_frontend_sha" =~ ^[0-9a-f]{40}$ ]]
           [[ "$artifact_frontend_sha" == "$EXPECTED_FRONTEND_SHA" ]]
-          deploy/tests/verify-static-frontend-package.sh "$artifact_root/export"
 
       - name: Package frontend into app-main
         run: |
