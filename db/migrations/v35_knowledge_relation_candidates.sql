@@ -106,7 +106,31 @@ ALTER TABLE public.knowledge_relation_candidates
 
 DO $$
 BEGIN
-    IF to_regclass('public.admin_audit_logs') IS NOT NULL THEN
+    IF to_regclass('public.admin_audit_logs') IS NOT NULL
+       AND EXISTS (
+            SELECT 1
+            FROM pg_constraint constraint_row
+            WHERE constraint_row.conrelid = 'public.admin_audit_logs'::regclass
+              AND constraint_row.conname = 'ck_admin_audit_logs_action'
+              AND regexp_replace(
+                  pg_get_expr(constraint_row.conbin, constraint_row.conrelid),
+                  '[[:space:]()]',
+                  '',
+                  'g'
+              ) = 'action=ANYARRAY[''USER_SANCTION_CREATED''::text,''USER_ACTIVATED''::text,''USER_ROLE_CHANGED''::text,''REPORT_CONFIRMED''::text,''REPORT_DISMISSED''::text,''INQUIRY_ANSWERED''::text]'
+        )
+       AND EXISTS (
+            SELECT 1
+            FROM pg_constraint constraint_row
+            WHERE constraint_row.conrelid = 'public.admin_audit_logs'::regclass
+              AND constraint_row.conname = 'ck_admin_audit_logs_target_type'
+              AND regexp_replace(
+                  pg_get_expr(constraint_row.conbin, constraint_row.conrelid),
+                  '[[:space:]()]',
+                  '',
+                  'g'
+              ) = 'target_type=ANYARRAY[''user''::text,''report''::text,''inquiry''::text]'
+        ) THEN
         ALTER TABLE public.admin_audit_logs
             DROP CONSTRAINT IF EXISTS ck_admin_audit_logs_action;
         ALTER TABLE public.admin_audit_logs

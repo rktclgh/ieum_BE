@@ -243,6 +243,14 @@ notification_column_contract_after="$(sql "
   && "$notification_column_contract_before" == "$notification_column_contract_after" ]] \
   || fail "notification i18n migration was not idempotent"
 
+# A current content-management audit row must not cause a later deployment
+# migration rerun to downgrade the action constraint and fail.
+sql "
+  INSERT INTO public.admin_audit_logs (action, target_type, target_id, details)
+  VALUES ('QUESTION_UPDATED', 'question', 1, '{}'::jsonb);
+" >/dev/null
+run_helper >/dev/null
+
 sql "
   ALTER TABLE public.notifications DROP COLUMN message_key;
   ALTER TABLE public.notifications ADD COLUMN message_key TEXT;
