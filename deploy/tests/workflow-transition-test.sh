@@ -51,4 +51,21 @@ grep -Fq './gradlew :app-main:test' <<<"$sign" || fail "focused tests"
 grep -Fq -- '--tests' <<<"$sign" || fail "test selectors"
 grep -Fq 'FileConfigTest' <<<"$sign" || fail "FileConfigTest"
 grep -Fq 'RedisRuntimePropertiesTest' <<<"$sign" || fail "RedisRuntimePropertiesTest"
+grep -Fq 'ssh-keygen -Y sign -f "$root/signing_key" -n ieum-release < "$inner" > "$root/release.tar.sig"' <<<"$sign" \
+  || fail "release signing must stream the payload on stdin"
+if grep -Fq 'ieum-release "$inner" > "$root/release.tar.sig"' <<<"$sign"; then
+  fail "file-argument signing creates the signature beside the input instead of on stdout"
+fi
+
+sshsig_tmp="$(mktemp -d "${TMPDIR:-/tmp}/ieum-workflow-sshsig.XXXXXX")"
+trap 'rm -rf "$sshsig_tmp"' EXIT
+ssh-keygen -q -t ed25519 -N '' -f "$sshsig_tmp/signing-key"
+printf 'signed release fixture\n' >"$sshsig_tmp/release.tar"
+printf 'ieum-release %s\n' "$(awk '{print $1 " " $2}' "$sshsig_tmp/signing-key.pub")" >"$sshsig_tmp/allowed-signers"
+ssh-keygen -Y sign -f "$sshsig_tmp/signing-key" -n ieum-release \
+  <"$sshsig_tmp/release.tar" >"$sshsig_tmp/release.tar.sig"
+test -s "$sshsig_tmp/release.tar.sig" || fail "streamed SSH signature is empty"
+ssh-keygen -Y verify -n ieum-release -I ieum-release -f "$sshsig_tmp/allowed-signers" \
+  -s "$sshsig_tmp/release.tar.sig" <"$sshsig_tmp/release.tar" >/dev/null 2>&1 \
+  || fail "streamed SSH signature cannot be verified"
 echo "Workflow transition contract passed."
