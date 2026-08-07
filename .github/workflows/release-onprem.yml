@@ -391,7 +391,7 @@ jobs:
           body="$RUNNER_TEMP/ieum1.body"
           status="$(curl --silent --show-error --max-time 15 --output "$body" --dump-header "$headers" --write-out '%{http_code}' https://ieum1.rktclgh.site/api/places/search)"
           [[ "$status" == 200 ]]
-          actual="$(awk 'BEGIN { IGNORECASE=1 } /^X-Ieum-Release-ID:/ { sub(/^[^:]*:[[:space:]]*/, ""); sub(/[[:space:]]*\r?$/, ""); print; exit }' "$headers")"
+          actual="$(awk 'tolower($0) ~ /^x-ieum-release-id:/ { sub(/^[^:]*:[[:space:]]*/, ""); sub(/[[:space:]]*\r?$/, ""); print; exit }' "$headers")"
           [[ "$actual" == "$EXPECTED_RELEASE_ID" ]]
           post_status="$(curl --silent --show-error --max-time 15 --output /dev/null --write-out '%{http_code}' -X POST https://ieum1.rktclgh.site/api/places/search)"
           [[ "$post_status" == 405 ]]
