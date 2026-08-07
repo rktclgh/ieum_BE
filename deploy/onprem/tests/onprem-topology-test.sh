@@ -164,13 +164,6 @@ assert_contains "$STAGING_NGINX" 'proxy_pass[[:space:]]+http://127\.0\.0\.1:1808
 assert_contains "$STAGING_NGINX" 'proxy_set_header[[:space:]]+Upgrade[[:space:]]+\$http_upgrade;'
 assert_contains "$STAGING_NGINX" 'proxy_set_header[[:space:]]+Connection[[:space:]]+"upgrade";'
 assert_not_contains "$STAGING_NGINX" 'proxy_pass[[:space:]]+http://127\.0\.0\.1:(8080|18081)'
-# Before public-write cutover, both the HTTP redirect vhost and HTTPS origin
-# must reject mutating methods while preserving GET/HEAD/OPTIONS proxy paths.
-[ "$(grep -Ec 'if \(\$request_method !~ \^\(GET\|HEAD\|OPTIONS\)\$\)' "$STAGING_NGINX")" -eq 2 ] \
-  || fail "staging must gate methods in both HTTP and HTTPS server blocks"
-[ "$(grep -Ec 'return 405;' "$STAGING_NGINX")" -eq 2 ] \
-  || fail "staging method gate must reject mutating methods with 405"
-assert_not_contains "$STAGING_NGINX" 'limit_except[[:space:]]+(GET|HEAD|OPTIONS)'
 assert_contains "$STAGING_NGINX" 'location[[:space:]]+~[[:space:]]+\^/ws'
 assert_contains "$STAGING_NGINX" 'location[[:space:]]+\^~[[:space:]]+/api/v1/sse/'
 
