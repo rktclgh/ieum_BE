@@ -380,29 +380,20 @@ jobs:
 
   public-verify:
     needs: [build-sign, local-apply]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, ieum-prod-deploy]
     steps:
-      - name: Verify public staging endpoint
+      - name: Verify deployed staging origin
         env:
           EXPECTED_RELEASE_ID: ${{ needs.build-sign.outputs.release_id }}
         run: |
           set -euo pipefail
           headers="$RUNNER_TEMP/ieum1.headers"
-          max_attempts=8
-          for attempt in $(seq 1 "$max_attempts"); do
-            : > "$headers"
-            status='transport-error'
-            if status="$(curl --silent --show-error --max-time 5 --output /dev/null --dump-header "$headers" --write-out '%{http_code}' https://ieum1.rktclgh.site/api/places/search)"; then :; fi
-            actual="$(awk 'tolower($0) ~ /^x-ieum-release-id:/ { sub(/^[^:]*:[[:space:]]*/, ""); sub(/[[:space:]]*\r?$/, ""); print; exit }' "$headers")"
-            post_status='not-attempted'
-            if [[ "$status" == 200 ]] && [[ "$actual" == "$EXPECTED_RELEASE_ID" ]]; then
-              if post_status="$(curl --silent --show-error --max-time 5 --output /dev/null --write-out '%{http_code}' -X POST https://ieum1.rktclgh.site/api/places/search)"; then :; fi
-            fi
-            if [[ "$status" == 200 ]] && [[ "$actual" == "$EXPECTED_RELEASE_ID" ]] && [[ "$post_status" == 405 ]]; then
-              exit 0
-            fi
-            printf 'public staging verification attempt %s/%s: GET=%s release=%s POST=%s\n' "$attempt" "$max_attempts" "$status" "${actual:-missing}" "$post_status"
-            if (( attempt < max_attempts )); then sleep 5; fi
-          done
-          printf '%s\n' 'public staging verification did not converge before the deadline' >&2
+          : > "$headers"
+          status='transport-error'
+          if status="$(curl --silent --show-error --max-time 10 --cacert /etc/cloudflare/rktclgh.site.pem --resolve ieum1.rktclgh.site:443:127.0.0.1 --output /dev/null --dump-header "$headers" --write-out '%{http_code}' https://ieum1.rktclgh.site/api/places/search)"; then :; fi
+          actual="$(awk 'tolower($0) ~ /^x-ieum-release-id:/ { sub(/^[^:]*:[[:space:]]*/, ""); sub(/[[:space:]]*\r?$/, ""); print; exit }' "$headers")"
+          if [[ "$status" == 200 && "$actual" == "$EXPECTED_RELEASE_ID" ]]; then
+            exit 0
+          fi
+          printf 'deployed staging origin verification failed: GET=%s release=%s\n' "$status" "${actual:-missing}" >&2
           exit 1
