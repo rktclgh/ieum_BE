@@ -43,7 +43,7 @@ for output in artifact_id release_id current bundle_sha envelope_sha; do
 done
 grep -Fq 'id: signed-artifact' <<<"$sign" || fail "signed artifact step"
 grep -Fq 'path: ${{ runner.temp }}/ieum-release/release-envelope.tar' <<<"$sign" || fail "exact envelope artifact"
-grep -Fq 'X-Ieum-Release-ID' "$release" || fail "release header verification"
+grep -Fq 'tolower($0) ~ /^x-ieum-release-id:/' "$release" || fail "portable release header verification"
 grep -Fq '[[ "$status" == 200 ]]' "$release" || fail "HTTP 200 verification"
 grep -Fq ' -X POST ' "$release" || fail "POST probe"
 grep -Fq '[[ "$post_status" == 405 ]]' "$release" || fail "POST 405 verification"
