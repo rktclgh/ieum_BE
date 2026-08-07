@@ -176,12 +176,12 @@ valid_activation_phase() {
 }
 
 validate_activation_journal() {
-  local release=$1 file expected_phase migration_started
+  local release=$1 file expected_phase migration_started migration_succeeded
   file="$(journal_file_for "$release")"
   private_dir "$(journal_dir_for "$release")" || die "activation journal directory is unsafe"
   private_file "$file" || die "activation journal is unsafe"
   awk '
-    !/^(RELEASE_ID|PHASE|MIGRATION_STARTED)=.*$/ { exit 1 }
+    !/^(RELEASE_ID|PHASE|MIGRATION_STARTED|MIGRATION_SUCCEEDED)=.*$/ { exit 1 }
     { key = substr($0, 1, index($0, "=") - 1); if (++seen[key] != 1) exit 1 }
     END { exit(seen["RELEASE_ID"] == 1 && seen["PHASE"] == 1 && seen["MIGRATION_STARTED"] == 1 ? 0 : 1) }
   ' "$file" || die "activation journal has an invalid key set"
@@ -190,6 +190,11 @@ validate_activation_journal() {
   valid_activation_phase "$expected_phase" || die "activation journal has an invalid phase"
   migration_started="$(release_state_value "$file" MIGRATION_STARTED)"
   valid_boolean "$migration_started" || die "activation journal has an invalid migration marker"
+  migration_succeeded="$(release_state_value "$file" MIGRATION_SUCCEEDED)"
+  if grep -q '^MIGRATION_SUCCEEDED=' "$file"; then
+    valid_boolean "$migration_succeeded" || die "activation journal has an invalid migration-success marker"
+    [[ "$migration_succeeded" == false || "$migration_started" == true ]] || die "activation journal cannot mark an unstarted migration successful"
+  fi
   printf '%s' "$expected_phase"
 }
 
@@ -200,8 +205,18 @@ activation_journal_migration_started() {
   release_state_value "$file" MIGRATION_STARTED
 }
 
+activation_journal_migration_succeeded() {
+  local release=$1 file migration_succeeded
+  validate_activation_journal "$release" >/dev/null
+  file="$(journal_file_for "$release")"
+  migration_succeeded="$(release_state_value "$file" MIGRATION_SUCCEEDED)"
+  # Legacy journals predate this durable success marker. They remain readable
+  # for an already-active release, but cannot authorize a migration-free retry.
+  printf '%s' "${migration_succeeded:-false}"
+}
+
 write_activation_journal() {
-  local release=$1 phase=$2 journal_dir journal_file tmp migration_started=false
+  local release=$1 phase=$2 journal_dir journal_file tmp migration_started=false migration_succeeded=false
   valid_release_id "$release" || die "activation journal release id is invalid"
   valid_activation_phase "$phase" || die "activation journal phase is invalid"
   journal_dir="$(journal_dir_for "$release")"
@@ -210,6 +225,7 @@ write_activation_journal() {
     private_dir "$journal_dir" || die "activation journal directory is unsafe"
     if [[ -e "$journal_file" || -L "$journal_file" ]]; then
       migration_started="$(activation_journal_migration_started "$release")"
+      migration_succeeded="$(activation_journal_migration_succeeded "$release")"
     fi
   else
     mkdir "$journal_dir" || die "unable to create activation journal directory"
@@ -217,8 +233,13 @@ write_activation_journal() {
     private_dir "$journal_dir" || die "activation journal directory is unsafe"
   fi
   [[ "$phase" == MIGRATION_STARTED ]] && migration_started=true
+  if [[ "$phase" == MIGRATION_SUCCEEDED ]]; then
+    [[ "$migration_started" == true ]] || die "cannot mark a migration successful before it starts"
+    migration_succeeded=true
+  fi
+  [[ "$migration_succeeded" == false || "$migration_started" == true ]] || die "activation journal cannot mark an unstarted migration successful"
   tmp="$(mktemp "$journal_dir/.activation.XXXXXX")" || die "unable to create activation journal"
-  printf 'RELEASE_ID=%s\nPHASE=%s\nMIGRATION_STARTED=%s\n' "$release" "$phase" "$migration_started" > "$tmp"
+  printf 'RELEASE_ID=%s\nPHASE=%s\nMIGRATION_STARTED=%s\nMIGRATION_SUCCEEDED=%s\n' "$release" "$phase" "$migration_started" "$migration_succeeded" > "$tmp"
   chmod 600 "$tmp" || die "unable to secure activation journal"
   private_file "$tmp" || die "activation journal is unsafe"
   mv -Tf "$tmp" "$journal_file" || die "unable to update activation journal"
@@ -1030,6 +1051,11 @@ apply_release() {
       validate_manifest_previous_release "$current_id" "$current_bundle"
       [[ "$target_phase" == ACTIVE || "$target_phase" == COMMIT_PENDING ]] || die "existing release has not completed activation; manual intervention required"
       if [[ "$target_phase" == COMMIT_PENDING ]]; then
+        if [[ "$(activation_journal_migration_started "$release_id")" == true \
+          && "$(activation_journal_migration_succeeded "$release_id")" != true ]]; then
+          write_activation_journal "$release_id" MANUAL_INTERVENTION || true
+          die "pending release migration completion is unproven; manual intervention required"
+        fi
         ACTIVATION_MIGRATION_STARTED=false
         ACTIVATION_CANDIDATE_STARTED=false
         ACTIVATION_STAGING_INSTALLED=false
@@ -1057,6 +1083,50 @@ apply_release() {
     else
       status=$?
       [[ "$status" == 3 ]] || return "$status"
+      if [[ ( "$target_phase" == MANUAL_INTERVENTION || "$target_phase" == COMMIT_PENDING ) \
+        && "$expected_current" == none \
+        && "$(activation_journal_migration_succeeded "$release_id")" == true \
+        && -z "$(release_state_value "$target_state" PREVIOUS_RELEASE_ID)" \
+        && -z "$(release_state_value "$target_state" PREVIOUS_BUNDLE_SHA256)" ]]; then
+        # Only a durable MIGRATION_SUCCEEDED marker can prove that a first
+        # release with no previous target may skip its non-idempotent schema
+        # migration. Re-validate and restart only its immutable runtime, stage
+        # Nginx/origin smoke, and gate production before creating current.
+        # Database migrations are intentionally not invoked on this path.
+        require_public_write_uncommitted
+        require_write_fence || die "manual-intervention release requires a valid production write fence"
+        ACTIVATION_MIGRATION_STARTED=false
+        ACTIVATION_CANDIDATE_STARTED=false
+        ACTIVATION_STAGING_INSTALLED=false
+        ACTIVATION_STAGING_ATTEMPTED=false
+        activate_candidate_runtime "$target" false true || {
+          write_activation_journal "$release_id" MANUAL_INTERVENTION || true
+          die "manual-intervention release runtime recovery failed; current release remains absent"
+        }
+        write_activation_journal "$release_id" COMMIT_PENDING || die "unable to record pending manual-intervention recovery"
+        if ! production_ingress_gate "$release_id" true; then
+          write_activation_journal "$release_id" MANUAL_INTERVENTION || true
+          die "manual-intervention release production ingress gate failed; current release remains absent"
+        fi
+        # Record ACTIVE before the pointer swap so a crash after the gate can
+        # be reconciled by the existing idempotent ACTIVE path.
+        write_activation_journal "$release_id" ACTIVE || die "unable to mark resumed release active"
+        new_current="$RELEASE_ROOT/.current.${release_id}.tmp"
+        [[ ! -e "$new_current" && ! -L "$new_current" ]] || die "temporary current release link already exists"
+        CLEANUP_CURRENT_TMP="$new_current"
+        if ! ln -s "$target" "$new_current" || ! mv -Tf "$new_current" "$CURRENT_LINK"; then
+          rm -f -- "$new_current"
+          write_activation_journal "$release_id" MANUAL_INTERVENTION || true
+          die "unable to commit resumed current release link; manual intervention is required"
+        fi
+        [[ "$(readlink "$CURRENT_LINK")" == "$target" ]] || {
+          write_activation_journal "$release_id" MANUAL_INTERVENTION || true
+          die "resumed current pointer does not match target; manual intervention is required"
+        }
+        CLEANUP_CURRENT_TMP=''
+        printf 'release %s resumed after manual intervention\n' "$release_id"
+        return
+      fi
       [[ "$target_phase" == ACTIVE && "$expected_current" == none && -z "$MANIFEST_PREVIOUS_RELEASE_ID" ]] || die "existing release has not completed activation; manual intervention required"
     fi
     new_current="$RELEASE_ROOT/.current.${release_id}.tmp"

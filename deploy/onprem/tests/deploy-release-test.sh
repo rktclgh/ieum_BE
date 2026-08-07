@@ -194,7 +194,7 @@ printf '%s\n' 'server { }' > "$payload/deploy/onprem/nginx/ieum.rktclgh.site.con
 printf '%s\n' 'server { }' > "$payload/deploy/onprem/nginx/files.rktclgh.site.conf"
 printf '%s\n' 'server { }' > "$payload/deploy/onprem/nginx/ieum1.rktclgh.site.conf"
 printf '%s\n' '#!/usr/bin/env bash' > "$payload/deploy/onprem/scripts/validate-runtime-env.sh"
-printf '%s\n' '#!/usr/bin/env bash' '[[ "${FAKE_MIGRATION_FAIL:-0}" != 1 ]] || exit 1' ": <<'SQL'" '\i db/migrations/V999_fixture.sql' 'SQL' 'exit 0' > "$payload/deploy/scripts/apply-admin-dashboard-migrations.sh"
+printf '%s\n' '#!/usr/bin/env bash' 'printf '\''migration-helper\n'\'' >> "$FAKE_CALL_LOG"' '[[ "${FAKE_MIGRATION_FAIL:-0}" != 1 ]] || exit 1' ": <<'SQL'" '\i db/migrations/V999_fixture.sql' 'SQL' 'exit 0' > "$payload/deploy/scripts/apply-admin-dashboard-migrations.sh"
 printf '%s\n' 'select 1;' > "$payload/db/migrations/V999_fixture.sql"
 chmod 600 "$payload/release.env" "$payload/deploy/onprem/compose.yml" \
   "$payload/deploy/onprem/nginx/ieum.rktclgh.site.conf" \
@@ -334,6 +334,55 @@ if grep -Fq "docker-config=$tmp/inherited-docker-auth command=compose" "$call_lo
 fi
 : > "$call_log"
 
+# A migration helper can fail after its write fence has been entered.  That
+# leaves a MANUAL_INTERVENTION journal with MIGRATION_STARTED=true, but it is
+# not evidence that the schema reached a usable state.  A retry must refuse
+# to promote that first release without an explicit success record.
+failed_migration_release_root="$tmp/failed-migration/srv/ieum"
+failed_migration_state_root="$tmp/failed-migration/var/lib/ieum"
+mkdir -p "$failed_migration_release_root/staging" "$failed_migration_release_root/releases" "$failed_migration_release_root/locks" \
+  "$failed_migration_state_root/deployments" "$failed_migration_state_root/locks" "$failed_migration_state_root/maintenance"
+chmod 700 "$failed_migration_release_root/staging" "$failed_migration_release_root/releases" "$failed_migration_release_root/locks" \
+  "$failed_migration_state_root" "$failed_migration_state_root/deployments" "$failed_migration_state_root/locks" "$failed_migration_state_root/maintenance"
+printf 'IEUM_PRODUCTION_WRITE_FENCE=enabled\n' > "$failed_migration_state_root/maintenance/write-fence"
+chmod 600 "$failed_migration_state_root/maintenance/write-fence"
+failed_migration_release_id="r-123456797-1-0123456789abcdef0123456789abcdef01234573"
+failed_migration_bundle=()
+while IFS= read -r bundle_part; do
+  failed_migration_bundle[${#failed_migration_bundle[@]}]="$bundle_part"
+done < <(build_envelope "$failed_migration_release_id" null failed-migration)
+: > "$call_log"
+if FAKE_MIGRATION_FAIL=1 \
+  IEUM_RELEASE_ROOT="$failed_migration_release_root" \
+  IEUM_RELEASE_STATE_ROOT="$failed_migration_state_root" \
+  IEUM_RELEASE_WRITE_FENCE_PATH="$failed_migration_state_root/maintenance/write-fence" \
+  IEUM_RELEASE_PUBLIC_WRITE_COMMITTED_PATH="$failed_migration_state_root/state/public-write-committed" \
+  "$helper" apply \
+    --release-id "$failed_migration_release_id" \
+    --expected-current none \
+    --bundle-sha256 "${failed_migration_bundle[2]}" < "${failed_migration_bundle[1]}" >"$tmp/stdout" 2>"$tmp/stderr"; then
+  fail "failed first-release migration was accepted"
+fi
+grep -Fqx 'PHASE=MANUAL_INTERVENTION' "$failed_migration_state_root/deployments/$failed_migration_release_id/activation.env" \
+  || fail "failed first-release migration did not require manual intervention"
+grep -Fqx 'MIGRATION_STARTED=true' "$failed_migration_state_root/deployments/$failed_migration_release_id/activation.env" \
+  || fail "failed first-release migration was not marked started"
+grep -Fqx 'MIGRATION_SUCCEEDED=false' "$failed_migration_state_root/deployments/$failed_migration_release_id/activation.env" \
+  || fail "failed first-release migration was incorrectly marked successful"
+[[ ! -e "$failed_migration_release_root/current" ]] || fail "failed first-release migration changed current release"
+: > "$call_log"
+if IEUM_RELEASE_ROOT="$failed_migration_release_root" \
+  IEUM_RELEASE_STATE_ROOT="$failed_migration_state_root" \
+  IEUM_RELEASE_WRITE_FENCE_PATH="$failed_migration_state_root/maintenance/write-fence" \
+  IEUM_RELEASE_PUBLIC_WRITE_COMMITTED_PATH="$failed_migration_state_root/state/public-write-committed" \
+  "$helper" apply \
+    --release-id "$failed_migration_release_id" \
+    --expected-current none \
+    --bundle-sha256 "${failed_migration_bundle[2]}" < "${failed_migration_bundle[1]}" >"$tmp/stdout" 2>"$tmp/stderr"; then
+  fail "failed first-release migration was resumed without success evidence"
+fi
+[[ ! -e "$failed_migration_release_root/current" ]] || fail "failed first-release migration retry changed current release"
+
 # A pull failure occurs before candidate services or staging Nginx exist.  Its
 # rollback must not attempt to remove a non-existent staging configuration.
 pre_runtime_release_root="$tmp/pre-runtime/srv/ieum"
@@ -383,6 +432,7 @@ grep -F 'release signature verification failed' "$tmp/stderr" >/dev/null || fail
 [[ ! -e "$release_root/current" ]] || fail "invalid signature promoted a current release"
 grep -F 'ssh-keygen -Y verify -n ieum-release -I ieum-release' "$call_log" >/dev/null || fail "signature verifier was not invoked with the fixed namespace and identity"
 
+: > "$call_log"
 if FAKE_PRODUCTION_NGINX_FAIL=1 "$helper" apply \
   --release-id "$release_id" \
   --expected-current none \
@@ -393,14 +443,56 @@ fi
 grep -F 'production ingress gate failed' "$tmp/stderr" >/dev/null || fail "pre-commit production ingress failure was not reported"
 [[ ! -e "$release_root/current" ]] || fail "pre-commit production ingress failure changed current symlink"
 grep -Fqx 'PHASE=MANUAL_INTERVENTION' "$state_root/deployments/$release_id/activation.env" || fail "post-migration production ingress failure did not journal manual intervention"
+grep -Fqx 'MIGRATION_SUCCEEDED=true' "$state_root/deployments/$release_id/activation.env" \
+  || fail "post-migration production ingress failure lost migration-success evidence"
 
+rm "$state_root/maintenance/write-fence"
 if "$helper" apply \
   --release-id "$release_id" \
   --expected-current none \
   --bundle-sha256 "$bundle_sha" < "$envelope" >"$tmp/stdout" 2>"$tmp/stderr"; then
-  fail "manual-intervention target was retried without runtime reactivation"
+  fail "manual-intervention recovery proceeded without a write fence"
+fi
+grep -F 'production write fence' "$tmp/stderr" >/dev/null || fail "missing resume write fence was not reported"
+[[ ! -e "$release_root/current" ]] || fail "missing resume write fence changed current symlink"
+grep -Fqx 'PHASE=MANUAL_INTERVENTION' "$state_root/deployments/$release_id/activation.env" \
+  || fail "missing resume write fence did not preserve manual journal"
+printf 'IEUM_PRODUCTION_WRITE_FENCE=enabled\n' > "$state_root/maintenance/write-fence"
+chmod 600 "$state_root/maintenance/write-fence"
+
+: > "$call_log"
+if FAKE_PRODUCTION_NGINX_FAIL=1 "$helper" apply \
+  --release-id "$release_id" \
+  --expected-current none \
+  --bundle-sha256 "$bundle_sha" < "$envelope" >"$tmp/stdout" 2>"$tmp/stderr"; then
+  fail "manual-intervention recovery accepted a failed ingress gate"
+fi
+[[ ! -e "$release_root/current" ]] || fail "failed manual-intervention recovery changed current symlink"
+grep -Fqx 'PHASE=MANUAL_INTERVENTION' "$state_root/deployments/$release_id/activation.env" \
+  || fail "failed manual-intervention recovery did not preserve manual journal"
+if grep -Fxq 'migration-helper' "$call_log"; then
+  fail "failed manual-intervention recovery reran database migrations"
+fi
+
+if ! "$helper" apply \
+  --release-id "$release_id" \
+  --expected-current none \
+  --bundle-sha256 "$bundle_sha" < "$envelope" >"$tmp/stdout" 2>"$tmp/stderr"; then
+  cat "$tmp/stderr" >&2
+  fail "manual-intervention recovery was rejected"
+fi
+grep -F "release $release_id resumed after manual intervention" "$tmp/stdout" >/dev/null \
+  || fail "manual-intervention recovery was not reported"
+[[ -L "$release_root/current" ]] || fail "manual-intervention recovery did not create current symlink"
+grep -Fqx 'PHASE=ACTIVE' "$state_root/deployments/$release_id/activation.env" \
+  || fail "manual-intervention recovery did not journal active"
+grep -F -- "production-nginx --release-id $release_id --confirm-public-ingress --allow-pending-activation" "$call_log" >/dev/null \
+  || fail "manual-intervention recovery did not use the pending ingress gate"
+if grep -Fxq 'migration-helper' "$call_log"; then
+  fail "manual-intervention recovery reran database migrations"
 fi
 rm -rf "$release_root/releases/$release_id" "$state_root/deployments/$release_id"
+rm -f "$release_root/current"
 
 if FAKE_MINIO_PRESIGN_FAIL=1 "$helper" apply \
   --release-id "$release_id" \
@@ -452,6 +544,56 @@ if ! "$helper" apply \
 fi
 grep -F "release $release_id reconciled after an interrupted promotion" "$tmp/stdout" >/dev/null || fail "interrupted first-promotion recovery was not reported"
 [[ -L "$release_root/current" ]] || fail "interrupted first-promotion recovery did not restore current"
+
+# If a process dies after recording COMMIT_PENDING but before the current-link
+# swap, the first release has no current pointer.  Its durable migration
+# success record permits only a runtime/gate retry, never another migration.
+rm "$release_root/current"
+cat > "$state_root/deployments/$release_id/activation.env" <<EOF
+RELEASE_ID=$release_id
+PHASE=COMMIT_PENDING
+MIGRATION_STARTED=true
+MIGRATION_SUCCEEDED=true
+EOF
+chmod 600 "$state_root/deployments/$release_id/activation.env"
+: > "$call_log"
+if ! "$helper" apply \
+  --release-id "$release_id" \
+  --expected-current none \
+  --bundle-sha256 "$bundle_sha" < "$envelope" >"$tmp/stdout" 2>"$tmp/stderr"; then
+  cat "$tmp/stderr" >&2
+  fail "migration-complete pending first release was not resumed"
+fi
+[[ -L "$release_root/current" ]] || fail "pending first-release recovery did not create current"
+if grep -Fxq 'migration-helper' "$call_log"; then
+  fail "pending first-release recovery reran database migrations"
+fi
+
+# A pending first release without durable migration success evidence is
+# ambiguous and must stay blocked even though a migration attempt began.
+rm "$release_root/current"
+cat > "$state_root/deployments/$release_id/activation.env" <<EOF
+RELEASE_ID=$release_id
+PHASE=COMMIT_PENDING
+MIGRATION_STARTED=true
+MIGRATION_SUCCEEDED=false
+EOF
+chmod 600 "$state_root/deployments/$release_id/activation.env"
+if "$helper" apply \
+  --release-id "$release_id" \
+  --expected-current none \
+  --bundle-sha256 "$bundle_sha" < "$envelope" >"$tmp/stdout" 2>"$tmp/stderr"; then
+  fail "pending first release without migration-success evidence was resumed"
+fi
+[[ ! -e "$release_root/current" ]] || fail "unproven pending first release changed current"
+cat > "$state_root/deployments/$release_id/activation.env" <<EOF
+RELEASE_ID=$release_id
+PHASE=ACTIVE
+MIGRATION_STARTED=true
+MIGRATION_SUCCEEDED=true
+EOF
+chmod 600 "$state_root/deployments/$release_id/activation.env"
+ln -s "$release_root/releases/$release_id" "$release_root/current"
 
 if ! "$helper" apply \
   --release-id "$release_id" \
@@ -670,6 +812,20 @@ if "$helper" apply \
   fail "release accepted a migration helper with an external include"
 fi
 grep -F 'release payload migrations do not match the migration helper' "$tmp/stderr" >/dev/null || fail "external migration include rejection was not reported"
+
+cp "$state_root/deployments/$release_id/activation.env" "$tmp/activation.before-empty-success-marker"
+awk '
+  /^MIGRATION_SUCCEEDED=/ { print "MIGRATION_SUCCEEDED="; next }
+  { print }
+' "$state_root/deployments/$release_id/activation.env" > "$tmp/activation.empty-success-marker"
+chmod 600 "$tmp/activation.empty-success-marker"
+mv "$tmp/activation.empty-success-marker" "$state_root/deployments/$release_id/activation.env"
+if "$helper" current --json >"$tmp/stdout" 2>"$tmp/stderr"; then
+  fail "current status accepted an empty migration-success marker"
+fi
+grep -F 'activation journal has an invalid migration-success marker' "$tmp/stderr" >/dev/null \
+  || fail "empty migration-success marker rejection was not reported"
+mv "$tmp/activation.before-empty-success-marker" "$state_root/deployments/$release_id/activation.env"
 
 printf 'tampered\n' >> "$release_root/current/release.env"
 chmod 600 "$release_root/current/release.env"
