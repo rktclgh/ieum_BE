@@ -6,6 +6,8 @@ readonly APP_SITE='ieum.rktclgh.site'
 readonly FILES_SITE='files.rktclgh.site'
 readonly APP_HEALTH_URL='http://127.0.0.1:18080/actuator/health'
 readonly MINIO_HEALTH_URL='http://127.0.0.1:19000/minio/health/live'
+readonly ORIGIN_SMOKE_MAX_ATTEMPTS=3
+readonly ORIGIN_SMOKE_RETRY_DELAY_SECONDS=1
 
 if [[ "$EUID" -eq 0 ]]; then
   IS_PRODUCTION=true
@@ -240,16 +242,26 @@ done
 
 "$NGINX_BIN" -t || die 'nginx configuration test failed'
 "$SYSTEMCTL_BIN" reload nginx || die 'nginx reload failed'
-"$CURL_BIN" --fail --silent --show-error --max-time 15 \
-  --retry 5 --retry-delay 1 --retry-all-errors --noproxy '*' --http1.1 \
-  --cacert "$CERT_FILE" \
-  --resolve ieum.rktclgh.site:443:127.0.0.1 \
-  https://ieum.rktclgh.site/api/places/search >/dev/null || die 'production origin smoke failed'
-"$CURL_BIN" --fail --silent --show-error --max-time 15 \
-  --retry 5 --retry-delay 1 --retry-all-errors --noproxy '*' --http1.1 \
-  --cacert "$CERT_FILE" \
-  --resolve files.rktclgh.site:443:127.0.0.1 \
-  https://files.rktclgh.site/minio/health/live >/dev/null || die 'files origin smoke failed'
+origin_smoke() {
+  local host=$1 url=$2 attempt
+  for ((attempt = 1; attempt <= ORIGIN_SMOKE_MAX_ATTEMPTS; attempt++)); do
+    if "$CURL_BIN" --fail --silent --show-error --max-time 5 \
+      --noproxy '*' --http1.1 \
+      --cacert "$CERT_FILE" \
+      --resolve "$host:443:127.0.0.1" \
+      "$url" >/dev/null; then
+      return 0
+    fi
+    if ((attempt < ORIGIN_SMOKE_MAX_ATTEMPTS)); then
+      sleep "$ORIGIN_SMOKE_RETRY_DELAY_SECONDS"
+    fi
+  done
+  return 1
+}
+origin_smoke ieum.rktclgh.site https://ieum.rktclgh.site/api/places/search \
+  || die 'production origin smoke failed'
+origin_smoke files.rktclgh.site https://files.rktclgh.site/minio/health/live \
+  || die 'files origin smoke failed'
 rm -rf -- "$backup_dir" || die 'unable to clean up production nginx rollback artifact'
 trap - EXIT ERR
 printf 'production nginx installed: %s, %s (%s)\n' "$APP_SITE" "$FILES_SITE" "$release_id"
