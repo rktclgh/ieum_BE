@@ -29,17 +29,17 @@ manual runs use the frontend `main` branch as their fallback source.
 The build job runs `pnpm verify` without production credentials and uploads the
 static export with its exact `frontend-sha` metadata through
 `actions/upload-artifact@v4`. The immutable artifact ID, rather than a mutable
-name or workspace path, is passed to the `deploy` job. The deploy job starts on
-a clean runner, checks out only backend source, and downloads that exact
-artifact ID. Before copying any bytes into Spring resources, backend-owned
+name or workspace path, is passed to the GitHub-hosted `build-sign` job. That
+job starts on a clean runner, checks out only backend source, and downloads
+that exact artifact ID. Before copying any bytes into Spring resources, backend-owned
 checks reject hidden entries, symlinks, and non-file/non-directory entries,
 compare the embedded SHA with the build job output, and run the static package
 verifier. Frontend source, package scripts, Node, and pnpm never run inside the
 production Environment.
 
-The app-main deployment performs one final comparison with the current
-frontend `main` SHA immediately before SSH deployment. A newer frontend commit
-therefore makes an older run fail closed instead of publishing stale assets.
+The app-main release performs one final comparison with the current frontend
+`main` SHA immediately before signing. A newer frontend commit therefore makes
+an older run fail closed instead of publishing stale assets.
 Production deployment concurrency uses `cancel-in-progress: false`, so an
 in-flight migration or deployment is never interrupted by a newer run.
 
@@ -47,110 +47,109 @@ in-flight migration or deployment is never interrupted by a newer run.
 
 Repository secrets:
 
-- `CI_GITHUB_TOKEN`: fine-grained token with read access to
-  `rktclgh/ieum_FE`, used only by the production `deploy` job for the final
-  frontend `main` SHA freshness gate. It is never exposed to frontend checkout,
-  install, build, or verification steps.
 - `DOCKERHUB_USERNAME`: Docker Hub account or organization name.
 - `DOCKERHUB_TOKEN`: Docker Hub access token with read/write permission.
 
 Create private Docker Hub repositories named `ieum-app-main` and `ieum-app-ai`.
 
-Create both GitHub Environments before enabling the workflows.
+## On-premises production target
 
-### `app-main-production`
+The legacy AWS EC2 configuration is retired. Do not put an EC2 public address,
+an EC2 private address, an RDS hostname, or any runner-local address in this
+repository, a workflow, or a committed environment file.
 
-Variables:
+The `ieum-production` GitHub Environment is restricted by a custom deployment
+branch policy to `main` and has one deployment secret:
 
-- `SSH_HOST=54.116.123.11`
-- `SSH_USER=ubuntu`
-- `SSH_PORT=22`
-- `DEPLOY_PATH=/home/ubuntu/ieum/app-main`
-- `APP_MAIN_PRIVATE_BIND_ADDRESS=172.31.38.97`
-- `LETSENCRYPT_EMAIL`: optional when the origin certificate already exists;
-  required only for initial Let's Encrypt issuance
+- `RELEASE_SIGNING_PRIVATE_KEY`: protected SSH signing key used only to create
+  a detached signature for the exact release tarball. Its public verifier is
+  root-owned on the target. It is not an SSH transport key.
 
-Secrets:
+There are no `SSH_HOST`, `SSH_USER`, `SSH_PORT`,
+`ONPREM_RELEASE_SSH_PRIVATE_KEY`, or `ONPREM_RELEASE_SSH_KNOWN_HOSTS` variables
+or secrets. The on-premises host cannot accept an Internet SSH connection, and
+the release workflow intentionally has no inbound SSH, SCP, NAT, or
+port-forwarding transport.
 
-- `SSH_PRIVATE_KEY`: complete PEM contents
-- `SSH_KNOWN_HOSTS`: verified known_hosts line for `54.116.123.11`
-- `APP_MAIN_ENV_FILE`: completed `deploy/env/app-main.env.example`; its
-  `SPRING_DATASOURCE_URL` must use the production database host, never
-  `localhost`, `127.0.0.1`, or the example placeholder, and it must include
-  `INQUIRY_ADMIN_EMAIL`. Each deployment atomically updates the server's
-  non-database runtime settings from this secret before running migrations.
+Application runtime secrets never belong to GitHub. Keep them only in the
+root-owned, mode-0600 server files `/etc/ieum/app-main.env` and
+`/etc/ieum/app-ai.env`. In particular, do not configure `APP_MAIN_ENV_FILE`,
+`APP_AI_ENV_FILE`, application database credentials, MinIO credentials, or
+Bedrock credentials as GitHub Environment secrets. `DEPLOY_PATH` is also not a
+GitHub variable: the root-owned dispatcher fixes the staging, release, and
+state paths on the target.
 
-### `app-ai-production`
+### Runner model
 
-Variables:
+The production host runs one dedicated **repository-scoped** self-hosted
+runner. GitHub-hosted jobs build, test, publish images, and sign the envelope;
+the local runner performs only `local-plan` and `local-apply`. This works with
+outbound HTTPS from the host to GitHub and requires no externally reachable SSH
+service.
 
-- `SSH_HOST=54.116.69.21`
-- `SSH_USER=ubuntu`
-- `SSH_PORT=22`
-- `DEPLOY_PATH=/home/ubuntu/ieum/app-ai`
-- `APP_AI_BIND_ADDRESS=172.31.33.42`
+- Unix user: `ieum-runner`
+- runner name: `song-server-ieum-prod-01`
+- required labels: `self-hosted`, `linux`, `x64`, `ieum-prod-deploy`
+- repository URL: `https://github.com/rktclgh/ieum_BE`
 
-Secrets:
+Never reuse the existing FairPlay or Vlainter runners: they run as `song`,
+which has Docker and sudo privileges. `ieum-runner` must not be in the Docker
+or sudo groups, must not read `/etc/ieum/*.env`, and must not check out this
+repository. Its only elevated path is the root-owned dispatcher:
 
-- `SSH_PRIVATE_KEY`: complete PEM contents
-- `SSH_KNOWN_HOSTS`: verified known_hosts line for `54.116.69.21`
-- `APP_AI_ENV_FILE`: completed `deploy/env/app-ai.env.example`. Each deployment
-  atomically updates the server's non-database runtime settings from this
-  secret before running migrations.
+```text
+sudo -n /usr/local/sbin/ieum-release-dispatch --local current --json
+sudo -n /usr/local/sbin/ieum-release-dispatch --local apply ...
+```
 
-### Remote database migration gate
+The dispatcher accepts only strict `current` and signed-envelope `apply`
+arguments; it does not grant direct access to `ieum-deploy-release`, Docker,
+or a shell. Root operators retain rollback outside GitHub Actions.
 
-The production database is a private RDS instance whose port 5432 accepts
-traffic only from the production EC2 security groups. GitHub-hosted runners
-must not receive database credentials and cannot connect to that private RDS
-endpoint. Each binary workflow therefore copies only the migration helper and
-the explicitly ordered `v24_seed_report_policy_rules.sql`,
-`v25_user_auth_version.sql`, `v26_admin_audit_logs.sql`, and
-`v27_report_policy_sanction_durations.sql` files to its production EC2 host and
-runs the helper there after the app-main JAR is built but before its image is deployed.
-The app-ai workflow continues to run migrations before its binary is built. The report
-policy files run only when the canonical `ai_report_policy_rules` table exists.
+Bootstrap the account and dispatcher first, then register the runner with a
+short-lived token from **Repository Settings → Actions → Runners**. Put the
+token in a root-owned mode-0600 file on the server and pass that file only to
+`install-self-hosted-runner.sh`; do not paste it into repository secrets,
+workflow YAML, or a shell history. The installer configures the runner as
+`ieum-runner`, starts its own systemd service, and removes the token file only
+after successful registration. GitHub's unattended runner client requires its
+temporary registration token while it configures; it is never printed by this
+installer.
 
-The database connection settings are retained from the current valid runtime
-configuration. A `localhost` or `127.0.0.1` JDBC URL is rejected; when a stale
-runtime file contains one, the workflow recovers the production datasource
-settings from the running application container before updating the remaining
-runtime keys and feature flags.
+This is deliberately not a generic runner for other repositories. Under the
+current personal-account ownership it is repository-scoped. Sharing a runner
+requires moving the repository to an organization and designing a separate,
+workflow-restricted runner-group policy.
 
-Before enabling either workflow, install the PostgreSQL client on both EC2
-hosts. The migration helper reads the existing `$DEPLOY_PATH/.env.runtime`
-file, which is also the runtime configuration consumed by the application. It
-uses `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, and
-`SPRING_DATASOURCE_PASSWORD` to connect to the private RDS instance; no second
-database-credential file is required. Keep `.env.runtime` owned by the SSH
-deployment user and mode 600.
+The workflow uses one literal production concurrency group across app-main and
+app-ai, while the server-side wrapper owns the final host-wide lock.
 
-The workflow validates the runtime configuration and remote `psql` command
-before running the helper. Credentials stay on EC2: they are never
-interpolated as GitHub secrets and never appear in SSH arguments or workflow
-logs. An unavailable `psql`, invalid datasource URL, schema mismatch, or
+### Local database migration gate
 
-migration error stops the workflow before Gradle, image build, or SSH application
-deployment.
+The production database is the on-premises PostgreSQL instance on the same
+host as the applications. The application runtime uses the Docker gateway
+hostname, not a literal host address. The deployment wrapper reads the
+root-owned runtime environment files without printing them, runs the reviewed
+migration bundle once against production database `ieum`, and aborts before
+starting app-main if migration or postcondition checks fail.
 
-The deployment validator also runs the helper against an ephemeral PostgreSQL
-16 instance. It verifies that a hostile role `search_path` cannot redirect DDL,
-an exact rerun preserves the existing users constraint OID, and incompatible
-audit sequence properties fail closed before any repair is attempted.
+The final host has one Ieum application database named `ieum`. A disposable
+`ieum_rehearsal` database may exist only during the isolated restore/application
+rehearsal and must be dropped before the production write cutover.
 
-Generate candidate host-key lines with `ssh-keyscan -H <host>`, but verify the
-fingerprint through AWS or another trusted channel before saving the result as
-`SSH_KNOWN_HOSTS`. The workflow never disables host-key verification.
+The workflow must not receive database credentials. A PostgreSQL client,
+extension preflight, migration advisory lock, exact rerun check, and schema
+postcondition checks run on the target host. Credentials must never appear in
+runner command arguments, workflow logs, image labels, or release artifacts.
 
-The app-main workflow installs an Nginx reverse proxy for
-`https://ieum.rktclgh.site` and keeps app-main reachable only through loopback
-and its private address. Allow inbound ports 80 and 443 publicly. Allow port
-8080 only from the app-ai security group or `172.31.33.42`; do not expose it to
-the internet. On app-ai, allow port 8081 only from the app-main security group
-or `172.31.38.97`. Restrict SSH port 22 to an administrator CIDR after initial
-setup.
+### Network and TLS gate
 
-Before the first deployment, prepare the RDS schema/extensions, S3 and Bedrock
-permissions, app-ai private-port security-group rule, and TLS. Deploy app-ai
-first, then deploy app-main after the frontend static export and Spring static
-serving changes are ready.
+Nginx serves `https://ieum.rktclgh.site` and the separate public file hostname
+`https://files.rktclgh.site`. It proxies app-main only to its loopback host
+port and MinIO only to its loopback API port. PostgreSQL, Redis, app-main,
+app-ai, the MinIO API, and the MinIO console are never public.
+
+Before the first production release, complete the PostgreSQL extension/data
+restore rehearsal, MinIO bucket/policy/CORS rehearsal, Bedrock preflight, and
+TLS validation. Start app-ai before app-main; fail the release if either the
+internal health checks or the public anonymous API check fails.

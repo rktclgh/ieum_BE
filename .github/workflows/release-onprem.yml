@@ -1,0 +1,397 @@
+name: Ieum on-prem release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app-main/**"
+      - "app-ai/**"
+      - "common/**"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "gradle/**"
+      - "gradlew"
+      - "db/migrations/**"
+      - "deploy/app-main/**"
+      - "deploy/app-ai/**"
+      - "deploy/onprem/**"
+      - "deploy/scripts/apply-admin-dashboard-migrations.sh"
+      - ".dockerignore"
+      - ".github/workflows/release-onprem.yml"
+  repository_dispatch:
+    types: [frontend-updated]
+  workflow_dispatch:
+    inputs:
+      rebuild:
+        description: "Services to rebuild (auto uses the full diff from the current release)"
+        required: true
+        default: auto
+        type: choice
+        options: [auto, app-main, app-ai, both, redeploy]
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: ieum-onprem-production
+  cancel-in-progress: false
+
+env:
+  DOCKER_MAIN_REPOSITORY: docker.io/songchih/ieum-app-main
+  DOCKER_AI_REPOSITORY: docker.io/songchih/ieum-app-ai
+
+jobs:
+  frontend-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      frontend_sha: ${{ steps.frontend-sha.outputs.sha }}
+      artifact_id: ${{ steps.frontend-artifact.outputs.artifact-id }}
+    env:
+      NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${{ vars.NEXT_PUBLIC_GOOGLE_CLIENT_ID }}
+      NEXT_PUBLIC_KAKAO_REST_API_KEY: ${{ vars.NEXT_PUBLIC_KAKAO_REST_API_KEY }}
+    steps:
+      - name: Resolve frontend source
+        id: frontend-source
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_SHA: ${{ github.event.client_payload.frontend_sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == repository_dispatch ]]; then
+            [[ "$DISPATCH_SHA" =~ ^[0-9a-f]{40}$ ]]
+            echo "ref=$DISPATCH_SHA" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=main" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Check out frontend
+        uses: actions/checkout@v4
+        with:
+          repository: rktclgh/ieum_FE
+          ref: ${{ steps.frontend-source.outputs.ref }}
+          path: frontend
+          persist-credentials: false
+      - name: Verify frontend checkout
+        id: frontend-sha
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_SHA: ${{ github.event.client_payload.frontend_sha }}
+        run: |
+          set -euo pipefail
+          sha="$(git -C frontend rev-parse HEAD)"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+          if [[ "$EVENT_NAME" == repository_dispatch ]]; then [[ "$sha" == "$DISPATCH_SHA" ]]; fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.17.0
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Build static frontend
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          test -n "$NEXT_PUBLIC_GOOGLE_CLIENT_ID"
+          test -n "$NEXT_PUBLIC_KAKAO_REST_API_KEY"
+          pnpm install --frozen-lockfile
+          pnpm build
+          pnpm verify:out
+          test -s out/index.html && test -s out/index.txt && test -s out/404.html
+      - name: Prepare immutable static artifact
+        env:
+          FRONTEND_SHA: ${{ steps.frontend-sha.outputs.sha }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/frontend-static-artifact"
+          test ! -e "$root"
+          mkdir -p "$root/export"
+          unsafe="$(find frontend/out -mindepth 1 \( -name '.*' -o \( ! -type f -a ! -type d \) \) -print -quit)"
+          test -z "$unsafe"
+          cp -a frontend/out/. "$root/export/"
+          printf '%s\n' "$FRONTEND_SHA" > "$root/frontend-sha"
+      - name: Upload immutable static artifact
+        id: frontend-artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-static-${{ steps.frontend-sha.outputs.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/frontend-static-artifact
+          if-no-files-found: error
+          include-hidden-files: true
+          overwrite: false
+          retention-days: 1
+
+  local-plan:
+    runs-on: [self-hosted, linux, x64, ieum-prod-deploy]
+    outputs:
+      current_json: ${{ steps.current.outputs.current_json }}
+    steps:
+      - name: Read current release through local dispatcher
+        id: current
+        run: |
+          set -euo pipefail
+          current_json="$(sudo -n /usr/local/sbin/ieum-release-dispatch --local current --json)"
+          printf '%s\n' "$current_json" | jq -e 'type == "object" and (.release_id == null or (.release_id|test("^r-[0-9]+-[1-9][0-9]*-[0-9a-f]{40}$"))) and (.bundle_sha256 == null or (.bundle_sha256|test("^[0-9a-f]{64}$")))' >/dev/null
+          printf 'current_json<<EOF\n%s\nEOF\n' "$current_json" >> "$GITHUB_OUTPUT"
+
+  build-sign:
+    needs: [frontend-build, local-plan]
+    runs-on: ubuntu-latest
+    environment: ieum-production
+    timeout-minutes: 45
+    outputs:
+      artifact_id: ${{ steps.signed-artifact.outputs.artifact-id }}
+      release_id: ${{ steps.release.outputs.release_id }}
+      current: ${{ steps.plan.outputs.current }}
+      bundle_sha: ${{ steps.release.outputs.bundle_sha }}
+      envelope_sha: ${{ steps.release.outputs.envelope_sha }}
+    steps:
+      - name: Require main release ref
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/main && "$GITHUB_REF_NAME" == main && "$GITHUB_REF_TYPE" == branch ]]
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+      - name: Check out exact event commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify backend checkout
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+      - name: Download exact frontend artifact
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.frontend-build.outputs.artifact_id }}
+          path: ${{ runner.temp }}/frontend-static-artifact
+          merge-multiple: true
+      - name: Validate frontend artifact
+        env:
+          EXPECTED_FRONTEND_SHA: ${{ needs.frontend-build.outputs.frontend_sha }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/frontend-static-artifact"
+          test -d "$root/export" && test -f "$root/frontend-sha" && test ! -L "$root/frontend-sha"
+          unsafe="$(find "$root" -mindepth 1 \( -name '.*' -o \( ! -type f -a ! -type d \) \) -print -quit)"
+          test -z "$unsafe"
+          [[ "$EXPECTED_FRONTEND_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(wc -l < "$root/frontend-sha")" -eq 1 ]]
+          actual="$(<"$root/frontend-sha")"
+          [[ "$actual" =~ ^[0-9a-f]{40}$ && "$actual" == "$EXPECTED_FRONTEND_SHA" ]]
+          test -s "$root/export/index.html" && test -s "$root/export/index.txt" && test -s "$root/export/404.html"
+      - name: Package frontend into app-main
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/frontend-static-artifact"
+          static_dir=app-main/src/main/resources/static
+          rm -rf "$static_dir"
+          mkdir -p "$static_dir/error"
+          cp -a "$root/export/." "$static_dir/"
+          cp "$root/export/404.html" "$static_dir/error/404.html"
+          test ! -e "$static_dir/out" && test ! -e "$static_dir/.next"
+          deploy/tests/verify-static-frontend-package.sh "$static_dir"
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      - name: Build application jars
+        run: ./gradlew :app-main:bootJar :app-ai:bootJar --no-daemon
+      - name: Run focused app-main regression tests
+        run: >-
+          ./gradlew :app-main:test
+          --tests 'shinhan.fibri.ieum.config.FileConfigTest'
+          --tests 'shinhan.fibri.ieum.config.RedisRuntimePropertiesTest'
+          --no-daemon
+      - name: Verify packaged app-main frontend
+        run: deploy/tests/verify-static-frontend-package.sh app-main/src/main/resources/static app-main/build/libs/app-main.jar
+      - name: Run on-prem deployment contract tests
+        run: |
+          set -euo pipefail
+          for test_script in deploy/onprem/tests/*-test.sh; do
+            [[ -f "$test_script" && ! -L "$test_script" ]]
+            bash "$test_script"
+          done
+          bash deploy/tests/workflow-transition-test.sh
+      - name: Refuse stale frontend fallback
+        if: github.event_name != 'repository_dispatch'
+        env:
+          FRONTEND_SHA: ${{ needs.frontend-build.outputs.frontend_sha }}
+        run: |
+          set -euo pipefail
+          latest_frontend_sha="$(git ls-remote https://github.com/rktclgh/ieum_FE.git refs/heads/main | awk '{print $1}')"
+          [[ "$latest_frontend_sha" =~ ^[0-9a-f]{40}$ && "$latest_frontend_sha" == "$FRONTEND_SHA" ]]
+      - name: Read current release and plan rebuild
+        id: plan
+        env:
+          CURRENT_JSON: ${{ needs.local-plan.outputs.current_json }}
+          MANUAL_REBUILD: ${{ github.event.inputs.rebuild || 'auto' }}
+        run: |
+          set -euo pipefail
+          current_json="$CURRENT_JSON"
+          printf '%s\n' "$current_json" | jq -e '(.release_id == null or (.release_id|test("^r-[0-9]+-[1-9][0-9]*-[0-9a-f]{40}$"))) and (.bundle_sha256 == null or (.bundle_sha256|test("^[0-9a-f]{64}$")))' >/dev/null
+          current_id="$(jq -r '.release_id // "none"' <<<"$current_json")"
+          current_backend="$(jq -r '.backend_sha // empty' <<<"$current_json")"
+          current_main="$(jq -r '.images.app_main // empty' <<<"$current_json")"
+          current_ai="$(jq -r '.images.app_ai // empty' <<<"$current_json")"
+          previous='null'
+          if [[ "$current_id" != none ]]; then
+            [[ "$current_backend" =~ ^[0-9a-f]{40}$ && "$current_main" =~ ^docker\.io/songchih/ieum-app-main@sha256:[0-9a-f]{64}$ && "$current_ai" =~ ^docker\.io/songchih/ieum-app-ai@sha256:[0-9a-f]{64}$ ]]
+            previous="$(jq -cn --arg id "$current_id" --arg sha "$(jq -r '.bundle_sha256' <<<"$current_json")" '{release_id:$id,bundle_sha256:$sha}')"
+          else
+            current_backend="$GITHUB_SHA"
+            current_main=''; current_ai=''
+          fi
+          main=false; ai=false; release_needed=false
+          if [[ "$current_id" == none ]]; then main=true; ai=true; release_needed=true
+          elif [[ "$MANUAL_REBUILD" == both ]]; then main=true; ai=true; release_needed=true
+          elif [[ "$MANUAL_REBUILD" == app-main ]]; then main=true; release_needed=true
+          elif [[ "$MANUAL_REBUILD" == app-ai ]]; then ai=true; release_needed=true
+          elif [[ "$MANUAL_REBUILD" == auto ]]; then
+            while IFS= read -r path; do
+              case "$path" in app-main/**|common/**|build.gradle.kts|settings.gradle.kts|gradle/**|gradlew|.dockerignore|deploy/app-main/**) main=true;; esac
+              case "$path" in app-ai/**|common/**|build.gradle.kts|settings.gradle.kts|gradle/**|gradlew|.dockerignore|deploy/app-ai/**) ai=true;; esac
+              case "$path" in db/migrations/**|deploy/scripts/apply-admin-dashboard-migrations.sh|deploy/onprem/**|.github/workflows/release-onprem.yml) release_needed=true;; esac
+            done < <(git diff --name-only "$current_backend" "$GITHUB_SHA")
+            if [[ "${{ github.event_name }}" == repository_dispatch ]]; then main=true; release_needed=true; fi
+          fi
+          [[ "$release_needed" == true || "$MANUAL_REBUILD" == redeploy ]]
+          [[ "$main" == true || -n "$current_main" ]] && [[ "$ai" == true || -n "$current_ai" ]]
+          echo "rebuild_main=$main" >> "$GITHUB_OUTPUT"; echo "rebuild_ai=$ai" >> "$GITHUB_OUTPUT"
+          echo "current=$current_id" >> "$GITHUB_OUTPUT"; printf 'previous=%s\n' "$previous" >> "$GITHUB_OUTPUT"
+          echo "current_main=$current_main" >> "$GITHUB_OUTPUT"; echo "current_ai=$current_ai" >> "$GITHUB_OUTPUT"
+      - name: Set up Docker Buildx
+        if: steps.plan.outputs.rebuild_main == 'true' || steps.plan.outputs.rebuild_ai == 'true'
+        uses: docker/setup-buildx-action@v3
+      - name: Build and push required immutable images
+        id: images
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          REBUILD_MAIN: ${{ steps.plan.outputs.rebuild_main }}
+          REBUILD_AI: ${{ steps.plan.outputs.rebuild_ai }}
+          CURRENT_MAIN: ${{ steps.plan.outputs.current_main }}
+          CURRENT_AI: ${{ steps.plan.outputs.current_ai }}
+        run: |
+          set -euo pipefail
+          main="$CURRENT_MAIN"; ai="$CURRENT_AI"
+          if [[ "$REBUILD_MAIN" != true && "$REBUILD_AI" != true ]]; then
+            [[ "$main" =~ ^docker\.io/songchih/ieum-app-main@sha256:[0-9a-f]{64}$ && "$ai" =~ ^docker\.io/songchih/ieum-app-ai@sha256:[0-9a-f]{64}$ ]]
+            echo "main=$main" >> "$GITHUB_OUTPUT"; echo "ai=$ai" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          test -n "$DOCKERHUB_USERNAME" && test -n "$DOCKERHUB_TOKEN"
+          printf '%s' "$DOCKERHUB_TOKEN" | docker login --username "$DOCKERHUB_USERNAME" --password-stdin
+          metadata="$RUNNER_TEMP/image-metadata"; mkdir -p "$metadata"
+          if [[ "$REBUILD_MAIN" == true ]]; then docker buildx build --file deploy/app-main/Dockerfile --platform linux/amd64 --provenance=false --sbom=false --tag "$DOCKER_MAIN_REPOSITORY:$GITHUB_SHA" --push --metadata-file "$metadata/main.json" .; main="$DOCKER_MAIN_REPOSITORY@$(jq -er '."containerimage.digest"|select(test("^sha256:[0-9a-f]{64}$"))' "$metadata/main.json")"; fi
+          if [[ "$REBUILD_AI" == true ]]; then docker buildx build --file deploy/app-ai/Dockerfile --platform linux/amd64 --provenance=false --sbom=false --tag "$DOCKER_AI_REPOSITORY:$GITHUB_SHA" --push --metadata-file "$metadata/ai.json" .; ai="$DOCKER_AI_REPOSITORY@$(jq -er '."containerimage.digest"|select(test("^sha256:[0-9a-f]{64}$"))' "$metadata/ai.json")"; fi
+          [[ "$main" =~ ^docker\.io/songchih/ieum-app-main@sha256:[0-9a-f]{64}$ && "$ai" =~ ^docker\.io/songchih/ieum-app-ai@sha256:[0-9a-f]{64}$ ]]
+          echo "main=$main" >> "$GITHUB_OUTPUT"; echo "ai=$ai" >> "$GITHUB_OUTPUT"
+      - name: Assemble and sign release envelope
+        id: release
+        env:
+          RELEASE_SIGNING_PRIVATE_KEY: ${{ secrets.RELEASE_SIGNING_PRIVATE_KEY }}
+          EXPECTED_CURRENT: ${{ steps.plan.outputs.current }}
+          PREVIOUS_RELEASE: ${{ steps.plan.outputs.previous }}
+          APP_MAIN_IMAGE_DIGEST: ${{ steps.images.outputs.main }}
+          APP_AI_IMAGE_DIGEST: ${{ steps.images.outputs.ai }}
+          REBUILD_MAIN: ${{ steps.plan.outputs.rebuild_main }}
+          REBUILD_AI: ${{ steps.plan.outputs.rebuild_ai }}
+          FRONTEND_SHA: ${{ needs.frontend-build.outputs.frontend_sha }}
+        run: |
+          set -euo pipefail
+          test -n "$RELEASE_SIGNING_PRIVATE_KEY"
+          [[ "$EXPECTED_CURRENT" == none || "$EXPECTED_CURRENT" =~ ^r-[0-9]+-[1-9][0-9]*-[0-9a-f]{40}$ ]]
+          release_id="r-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}"
+          root="$RUNNER_TEMP/ieum-release"; payload="$root/payload"; test ! -e "$root"
+          mkdir -p "$payload/deploy/onprem/nginx" "$payload/deploy/onprem/scripts" "$payload/deploy/scripts" "$payload/db/migrations"
+          cp deploy/onprem/compose.yml "$payload/deploy/onprem/compose.yml"
+          cp deploy/onprem/nginx/{ieum.rktclgh.site.conf,files.rktclgh.site.conf,ieum1.rktclgh.site.conf} "$payload/deploy/onprem/nginx/"
+          cp deploy/onprem/scripts/validate-runtime-env.sh "$payload/deploy/onprem/scripts/"
+          cp deploy/scripts/apply-admin-dashboard-migrations.sh "$payload/deploy/scripts/"
+          refs="$root/migrations.list"
+          awk '/^[[:space:]]*\\i([[:space:]]|$)/ { if ($0 !~ /^[[:space:]]*\\i[[:space:]]+db\/migrations\/[A-Za-z0-9_.-]+\.sql[[:space:]]*$/) exit 2; print $2 }' deploy/scripts/apply-admin-dashboard-migrations.sh | LC_ALL=C sort > "$refs"
+          test -s "$refs"; test -z "$(uniq -d "$refs")"
+          while IFS= read -r migration; do [[ -f "$migration" && ! -L "$migration" ]]; cp "$migration" "$payload/$migration"; done < "$refs"
+          migration_input="$root/migration-digest.input"; { sha256sum deploy/scripts/apply-admin-dashboard-migrations.sh; while IFS= read -r migration; do sha256sum "$migration"; done < "$refs"; } > "$migration_input"
+          migration_sha256="$(sha256sum "$migration_input" | awk '{print $1}')"
+          printf 'APP_MAIN_IMAGE_DIGEST=%s\nAPP_AI_IMAGE_DIGEST=%s\n' "$APP_MAIN_IMAGE_DIGEST" "$APP_AI_IMAGE_DIGEST" > "$payload/release.env"
+          jq -cnS --arg schema ieum-release/v1 --arg release_id "$release_id" --arg backend_sha "$GITHUB_SHA" --arg frontend_sha "$FRONTEND_SHA" --arg main "$APP_MAIN_IMAGE_DIGEST" --arg ai "$APP_AI_IMAGE_DIGEST" --arg migration_sha256 "$migration_sha256" --argjson run_id "$GITHUB_RUN_ID" --argjson run_attempt "$GITHUB_RUN_ATTEMPT" --argjson previous "$PREVIOUS_RELEASE" --argjson rebuilt_main "$REBUILD_MAIN" --argjson rebuilt_ai "$REBUILD_AI" '{schema:$schema,release_id:$release_id,backend_sha:$backend_sha,frontend_sha:$frontend_sha,github_run_id:$run_id,github_run_attempt:$run_attempt,images:{app_main:$main,app_ai:$ai},rebuild:{app_main:$rebuilt_main,app_ai:$rebuilt_ai},migration_sha256:$migration_sha256,previous_release:$previous}' > "$payload/manifest.json"
+          (cd "$payload" && while IFS= read -r file; do sha256sum "$file"; done < <(find . -type f ! -name checksums.sha256 -print | sed 's#^./##' | LC_ALL=C sort)) > "$payload/checksums.sha256"
+          chmod 600 "$payload"/manifest.json "$payload"/release.env "$payload"/checksums.sha256 "$payload"/deploy/onprem/compose.yml "$payload"/deploy/onprem/nginx/*.conf "$payload"/db/migrations/*.sql; chmod 700 "$payload"/deploy/onprem/scripts/validate-runtime-env.sh "$payload"/deploy/scripts/apply-admin-dashboard-migrations.sh
+          inner="$root/release.tar"; (cd "$payload" && find . -type f -print | sed 's#^./##' | LC_ALL=C sort > "$root/payload.list" && tar --format=ustar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner --no-recursion -cf "$inner" -T "$root/payload.list")
+          bundle_sha="$(sha256sum "$inner" | awk '{print $1}')"; chmod 600 "$inner"; printf '%s\n' "$RELEASE_SIGNING_PRIVATE_KEY" > "$root/signing_key"; chmod 600 "$root/signing_key"; ssh-keygen -Y sign -f "$root/signing_key" -n ieum-release "$inner" > "$root/release.tar.sig"; chmod 600 "$root/release.tar.sig"; (cd "$root" && tar --format=ustar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner -cf release-envelope.tar release.tar release.tar.sig)
+          envelope_sha="$(sha256sum "$root/release-envelope.tar" | awk '{print $1}')"
+          printf '%s  %s\n' "$envelope_sha" release-envelope.tar > "$root/release-envelope.sha256"
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"; echo "bundle_sha=$bundle_sha" >> "$GITHUB_OUTPUT"; echo "envelope_sha=$envelope_sha" >> "$GITHUB_OUTPUT"
+      - name: Upload exact signed release envelope
+        id: signed-artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ieum-release-envelope-${{ steps.release.outputs.release_id }}
+          path: ${{ runner.temp }}/ieum-release/release-envelope.tar
+          if-no-files-found: error
+          include-hidden-files: true
+          overwrite: false
+          retention-days: 1
+
+  local-apply:
+    needs: build-sign
+    runs-on: [self-hosted, linux, x64, ieum-prod-deploy]
+    timeout-minutes: 15
+    steps:
+      - name: Download exact signed envelope
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.build-sign.outputs.artifact_id }}
+          path: ${{ runner.temp }}/ieum-release
+          merge-multiple: true
+      - name: Validate and apply signed envelope locally
+        env:
+          RELEASE_ID: ${{ needs.build-sign.outputs.release_id }}
+          EXPECTED_CURRENT: ${{ needs.build-sign.outputs.current }}
+          BUNDLE_SHA: ${{ needs.build-sign.outputs.bundle_sha }}
+          EXPECTED_ENVELOPE_SHA: ${{ needs.build-sign.outputs.envelope_sha }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/ieum-release"
+          [[ -d "$root" && ! -L "$root" ]]
+          mapfile -t artifact_entries < <(find "$root" -mindepth 1 -maxdepth 1 -printf '%y:%f\n' | LC_ALL=C sort)
+          [[ "${#artifact_entries[@]}" -eq 1 && "${artifact_entries[0]}" == 'f:release-envelope.tar' ]]
+          envelope="$root/release-envelope.tar"
+          test ! -L "$envelope" && test -f "$envelope"
+          [[ "$EXPECTED_ENVELOPE_SHA" =~ ^[0-9a-f]{64}$ ]]
+          actual_envelope_sha="$(sha256sum -- "$envelope" | awk '{print $1}')"
+          [[ "$actual_envelope_sha" == "$EXPECTED_ENVELOPE_SHA" ]]
+          [[ "$RELEASE_ID" =~ ^r-[0-9]+-[1-9][0-9]*-[0-9a-f]{40}$ ]]
+          [[ "$EXPECTED_CURRENT" == none || "$EXPECTED_CURRENT" =~ ^r-[0-9]+-[1-9][0-9]*-[0-9a-f]{40}$ ]]
+          [[ "$BUNDLE_SHA" =~ ^[0-9a-f]{64}$ ]]
+          sudo -n /usr/local/sbin/ieum-release-dispatch --local apply --release-id "$RELEASE_ID" --expected-current "$EXPECTED_CURRENT" --bundle-sha256 "$BUNDLE_SHA" < "$envelope"
+
+  public-verify:
+    needs: [build-sign, local-apply]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify public staging endpoint
+        env:
+          EXPECTED_RELEASE_ID: ${{ needs.build-sign.outputs.release_id }}
+        run: |
+          set -euo pipefail
+          headers="$RUNNER_TEMP/ieum1.headers"
+          body="$RUNNER_TEMP/ieum1.body"
+          status="$(curl --silent --show-error --max-time 15 --output "$body" --dump-header "$headers" --write-out '%{http_code}' https://ieum1.rktclgh.site/api/places/search)"
+          [[ "$status" == 200 ]]
+          actual="$(awk 'BEGIN { IGNORECASE=1 } /^X-Ieum-Release-ID:/ { sub(/^[^:]*:[[:space:]]*/, ""); sub(/[[:space:]]*\r?$/, ""); print; exit }' "$headers")"
+          [[ "$actual" == "$EXPECTED_RELEASE_ID" ]]
+          post_status="$(curl --silent --show-error --max-time 15 --output /dev/null --write-out '%{http_code}' -X POST https://ieum1.rktclgh.site/api/places/search)"
+          [[ "$post_status" == 405 ]]

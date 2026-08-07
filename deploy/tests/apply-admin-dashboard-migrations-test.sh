@@ -3,8 +3,6 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 helper="$root/deploy/scripts/apply-admin-dashboard-migrations.sh"
-workflow="$root/.github/workflows/deploy-app-main.yml"
-ai_workflow="$root/.github/workflows/deploy-app-ai.yml"
 env_example="$root/deploy/env/app-main.env.example"
 work_dir="$(mktemp -d)"
 trap 'rm -rf "$work_dir"' EXIT
@@ -15,8 +13,6 @@ fail() {
 }
 
 test -x "$helper" || fail "migration helper is missing or not executable"
-test -s "$workflow" || fail "app-main deployment workflow is missing"
-test -s "$ai_workflow" || fail "app-ai deployment workflow is missing"
 test -s "$env_example" || fail "app-main environment example is missing"
 
 v32_migration="$root/db/migrations/v32_chat_message_reply.sql"
@@ -173,6 +169,102 @@ test "$(cat "$capture_dir/connection")" = "$expected_runtime_connection" \
   || fail "runtime datasource was not converted to libpq connection variables"
 test "$(cat "$capture_dir/password-transport")" = 'environment' \
   || fail "runtime datasource password was not inherited through the environment"
+
+app_runtime_env="$work_dir/.env.app-runtime"
+app_runtime_marker="$work_dir/unrelated-runtime-value-ran"
+{
+  printf '%s\n' '# Normal app-main runtime files contain unrelated settings.'
+  printf '%s\n' 'SERVER_PORT=8080'
+  printf '%s\n' 'SPRING_DATASOURCE_URL=jdbc:postgresql://private-rds.invalid:5432/ieum'
+  printf '%s\n' 'SPRING_DATASOURCE_USERNAME=migration_user'
+  printf '%s\n' 'SPRING_DATASOURCE_PASSWORD=migration-secret'
+  printf '%s\n' "AWS_ACCESS_KEY_ID=\$(touch \"$app_runtime_marker\")"
+} > "$app_runtime_env"
+chmod 600 "$app_runtime_env"
+
+env -u PGHOST -u PGPORT -u PGDATABASE -u PGUSER -u PGPASSWORD \
+  PATH="$fake_bin:$PATH" \
+  CAPTURE_DIR="$capture_dir" \
+  MIGRATION_RUNTIME_ENV="$app_runtime_env" \
+  "$helper" >/dev/null
+test ! -e "$app_runtime_marker" \
+  || fail "unrelated runtime dotenv values must not execute while parsing datasource values"
+
+injection_marker="$work_dir/dotenv-command-substitution-ran"
+injection_env="$work_dir/.env.injection"
+{
+  printf '%s\n' 'SPRING_DATASOURCE_URL=jdbc:postgresql://private-rds.invalid:5432/ieum'
+  printf '%s\n' 'SPRING_DATASOURCE_USERNAME=migration_user'
+  printf '%s\n' "SPRING_DATASOURCE_PASSWORD=\$(touch \"$injection_marker\")"
+} > "$injection_env"
+chmod 600 "$injection_env"
+
+if ! env -u PGHOST -u PGPORT -u PGDATABASE -u PGUSER -u PGPASSWORD \
+  PATH="$fake_bin:$PATH" \
+  CAPTURE_DIR="$capture_dir" \
+  MIGRATION_RUNTIME_ENV="$injection_env" \
+  "$helper" >/dev/null; then
+  fail "runtime dotenv parser rejected a literal command-substitution value"
+fi
+test ! -e "$injection_marker" \
+  || fail "runtime dotenv values must not execute command substitutions"
+
+docker_host_env="$work_dir/.env.docker-host"
+cat > "$docker_host_env" <<'RUNTIME_ENV'
+SPRING_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:5432/ieum
+SPRING_DATASOURCE_USERNAME=migration_user
+SPRING_DATASOURCE_PASSWORD=migration-secret
+RUNTIME_ENV
+chmod 600 "$docker_host_env"
+
+env -u PGHOST -u PGPORT -u PGDATABASE -u PGUSER -u PGPASSWORD \
+  PATH="$fake_bin:$PATH" \
+  CAPTURE_DIR="$capture_dir" \
+  MIGRATION_RUNTIME_ENV="$docker_host_env" \
+  "$helper" >/dev/null
+expected_docker_host_connection=$'127.0.0.1\n5432\nieum\nmigration_user'
+test "$(cat "$capture_dir/connection")" = "$expected_docker_host_connection" \
+  || fail "host.docker.internal must map to loopback for host-side psql"
+
+duplicate_env="$work_dir/.env.duplicate"
+cat > "$duplicate_env" <<'RUNTIME_ENV'
+SPRING_DATASOURCE_URL=jdbc:postgresql://private-rds.invalid:5432/ieum
+SPRING_DATASOURCE_URL=jdbc:postgresql://other.invalid:5432/ieum
+SPRING_DATASOURCE_USERNAME=migration_user
+SPRING_DATASOURCE_PASSWORD=migration-secret
+RUNTIME_ENV
+chmod 600 "$duplicate_env"
+if env -u PGHOST -u PGPORT -u PGDATABASE -u PGUSER -u PGPASSWORD \
+  PATH="$fake_bin:$PATH" CAPTURE_DIR="$capture_dir" MIGRATION_RUNTIME_ENV="$duplicate_env" \
+  "$helper" >/dev/null 2>&1; then
+  fail "runtime dotenv parser accepted a duplicate key"
+fi
+
+malformed_env="$work_dir/.env.malformed"
+cat > "$malformed_env" <<'RUNTIME_ENV'
+SPRING_DATASOURCE_URL jdbc:postgresql://private-rds.invalid:5432/ieum
+SPRING_DATASOURCE_USERNAME=migration_user
+SPRING_DATASOURCE_PASSWORD=migration-secret
+RUNTIME_ENV
+chmod 600 "$malformed_env"
+if env -u PGHOST -u PGPORT -u PGDATABASE -u PGUSER -u PGPASSWORD \
+  PATH="$fake_bin:$PATH" CAPTURE_DIR="$capture_dir" MIGRATION_RUNTIME_ENV="$malformed_env" \
+  "$helper" >/dev/null 2>&1; then
+  fail "runtime dotenv parser accepted a malformed line"
+fi
+
+unterminated_quote_env="$work_dir/.env.unterminated-quote"
+cat > "$unterminated_quote_env" <<'RUNTIME_ENV'
+SPRING_DATASOURCE_URL=jdbc:postgresql://private-rds.invalid:5432/ieum
+SPRING_DATASOURCE_USERNAME=migration_user
+SPRING_DATASOURCE_PASSWORD='unterminated
+RUNTIME_ENV
+chmod 600 "$unterminated_quote_env"
+if env -u PGHOST -u PGPORT -u PGDATABASE -u PGUSER -u PGPASSWORD \
+  PATH="$fake_bin:$PATH" CAPTURE_DIR="$capture_dir" MIGRATION_RUNTIME_ENV="$unterminated_quote_env" \
+  "$helper" >/dev/null 2>&1; then
+  fail "runtime dotenv parser accepted an unterminated quoted value"
+fi
 
 stdin_file="$capture_dir/stdin"
 grep -Fq "pg_advisory_lock" "$stdin_file" \
@@ -409,24 +501,11 @@ if grep -Fq "to_regclass('public.chat_notices') IS NULL" "$stdin_file"; then
   fail "v38 guard must use the exact chat notice contract state instead of a permissive table-presence check"
 fi
 
-for workflow in "$root/.github/workflows/deploy-app-main.yml" "$root/.github/workflows/deploy-app-ai.yml"; do
-  for migration in v28_chat_system_messages v29_meeting_schedule_details v30_report_schedule_target_enum v31_report_schedule_target v32_chat_message_reply v33_question_ai_ungrounded_answer v34_question_ai_ungrounded_answer_validate v35_knowledge_relation_candidates v36_meeting_schedule_date_time v37_notification_i18n v38_chat_notices v39_admin_audit_content_hard_delete v40_admin_content_file_cleanup_tasks v41_admin_audit_content_management; do
-    scp_line="$(grep -n -F "db/migrations/${migration}.sql" "$workflow" | grep -F 'scp ' | cut -d: -f1 || true)"
-    chmod_line="$(grep -n -F "${migration}.sql" "$workflow" | grep -F 'chmod 600' | cut -d: -f1 || true)"
-    test -n "$scp_line" || fail "workflow must copy ${migration}: $workflow"
-    test -n "$chmod_line" || fail "workflow must chmod ${migration}: $workflow"
-  done
-done
-
 for migration in \
   db/migrations/v25_web_push_subscriptions.sql \
   db/migrations/v26_web_push_session_cardinality.sql; do
   grep -Fq "\\i $migration" "$stdin_file" \
     || fail "Web Push migration is missing from the guarded migration helper: $migration"
-  grep -Fq "$migration" "$workflow" \
-    || fail "Web Push migration is missing from the app-main deployment copy path: $migration"
-  grep -Fq "$migration" "$ai_workflow" \
-    || fail "Web Push migration is missing from the app-ai deployment copy path: $migration"
 done
 web_push_base_line="$(grep -n -m1 -F '\i db/migrations/v25_web_push_subscriptions.sql' "$stdin_file" | cut -d: -f1 || true)"
 web_push_cardinality_line="$(grep -n -m1 -F '\i db/migrations/v26_web_push_session_cardinality.sql' "$stdin_file" | cut -d: -f1 || true)"
