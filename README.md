@@ -4,10 +4,10 @@
 
 # 이음 · Ieum — Backend
 
-### 위치 기반 커뮤니티를 떠받치는 2-서버 아키텍처
+### 위치 기반 커뮤니티를 떠받치는 app-main · app-ai 아키텍처
 
 REST · WebSocket · SSE를 맡는 **app-main**과, RAG 추론을 맡는 **app-ai**.<br/>
-하나의 저장소, 하나의 도메인 모델, 서로 다른 두 대의 EC2.
+하나의 저장소, 하나의 도메인 모델, 온프레미스 호스트에서 함께 운영되는 두 서비스.
 
 <br/>
 
@@ -17,6 +17,18 @@ REST · WebSocket · SSE를 맡는 **app-main**과, RAG 추론을 맡는 **app-a
 <br/>
 
 </div>
+
+## 현재 배포 기준: 온프레미스 전환 대상
+
+현재 전환 대상은 `song-server` 한 대의 Docker Compose 프로젝트입니다. `app-main`과 `app-ai`는 외부에 직접 노출하지 않고 Docker service DNS(`app-main`, `app-ai`)로 통신합니다.
+
+- 데이터베이스: 호스트의 기존 PostgreSQL 17(+ pgvector/PostGIS)
+- 세션/캐시: 인증이 유지되는 기존 호스트 Redis(`host.docker.internal`)
+- 객체 저장소: 기존 `vlainter-minio` 컨테이너, `ieum-files` 버킷, 이미 생성된 `ieum-app-main` MinIO 서비스 계정
+- TLS/Ingress: Nginx와 기존 Cloudflare Origin 인증서(`/etc/cloudflare/rktclgh.site.pem`·`.key`); Let's Encrypt가 아님
+- AI: `ap-northeast-2` Amazon Bedrock과 기존 서버 보유 자격증명
+
+운영 절차와 컷오버/롤백 게이트는 [온프레미스 컷오버 런북](docs/deployment/onprem-cutover-runbook.md)을 기준으로 합니다. 아래의 EC2·RDS·Let's Encrypt 설명은 이전 AWS 배포를 설명하는 **레거시 참고 자료**입니다.
 
 ## Tech Stack
 
@@ -31,7 +43,7 @@ REST · WebSocket · SSE를 맡는 **app-main**과, RAG 추론을 맡는 **app-a
 
 **Data**
 
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL_18-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL_17-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)
 ![pgvector](https://img.shields.io/badge/pgvector-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)
 ![PostGIS](https://img.shields.io/badge/PostGIS-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)
 ![Redis](https://img.shields.io/badge/Redis-FF4438?style=for-the-badge&logo=redis&logoColor=white)
@@ -53,7 +65,9 @@ REST · WebSocket · SSE를 맡는 **app-main**과, RAG 추론을 맡는 **app-a
 
 <br/>
 
-## 아키텍처
+## 레거시 AWS 배포 아키텍처 (참고용)
+
+> 이 절의 EC2, RDS, Let's Encrypt 구성은 온프레미스로 전환하기 전의 AWS 배포입니다. 현재 운영 대상은 위의 온프레미스 기준과 런북을 따릅니다.
 
 ```mermaid
 flowchart TB
@@ -61,17 +75,17 @@ flowchart TB
         FE["Next.js static export"]
     end
 
-    subgraph EC2_1["EC2-1 · public"]
-        NGINX["nginx<br/>TLS · Let's Encrypt"]
+    subgraph EC2_1["EC2-1 · legacy public"]
+        NGINX["nginx<br/>TLS · Let's Encrypt (legacy)"]
         MAIN["<b>app-main</b><br/>REST · STOMP · SSE<br/>세션 write · 쿠키 · SMTP"]
         REDIS[("Redis<br/>session · cache")]
     end
 
-    subgraph EC2_2["EC2-2 · private only"]
+    subgraph EC2_2["EC2-2 · legacy private only"]
         AI["<b>app-ai</b><br/>RAG · 추론 · 임베딩"]
     end
 
-    subgraph RDS["RDS"]
+    subgraph RDS["RDS · legacy"]
         DB[("PostgreSQL<br/>+ pgvector + PostGIS")]
     end
 
@@ -87,7 +101,7 @@ flowchart TB
     AI --> EXT
 ```
 
-### 왜 서버를 둘로 나눴나
+### 레거시에서 서버를 둘로 나눈 이유
 
 | 서버 | 담당 | 부하 성격 |
 |---|---|---|
@@ -115,8 +129,8 @@ app-ai   ──▶ Redis · 세션 · SSE            ❌  app-ai는 세션을 �
 ```
 ieum_be/
 ├─ common/        📚 라이브러리 — 엔티티 · Repository · 공용 DTO · 세션 검증 코어
-├─ app-main/      🚀 EC2-1 — REST · WebSocket · SSE · 인증 · S3 · 메일
-└─ app-ai/        🤖 EC2-2 — RAG · 임베딩 · 신고 판단
+├─ app-main/      🚀 REST · WebSocket · SSE · 인증 · S3 · 메일
+└─ app-ai/        🤖 RAG · 임베딩 · 신고 판단
 ```
 
 ```
@@ -169,7 +183,7 @@ sequenceDiagram
 
 | 용도 | 모델 | 비고 |
 |---|---|---|
-| 질문 답변 생성 | **Amazon Nova Micro** | Bedrock Converse · `ap-southeast-2` |
+| 질문 답변 생성 | **Amazon Nova Micro** | Bedrock Converse · `ap-northeast-2` |
 | 신고 내용 판단 | **Amazon Nova Lite** | 정책 테이블 기반 결정론적 평가와 결합 |
 | Fallback · 웹 그라운딩 | **Gemini 3.1 Flash-Lite** | + Google Search |
 | 임베딩 | **gemini-embedding-2** | `output_dimensionality=768`, cosine |
@@ -210,9 +224,9 @@ JWT 서명·만료 → `sid` → Redis 세션 → DB의 canonical `email`·`role
 
 <br/>
 
-## 데이터베이스
+## 데이터베이스 스키마
 
-**RDS PostgreSQL 18** · `pgvector` + `PostGIS`
+현재 전환 대상은 **호스트 PostgreSQL 17** · `pgvector` + `PostGIS`입니다. RDS PostgreSQL 18은 AWS에서 가져오는 레거시 원본이며, 런북의 복원 리허설에서만 사용합니다.
 
 - 스키마 SSOT는 **[`db/schema.sql`](db/schema.sql)**, 운영 반영은 **[`db/migrations/*.sql`](db/migrations/) 증분**(현재 v38). 참조 데이터는 [`db/seed_countries.sql`](db/seed_countries.sql) 같은 멱등 업서트 시드로 넣는다.
 - JPA는 **`ddl-auto=validate`만.** `update`는 절대 금지 — partial unique index(`WHERE deleted_at IS NULL`)·CHECK·enum·geography·vector를 Hibernate가 만들거나 유지하지 못한다.
@@ -231,8 +245,8 @@ JWT 서명·만료 → `sid` → Redis 세션 → DB의 canonical `email`·`role
 
 ```bash
 # 로컬 실행
-./gradlew :app-main:bootRun          # EC2-1 앱 — API · 실시간
-./gradlew :app-ai:bootRun            # EC2-2 앱 — AI
+./gradlew :app-main:bootRun          # app-main — API · 실시간
+./gradlew :app-ai:bootRun            # app-ai — AI
 
 # 배포용 fat jar
 ./gradlew :app-main:bootJar          # → app-main/build/libs/app-main.jar
@@ -253,14 +267,14 @@ JWT 서명·만료 → `sid` → Redis 세션 → DB의 canonical `email`·`role
 SPRING_DATASOURCE_URL=jdbc:postgresql://<host>:5432/ieum
 SPRING_DATASOURCE_USERNAME=...
 SPRING_DATASOURCE_PASSWORD=...
-AWS_BEDROCK_REGION=ap-southeast-2      # ★ Nova v1 direct model — 서울 리전 호출 금지
+AWS_REGION=ap-northeast-2              # Bedrock runtime region
 ```
 
 전체 목록은 [`deploy/env/app-main.env.example`](deploy/env/app-main.env.example) · [`deploy/env/app-ai.env.example`](deploy/env/app-ai.env.example).
 
-### 운영 DB 접속 (SSH 터널)
+### 레거시 AWS 운영 DB 접속 (SSH 터널, 참고용)
 
-RDS는 프라이빗이라 Bastion EC2를 통한 SSH 터널로만 붙는다 (터널 스크립트는 저장소 밖 작업 폴더에 있다).
+RDS는 프라이빗이라 Bastion EC2를 통한 SSH 터널로만 붙었다. 이는 이전 AWS 배포의 참고 절차이며, 현재 온프레미스 PostgreSQL 17 접속·복원 절차는 [온프레미스 컷오버 런북](docs/deployment/onprem-cutover-runbook.md)을 따른다.
 
 ```bash
 LOCAL_PG_PORT=15432 LOCAL_REDIS_PORT=16379 bash start-tunnel.sh   # Postgres 5432 + Redis 6379 포워딩
@@ -289,25 +303,24 @@ docker volume prune -f
 
 ```mermaid
 flowchart LR
-    P["push → main"] --> W["deploy-app-main.yml"]
+    P["push → main"] --> W["release-onprem.yml"]
     FE["FE repo<br/>repository_dispatch"] --> W
     W --> B1["Next.js build → out/"]
     W --> B2["./gradlew bootJar"]
     B1 & B2 --> IMG["Docker image<br/>(정적 리소스 동봉)"]
-    IMG --> EC2["EC2-1<br/>compose up"]
-    EC2 --> MIG["DB migration 적용"]
+    IMG --> HOST["온프레미스 호스트<br/>서명 릴리스 활성화"]
+    HOST --> MIG["DB migration fence 적용"]
 ```
 
-프론트 정적 산출물을 **같은 이미지 안에** 넣어 배포한다. 그래서 운영은 완전한 same-origin이고 **CORS 설정 자체가 없다**.
+프론트 정적 산출물을 **같은 이미지 안에** 넣어 배포한다. 운영 브라우저는 same-origin으로 동작하고, 전환·staging 검증에 필요한 origin만 `CORS_ALLOWED_ORIGINS`로 명시한다.
 
 | Workflow | 트리거 |
 |---|---|
-| `deploy-app-main.yml` | `main` push (`app-main/`·`common/`·`db/migrations/`·`deploy/`) · FE `frontend-updated` dispatch |
-| `deploy-app-ai.yml` | `main` push (`app-ai/`·`common/`) |
+| `release-onprem.yml` | `main` push (앱·공용 코드·마이그레이션·온프레미스 배포 파일) · FE `frontend-updated` dispatch · 수동 재배포 |
 | `verify-app-main.yml` | PR 검증 |
 | `import-korea-travel-kg.yml` | 지식 그래프 임포트 |
 
-**nginx**가 TLS(Let's Encrypt) 종단이고, 내부 경로는 밖에서 막는다 — `/api/v1/internal/`·`/actuator/`·`/swagger-ui/` 전부 `404`. app-main 컨테이너는 `127.0.0.1`과 private 주소에만 바인드된다.
+**nginx**가 기존 Cloudflare Origin 인증서로 TLS를 종단하고, 내부 경로는 밖에서 막는다 — `/api/v1/internal/`·`/actuator/`·`/swagger-ui/` 전부 `404`. app-main/app-ai 컨테이너는 loopback에만 바인드되며 Docker service DNS로 통신한다. (이전 AWS의 Let's Encrypt/EC2 경로는 레거시다.)
 
 <br/>
 
@@ -344,7 +357,7 @@ flowchart LR
 
 | Java 파일 (main) | 테스트 클래스 | 스키마 마이그레이션 | 배포 대상 |
 |:---:|:---:|:---:|:---:|
-| **1,028** | **858** | **v38** | **EC2 × 2** |
+| **1,028** | **858** | **v38** | **온프레미스 호스트 × 1** |
 
 `app-main` 701 · `app-ai` 285 · `common` 42
 

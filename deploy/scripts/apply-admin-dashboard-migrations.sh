@@ -14,10 +14,69 @@ if [[ -n "${MIGRATION_RUNTIME_ENV:-}" ]]; then
 		exit 2
 	}
 
-	set -a
-	# shellcheck source=/dev/null
-	source "$MIGRATION_RUNTIME_ENV"
-	set +a
+	SPRING_DATASOURCE_URL=''
+	SPRING_DATASOURCE_USERNAME=''
+	SPRING_DATASOURCE_PASSWORD=''
+	seen_spring_datasource_url=0
+	seen_spring_datasource_username=0
+	seen_spring_datasource_password=0
+	while IFS= read -r runtime_env_line || [[ -n "$runtime_env_line" ]]; do
+		[[ "$runtime_env_line" =~ ^[[:space:]]*$ || "$runtime_env_line" =~ ^[[:space:]]*# ]] && continue
+		[[ "$runtime_env_line" == *=* ]] || {
+			echo "MIGRATION_RUNTIME_ENV contains a malformed line" >&2
+			exit 2
+		}
+		runtime_env_key="${runtime_env_line%%=*}"
+		runtime_env_value="${runtime_env_line#*=}"
+		[[ "$runtime_env_key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || {
+			echo "MIGRATION_RUNTIME_ENV contains a malformed key" >&2
+			exit 2
+		}
+		case "$runtime_env_key" in
+			SPRING_DATASOURCE_URL)
+				[[ "$seen_spring_datasource_url" -eq 0 ]] || {
+					echo "MIGRATION_RUNTIME_ENV contains a duplicate datasource URL" >&2
+					exit 2
+				}
+				seen_spring_datasource_url=1
+				SPRING_DATASOURCE_URL="$runtime_env_value"
+				;;
+			SPRING_DATASOURCE_USERNAME)
+				[[ "$seen_spring_datasource_username" -eq 0 ]] || {
+					echo "MIGRATION_RUNTIME_ENV contains a duplicate datasource username" >&2
+					exit 2
+				}
+				seen_spring_datasource_username=1
+				SPRING_DATASOURCE_USERNAME="$runtime_env_value"
+				;;
+			SPRING_DATASOURCE_PASSWORD)
+				[[ "$seen_spring_datasource_password" -eq 0 ]] || {
+					echo "MIGRATION_RUNTIME_ENV contains a duplicate datasource password" >&2
+					exit 2
+				}
+				seen_spring_datasource_password=1
+				SPRING_DATASOURCE_PASSWORD="$runtime_env_value"
+				;;
+			*)
+				# App runtime files contain many unrelated settings. Never evaluate them;
+				# this helper consumes only the three datasource keys above.
+				;;
+		esac
+	done < "$MIGRATION_RUNTIME_ENV"
+
+	for runtime_env_key in SPRING_DATASOURCE_URL SPRING_DATASOURCE_USERNAME SPRING_DATASOURCE_PASSWORD; do
+		runtime_env_value="${!runtime_env_key}"
+		runtime_env_first_char="${runtime_env_value:0:1}"
+		if [[ "$runtime_env_first_char" == '"' || "$runtime_env_first_char" == "'" ]]; then
+			runtime_env_last_char="${runtime_env_value:${#runtime_env_value}-1:1}"
+			[[ "$runtime_env_last_char" == "$runtime_env_first_char" && ${#runtime_env_value} -ge 2 ]] || {
+				echo "MIGRATION_RUNTIME_ENV contains an unterminated quoted value" >&2
+				exit 2
+			}
+			runtime_env_value="${runtime_env_value:1:${#runtime_env_value}-2}"
+			printf -v "$runtime_env_key" '%s' "$runtime_env_value"
+		fi
+	done
 
 	for variable_name in SPRING_DATASOURCE_URL SPRING_DATASOURCE_USERNAME SPRING_DATASOURCE_PASSWORD; do
 		[[ -n "${!variable_name:-}" ]] || {
@@ -28,6 +87,9 @@ if [[ -n "${MIGRATION_RUNTIME_ENV:-}" ]]; then
 
 	if [[ "$SPRING_DATASOURCE_URL" =~ ^jdbc:postgresql://([^/:?]+)(:([0-9]+))?/([^/?]+)(\?.*)?$ ]]; then
 		export PGHOST="${BASH_REMATCH[1]}"
+		if [[ "$PGHOST" == 'host.docker.internal' ]]; then
+			export PGHOST='127.0.0.1'
+		fi
 		export PGPORT="${BASH_REMATCH[3]:-5432}"
 		export PGDATABASE="${BASH_REMATCH[4]}"
 	else
