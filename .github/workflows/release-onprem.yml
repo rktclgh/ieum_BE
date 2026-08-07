@@ -392,7 +392,7 @@ jobs:
           status='transport-error'
           if status="$(curl --silent --show-error --max-time 10 --cacert /etc/cloudflare/rktclgh.site.pem --resolve ieum1.rktclgh.site:443:127.0.0.1 --output /dev/null --dump-header "$headers" --write-out '%{http_code}' https://ieum1.rktclgh.site/api/places/search)"; then :; fi
           actual="$(awk 'tolower($0) ~ /^x-ieum-release-id:/ { sub(/^[^:]*:[[:space:]]*/, ""); sub(/[[:space:]]*\r?$/, ""); print; exit }' "$headers")"
-          if [[ "$status" == 200 && "$actual" == "$EXPECTED_RELEASE_ID" ]]; then
+          if [[ "$status" == 200 ]] && [[ "$actual" == "$EXPECTED_RELEASE_ID" ]]; then
             exit 0
           fi
           printf 'deployed staging origin verification failed: GET=%s release=%s\n' "$status" "${actual:-missing}" >&2
