@@ -140,7 +140,13 @@ set -euo pipefail
 printf 'production-nginx %s\n' "$*" >> "$FAKE_CALL_LOG"
 [[ "${FAKE_PRODUCTION_NGINX_FAIL:-0}" != 1 ]]
 EOF
-chmod +x "$bin/docker" "$bin/docker-inspect" "$bin/curl" "$bin/db-preflight" "$bin/stage-nginx" "$bin/production-nginx"
+cat > "$bin/minio-presign-smoke" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'minio-presign-smoke %s\n' "$*" >> "$FAKE_CALL_LOG"
+[[ "${FAKE_MINIO_PRESIGN_FAIL:-0}" != 1 ]]
+EOF
+chmod +x "$bin/docker" "$bin/docker-inspect" "$bin/curl" "$bin/db-preflight" "$bin/stage-nginx" "$bin/production-nginx" "$bin/minio-presign-smoke"
 
 release_root="$tmp/srv/ieum"
 mkdir -p "$release_root/staging" "$release_root/releases" "$release_root/locks"
@@ -272,6 +278,7 @@ export IEUM_RELEASE_CURL_BIN="$bin/curl"
 export IEUM_RELEASE_DB_PREFLIGHT_BIN="$bin/db-preflight"
 export IEUM_RELEASE_STAGE_NGINX_BIN="$bin/stage-nginx"
 export IEUM_RELEASE_PRODUCTION_NGINX_BIN="$bin/production-nginx"
+export IEUM_RELEASE_MINIO_PRESIGN_SMOKE_BIN="$bin/minio-presign-smoke"
 export IEUM_RELEASE_HEALTH_ATTEMPTS=1
 
 test -x "$helper" || fail "helper is missing or not executable"
@@ -308,6 +315,18 @@ if "$helper" apply \
   --bundle-sha256 "$bundle_sha" < "$envelope" >"$tmp/stdout" 2>"$tmp/stderr"; then
   fail "manual-intervention target was retried without runtime reactivation"
 fi
+rm -rf "$release_root/releases/$release_id" "$state_root/deployments/$release_id"
+
+if FAKE_MINIO_PRESIGN_FAIL=1 "$helper" apply \
+  --release-id "$release_id" \
+  --expected-current none \
+  --bundle-sha256 "$bundle_sha" < "$envelope" >"$tmp/stdout" 2>"$tmp/stderr"; then
+  fail "MinIO presign failure was accepted before current commit"
+fi
+grep -F 'production ingress gate failed' "$tmp/stderr" >/dev/null || fail "MinIO presign gate failure was not reported"
+grep -F 'minio-presign-smoke ' "$call_log" >/dev/null || fail "MinIO presign gate was not invoked"
+[[ ! -e "$release_root/current" ]] || fail "MinIO presign failure changed current symlink"
+grep -Fqx 'PHASE=MANUAL_INTERVENTION' "$state_root/deployments/$release_id/activation.env" || fail "MinIO presign failure did not journal manual intervention"
 rm -rf "$release_root/releases/$release_id" "$state_root/deployments/$release_id"
 
 if ! "$helper" apply \

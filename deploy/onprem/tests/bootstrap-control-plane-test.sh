@@ -22,6 +22,8 @@ for name in deploy-release.sh db-preflight.sh install-staging-nginx.sh install-p
   printf '#!/usr/bin/env bash\nexit 0\n' >"$SOURCE_ROOT/deploy/onprem/scripts/$name"
   chmod 700 "$SOURCE_ROOT/deploy/onprem/scripts/$name"
 done
+cp "$SCRIPT_DIR/../scripts/minio-presign-smoke.py" "$SOURCE_ROOT/deploy/onprem/scripts/minio-presign-smoke.py"
+chmod 700 "$SOURCE_ROOT/deploy/onprem/scripts/minio-presign-smoke.py"
 
 for name in docker curl openssl python3 systemctl nginx psql pg_restore sudo visudo; do
   path="$BIN_ROOT/$name"
@@ -116,7 +118,7 @@ EOF
   chmod 700 "$BIN_ROOT/$name"
 done
 
-( cd "$SOURCE_ROOT" && sha256sum deploy/onprem/scripts/*.sh > .ieum-source.sha256 )
+( cd "$SOURCE_ROOT" && sha256sum deploy/onprem/scripts/*.sh deploy/onprem/scripts/minio-presign-smoke.py > .ieum-source.sha256 )
 chmod 600 "$SOURCE_ROOT/.ieum-source.sha256"
 
 run_bootstrap() {
@@ -175,20 +177,21 @@ assert_failure run_bootstrap
 chmod 600 "$SOURCE_ROOT/.ieum-source.sha256"
 grep -v 'install-production-nginx.sh' "$SOURCE_ROOT/.ieum-source.sha256" >"$TMP_DIR/source-checksum" && mv "$TMP_DIR/source-checksum" "$SOURCE_ROOT/.ieum-source.sha256"
 assert_failure run_bootstrap
-( cd "$SOURCE_ROOT" && sha256sum deploy/onprem/scripts/*.sh > .ieum-source.sha256 )
+( cd "$SOURCE_ROOT" && sha256sum deploy/onprem/scripts/*.sh deploy/onprem/scripts/minio-presign-smoke.py > .ieum-source.sha256 )
 chmod 600 "$SOURCE_ROOT/.ieum-source.sha256"
 mv "$SOURCE_ROOT" "$TMP_DIR/source-real"
 ln -s source-real "$SOURCE_ROOT"
 assert_failure run_bootstrap
 rm "$SOURCE_ROOT"
 mv "$TMP_DIR/source-real" "$SOURCE_ROOT"
-for name in ieum-deploy-release ieum-db-preflight ieum-install-staging-nginx ieum-install-production-nginx ieum-object-store-mirror ieum-release-dispatch ieum-db-restore-rehearsal ieum-db-restore-production ieum-db-verify ieum-provision-existing-postgres ieum-provision-runtime-env ieum-validate-runtime-env ieum-install-self-hosted-runner; do
+for name in ieum-deploy-release ieum-db-preflight ieum-install-staging-nginx ieum-install-production-nginx ieum-object-store-mirror ieum-release-dispatch ieum-db-restore-rehearsal ieum-db-restore-production ieum-db-verify ieum-provision-existing-postgres ieum-provision-runtime-env ieum-validate-runtime-env ieum-minio-presign-smoke ieum-install-self-hosted-runner; do
   [[ -f "$INSTALL_ROOT/$name" && ! -L "$INSTALL_ROOT/$name" ]] || { printf 'FAIL missing helper %s\n' "$name" >&2; fail=$((fail + 1)); }
   [[ "$(stat -c '%a' "$INSTALL_ROOT/$name" 2>/dev/null || stat -f '%Lp' "$INSTALL_ROOT/$name")" == 755 ]] || { printf 'FAIL helper mode %s\n' "$name" >&2; fail=$((fail + 1)); }
 done
 for source_name in deploy-release.sh db-preflight.sh install-staging-nginx.sh install-production-nginx.sh object-store-mirror.sh ieum-release-dispatch.sh db-restore-rehearsal.sh db-restore-production.sh db-verify.sh provision-existing-postgres.sh provision-runtime-env.sh validate-runtime-env.sh install-self-hosted-runner.sh; do
   grep -Fq "deploy/onprem/scripts/$source_name" "$SOURCE_ROOT/.ieum-source.sha256" || { printf 'FAIL checksum manifest missing %s\n' "$source_name" >&2; fail=$((fail + 1)); }
 done
+grep -Fq 'deploy/onprem/scripts/minio-presign-smoke.py' "$SOURCE_ROOT/.ieum-source.sha256" || { printf 'FAIL checksum manifest missing minio presign smoke\n' >&2; fail=$((fail + 1)); }
 for dir in "$SRV_ROOT/staging" "$SRV_ROOT/releases" "$STATE_ROOT/state" "$STATE_ROOT/locks" "$STATE_ROOT/deployments" "$STATE_ROOT/maintenance" "$STATE_ROOT/nginx-staging" "$STATE_ROOT/nginx-production" "$ETC_ROOT"; do
   [[ -d "$dir" && ! -L "$dir" ]] || { printf 'FAIL missing state dir %s\n' "$dir" >&2; fail=$((fail + 1)); }
   [[ "$(stat -c '%a' "$dir" 2>/dev/null || stat -f '%Lp' "$dir")" == 700 ]] || { printf 'FAIL state mode %s\n' "$dir" >&2; fail=$((fail + 1)); }

@@ -46,6 +46,7 @@ if [[ "$EUID" -eq 0 ]]; then
   DB_PREFLIGHT_BIN=/usr/local/sbin/ieum-db-preflight
   STAGE_NGINX_BIN=/usr/local/sbin/ieum-install-staging-nginx
   PRODUCTION_NGINX_BIN=/usr/local/sbin/ieum-install-production-nginx
+  MINIO_PRESIGN_SMOKE_BIN=/usr/local/sbin/ieum-minio-presign-smoke
   HEALTH_ATTEMPTS=30
 else
   [[ "${IEUM_RELEASE_TEST_MODE:-}" == 1 ]] || die "must run as root"
@@ -66,10 +67,11 @@ else
   DB_PREFLIGHT_BIN="${IEUM_RELEASE_DB_PREFLIGHT_BIN:-}"
   STAGE_NGINX_BIN="${IEUM_RELEASE_STAGE_NGINX_BIN:-}"
   PRODUCTION_NGINX_BIN="${IEUM_RELEASE_PRODUCTION_NGINX_BIN:-}"
+  MINIO_PRESIGN_SMOKE_BIN="${IEUM_RELEASE_MINIO_PRESIGN_SMOKE_BIN:-}"
   HEALTH_ATTEMPTS="${IEUM_RELEASE_HEALTH_ATTEMPTS:-}"
   is_absolute "$RELEASE_ROOT" || die "test release root must be absolute"
   is_absolute "$ALLOWED_SIGNERS" || die "test allowed-signers path must be absolute"
-  for path in "$STATE_ROOT" "$APP_MAIN_ENV" "$APP_AI_ENV" "$DOCKER_REGISTRY_ENV" "$PGSERVICEFILE" "$PGPASSFILE" "$WRITE_FENCE_PATH" "$PUBLIC_WRITE_COMMITTED_PATH" "$ORIGIN_CA_CERT" "$DOCKER_BIN" "$DOCKER_INSPECT_BIN" "$CURL_BIN" "$DB_PREFLIGHT_BIN" "$STAGE_NGINX_BIN" "$PRODUCTION_NGINX_BIN"; do
+  for path in "$STATE_ROOT" "$APP_MAIN_ENV" "$APP_AI_ENV" "$DOCKER_REGISTRY_ENV" "$PGSERVICEFILE" "$PGPASSFILE" "$WRITE_FENCE_PATH" "$PUBLIC_WRITE_COMMITTED_PATH" "$ORIGIN_CA_CERT" "$DOCKER_BIN" "$DOCKER_INSPECT_BIN" "$CURL_BIN" "$DB_PREFLIGHT_BIN" "$STAGE_NGINX_BIN" "$PRODUCTION_NGINX_BIN" "$MINIO_PRESIGN_SMOKE_BIN"; do
     is_absolute "$path" || die "test runtime path must be absolute"
   done
   [[ "$HEALTH_ATTEMPTS" =~ ^[1-9][0-9]*$ ]] || die "test health attempts must be a positive integer"
@@ -606,7 +608,7 @@ require_runtime_control_files() {
   private_file "$PGSERVICEFILE" || { printf 'ieum deploy release: PostgreSQL service file is unsafe\n' >&2; return 1; }
   private_file "$PGPASSFILE" || { printf 'ieum deploy release: PostgreSQL passfile is unsafe\n' >&2; return 1; }
   [[ -f "$ORIGIN_CA_CERT" && ! -L "$ORIGIN_CA_CERT" && "$(owner_of "$ORIGIN_CA_CERT")" == "$EUID" && ("$(mode_of "$ORIGIN_CA_CERT")" == 600 || "$(mode_of "$ORIGIN_CA_CERT")" == 644) ]] || { printf 'ieum deploy release: origin CA certificate is unsafe\n' >&2; return 1; }
-  for path in "$DOCKER_BIN" "$DOCKER_INSPECT_BIN" "$CURL_BIN" "$DB_PREFLIGHT_BIN" "$STAGE_NGINX_BIN" "$PRODUCTION_NGINX_BIN"; do
+  for path in "$DOCKER_BIN" "$DOCKER_INSPECT_BIN" "$CURL_BIN" "$DB_PREFLIGHT_BIN" "$STAGE_NGINX_BIN" "$PRODUCTION_NGINX_BIN" "$MINIO_PRESIGN_SMOKE_BIN"; do
     [[ -f "$path" && -x "$path" && ! -L "$path" ]] || { printf 'ieum deploy release: runtime executable is unsafe\n' >&2; return 1; }
   done
 }
@@ -737,10 +739,11 @@ stage_origin_smoke() {
 production_ingress_gate() {
   local release=$1 pending=${2:-false}
   if [[ "$pending" == true ]]; then
-    "$PRODUCTION_NGINX_BIN" --release-id "$release" --confirm-public-ingress --allow-pending-activation >/dev/null
+    "$PRODUCTION_NGINX_BIN" --release-id "$release" --confirm-public-ingress --allow-pending-activation >/dev/null || return 1
   else
-    "$PRODUCTION_NGINX_BIN" --release-id "$release" --confirm-public-ingress >/dev/null
+    "$PRODUCTION_NGINX_BIN" --release-id "$release" --confirm-public-ingress >/dev/null || return 1
   fi
+  "$MINIO_PRESIGN_SMOKE_BIN" >/dev/null || return 1
 }
 
 rollback_pre_migration_runtime() {

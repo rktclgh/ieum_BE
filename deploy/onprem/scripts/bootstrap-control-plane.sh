@@ -59,6 +59,7 @@ readonly DISPATCH_HELPERS=(
   'provision-existing-postgres.sh:ieum-provision-existing-postgres'
   'provision-runtime-env.sh:ieum-provision-runtime-env'
   'validate-runtime-env.sh:ieum-validate-runtime-env'
+  'minio-presign-smoke.py:ieum-minio-presign-smoke'
   'install-self-hosted-runner.sh:ieum-install-self-hosted-runner'
 )
 

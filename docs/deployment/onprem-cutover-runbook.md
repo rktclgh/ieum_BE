@@ -344,9 +344,15 @@ Do not blindly accept an extension-version change while installing packages. Cap
 
 Before binding an application database on the target, complete the C3 MinIO network attachment first, then run the root control-plane bootstrap. The bootstrap installs the release, database, runtime-environment, object-store mirror, and staging/production Nginx helpers, validates that `docker compose` is usable, and **reuses** the pre-existing `ieum` and `ieum-minio` networks. It fails closed if either network is missing or if the already-attached external `ieum-minio` network does not have exactly one running container owning the `minio` alias whose health endpoint is reachable through that alias. It never creates a Docker network or container.
 
-The bootstrap deliberately rejects a user-writable checkout as its root source. First stage the reviewed snapshot and checksum manifest under a root-owned, non-group/other-writable directory, then invoke the bootstrap from that snapshot; never run a DB/Nginx/root helper from `/home/song` or another writable worktree:
+The bootstrap deliberately rejects a user-writable checkout as its root source. First stage the reviewed snapshot under a root-owned, non-group/other-writable directory, then generate a manifest that includes every shell helper and the Python presign helper before invoking the bootstrap. Never run a DB/Nginx/root helper from `/home/song` or another writable worktree:
 
 ```sh
+sudo bash -ceu '
+cd /srv/ieum/bootstrap-source/<reviewed-release>
+sha256sum deploy/onprem/scripts/*.sh deploy/onprem/scripts/minio-presign-smoke.py \
+  | LC_ALL=C sort -k2 > .ieum-source.sha256
+chmod 0644 .ieum-source.sha256
+'
 sudo IEUM_BOOTSTRAP_SOURCE_SNAPSHOT=/srv/ieum/bootstrap-source/<reviewed-release> IEUM_BOOTSTRAP_SOURCE_CHECKSUM=/srv/ieum/bootstrap-source/<reviewed-release>/.ieum-source.sha256 /srv/ieum/bootstrap-source/<reviewed-release>/deploy/onprem/scripts/bootstrap-control-plane.sh
 docker network inspect ieum >/dev/null
 docker network inspect ieum-minio >/dev/null
@@ -491,21 +497,25 @@ server {
 
 The `Host $http_host` requirement is essential: SigV4 signs the public host. Do not rewrite the path, normalize query parameters, or proxy through an alternate bucket host.
 
-Configure MinIO bucket CORS to allow only the production origin and required methods/headers:
+The reused server runs the MinIO community build. Its S3 API returns
+`NotImplemented` for per-bucket `PutBucketCors`, so do not make `mc cors set`
+part of this cutover. The current shared MinIO API falls back to its global
+`cors_allow_origin` setting; changing that global value during the Ieum cutover
+could also affect the existing Vlainter tenant. Treat any future global-origin
+hardening as a separate shared-infrastructure change with every tenant origin
+inventoried and a MinIO restart window.
 
-```json
-[
-  {
-    "AllowedOrigin": ["https://ieum.rktclgh.site"],
-    "AllowedMethod": ["GET", "PUT", "HEAD", "DELETE"],
-    "AllowedHeader": ["*"],
-    "ExposeHeader": ["ETag"],
-    "MaxAgeSeconds": 300
-  }
-]
-```
+For this cutover, prove the effective behavior instead: both
+`https://ieum1.rktclgh.site` and `https://ieum.rktclgh.site` must receive an
+exact matching CORS allow-origin response for PUT and DELETE preflights, with
+`content-type` allowed for PUT, and generated
+presigned PUT, GET, HEAD, and DELETE requests must pass through
+`https://files.rktclgh.site`. The HEAD request validates the signed public path
+without an Origin header because the community build does not expose a
+bucket-level method policy. A server-only unsigned `curl` success is
+insufficient.
 
-Apply it with `mc cors set local/ieum-files <cors-json-file>`, then test a generated presigned PUT, GET, HEAD, and DELETE through `https://files.rktclgh.site`. The browser CORS preflight must succeed; a server-only `curl` success is insufficient.
+The root bootstrap installs `/usr/local/sbin/ieum-minio-presign-smoke`, and every local release apply runs it as a hard gate immediately after the production application and file Nginx vhosts are activated. It reads the root-only `/etc/ieum/app-main.env`, checks browser-like CORS preflights for both `https://ieum1.rktclgh.site` and `https://ieum.rktclgh.site`, then performs a secret-safe signed PUT/GET/HEAD/DELETE probe and confirms the fixture is no longer readable. A failed probe blocks activation; the helper emits operation-level errors only and removes its fixture on failure.
 
 The MinIO console at 19001 remains loopback-only and must not receive a public Nginx server block.
 
