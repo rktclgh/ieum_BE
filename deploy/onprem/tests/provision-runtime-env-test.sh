@@ -8,6 +8,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 
 pass=0
 fail=0
+mode_of() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
 
 # Root installs the validator under the public helper name, not beside the
 # provisioner source filename.  Keep that production invocation contract
@@ -93,8 +94,8 @@ export IEUM_FAKE_VALIDATOR_CALLS="$TMP_DIR/validator.calls"
 assert_success run_provisioner
 test -f "$TMP_DIR/output/app-main.env" || { printf 'FAIL (missing app-main output)\n' >&2; fail=$((fail + 1)); }
 test -f "$TMP_DIR/output/app-ai.env" || { printf 'FAIL (missing app-ai output)\n' >&2; fail=$((fail + 1)); }
-test "$(stat -f '%Lp' "$TMP_DIR/output/app-main.env" 2>/dev/null || stat -c '%a' "$TMP_DIR/output/app-main.env")" = 600 || fail=$((fail + 1))
-test "$(stat -f '%Lp' "$TMP_DIR/output/app-ai.env" 2>/dev/null || stat -c '%a' "$TMP_DIR/output/app-ai.env")" = 600 || fail=$((fail + 1))
+test "$(mode_of "$TMP_DIR/output/app-main.env")" = 600 || fail=$((fail + 1))
+test "$(mode_of "$TMP_DIR/output/app-ai.env")" = 600 || fail=$((fail + 1))
 grep -Fqx 'SPRING_DATASOURCE_USERNAME=ieum' "$TMP_DIR/output/app-main.env" || fail=$((fail + 1))
 grep -Fqx 'SPRING_DATASOURCE_PASSWORD=database-fixture' "$TMP_DIR/output/app-main.env" || fail=$((fail + 1))
 grep -Fqx 'AWS_ACCESS_KEY_ID=main-access-fixture' "$TMP_DIR/output/app-main.env" || fail=$((fail + 1))
