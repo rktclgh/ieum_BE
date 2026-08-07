@@ -615,6 +615,12 @@ require_runtime_control_files() {
 
 require_docker_pull_credentials() {
   local username password auth_dir
+  # Ieum's Docker Hub repositories are public.  A missing optional credential
+  # file therefore means anonymous pull; a present file remains fail-closed.
+  if [[ ! -e "$DOCKER_REGISTRY_ENV" && ! -L "$DOCKER_REGISTRY_ENV" ]]; then
+    DOCKER_AUTH_DIR=''
+    return 0
+  fi
   private_file "$DOCKER_REGISTRY_ENV" || { printf 'ieum deploy release: Docker registry credential file is unsafe\n' >&2; return 1; }
   awk -F= '
     BEGIN { valid = 1 }
@@ -665,7 +671,7 @@ compose() {
     private_dir "$DOCKER_AUTH_DIR" || return 1
     DOCKER_CONFIG="$DOCKER_AUTH_DIR" "$DOCKER_BIN" compose --project-name ieum --env-file "$target/release.env" --file "$target/deploy/onprem/compose.yml" "$@"
   else
-    "$DOCKER_BIN" compose --project-name ieum --env-file "$target/release.env" --file "$target/deploy/onprem/compose.yml" "$@"
+    env -u DOCKER_CONFIG "$DOCKER_BIN" compose --project-name ieum --env-file "$target/release.env" --file "$target/deploy/onprem/compose.yml" "$@"
   fi
 }
 
@@ -749,12 +755,29 @@ production_ingress_gate() {
 rollback_pre_migration_runtime() {
   local candidate=$1 previous=${2:-}
   if [[ -z "$previous" ]]; then
-    if ! compose "$candidate" down --remove-orphans >/dev/null 2>&1; then
+    # A failed staging installer can have changed Nginx before reporting an
+    # error.  Without a previous release there is no known-good config to
+    # restore, so preserve the failure for an operator rather than claiming a
+    # clean rollback.
+    if [[ "${ACTIVATION_STAGING_ATTEMPTED:-false}" == true && "${ACTIVATION_STAGING_INSTALLED:-false}" != true ]]; then
       write_activation_journal "$release_id" MANUAL_INTERVENTION || true
-      printf 'ieum deploy release: candidate runtime cleanup failed; manual intervention is required\n' >&2
+      printf 'ieum deploy release: staging Nginx activation did not complete; manual intervention is required\n' >&2
       return 1
     fi
-    "$STAGE_NGINX_BIN" --remove >/dev/null || return 1
+    if [[ "${ACTIVATION_CANDIDATE_STARTED:-false}" == true ]]; then
+      if ! compose "$candidate" down --remove-orphans >/dev/null 2>&1; then
+        write_activation_journal "$release_id" MANUAL_INTERVENTION || true
+        printf 'ieum deploy release: candidate runtime cleanup failed; manual intervention is required\n' >&2
+        return 1
+      fi
+    fi
+    if [[ "${ACTIVATION_STAGING_INSTALLED:-false}" == true ]]; then
+      if ! "$STAGE_NGINX_BIN" --remove >/dev/null; then
+        write_activation_journal "$release_id" MANUAL_INTERVENTION || true
+        printf 'ieum deploy release: staging Nginx cleanup failed; manual intervention is required\n' >&2
+        return 1
+      fi
+    fi
     return 0
   fi
   if [[ "${ACTIVATION_CANDIDATE_STARTED:-false}" == true ]]; then
@@ -774,6 +797,8 @@ rollback_pre_migration_runtime() {
 
 ACTIVATION_MIGRATION_STARTED=false
 ACTIVATION_CANDIDATE_STARTED=false
+ACTIVATION_STAGING_INSTALLED=false
+ACTIVATION_STAGING_ATTEMPTED=false
 activate_candidate_runtime() {
   local target=$1 migration_required=$2 preserve_pending=${3:-false}
   require_runtime_control_files || return 1
@@ -800,7 +825,9 @@ activate_candidate_runtime() {
   wait_for_health http://127.0.0.1:18080/actuator/health || return 1
   verify_running_service_image "$target" app-main "$APP_MAIN_IMAGE_DIGEST" || return 1
   if [[ "$preserve_pending" != true ]]; then write_activation_journal "$release_id" SERVICES_HEALTHY || return 1; fi
+  ACTIVATION_STAGING_ATTEMPTED=true
   "$STAGE_NGINX_BIN" --release-id "$release_id" >/dev/null || return 1
+  ACTIVATION_STAGING_INSTALLED=true
   stage_origin_smoke || return 1
   if [[ "$preserve_pending" != true ]]; then write_activation_journal "$release_id" NGINX_STAGED || return 1; fi
 }
@@ -1005,6 +1032,8 @@ apply_release() {
       if [[ "$target_phase" == COMMIT_PENDING ]]; then
         ACTIVATION_MIGRATION_STARTED=false
         ACTIVATION_CANDIDATE_STARTED=false
+        ACTIVATION_STAGING_INSTALLED=false
+        ACTIVATION_STAGING_ATTEMPTED=false
         activate_candidate_runtime "$target" false true || {
           if [[ "$(activation_journal_migration_started "$release_id")" == false ]]; then
             rollback_pre_migration_runtime "$target" "${current_state%/state.env}" || true
@@ -1080,6 +1109,9 @@ apply_release() {
     fi
   fi
   ACTIVATION_MIGRATION_STARTED=false
+  ACTIVATION_CANDIDATE_STARTED=false
+  ACTIVATION_STAGING_INSTALLED=false
+  ACTIVATION_STAGING_ATTEMPTED=false
   if activate_candidate_runtime "$target" "$migration_required"; then
     :
   else
@@ -1088,6 +1120,7 @@ apply_release() {
       die "release activation failed after migration started; current release was left unchanged and manual intervention is required"
     fi
     if ! rollback_pre_migration_runtime "$target" "$previous_target"; then
+      write_activation_journal "$release_id" MANUAL_INTERVENTION || true
       if [[ -z "$previous_target" ]]; then
         die "release activation failed before migration; candidate runtime cleanup failed and manual intervention is required"
       fi
