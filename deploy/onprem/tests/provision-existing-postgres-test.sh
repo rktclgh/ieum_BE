@@ -5,6 +5,7 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 script="$root/deploy/onprem/scripts/provision-existing-postgres.sh"
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 fail() { printf '%s\n' "provision existing postgres test failed: $*" >&2; exit 1; }
+mode_of() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
 [[ -x "$script" ]] || fail "script missing or not executable"
 if "$script" >/dev/null 2>&1; then fail "non-root invocation was accepted"; fi
 
@@ -75,8 +76,8 @@ grep -Fx 'provision existing postgres: PASS' "$tmp/out" >/dev/null || fail "miss
 ! grep -F 'deadbeef' "$tmp/err" >/dev/null || fail "password leaked into stderr"
 ! grep -F 'pg_env=hostile' "$log" >/dev/null || fail "hostile PG environment reached provision commands"
 grep -F 'pg_env=/var/run/postgresql,5432,,' "$log" >/dev/null || fail "clean PG environment was not forced"
-pass_mode="$(stat -f '%Lp' "$etc/postgres.pgpass" 2>/dev/null || stat -c '%a' "$etc/postgres.pgpass")"
-service_mode="$(stat -f '%Lp' "$etc/postgres.pg_service.conf" 2>/dev/null || stat -c '%a' "$etc/postgres.pg_service.conf")"
+pass_mode="$(mode_of "$etc/postgres.pgpass")"
+service_mode="$(mode_of "$etc/postgres.pg_service.conf")"
 [[ "$pass_mode" == 600 && "$service_mode" == 600 ]] || fail "libpq files are not mode 0600"
 grep -Fx '127.0.0.1:5432:*:ieum:deadbeef0123456789' "$etc/postgres.pgpass" >/dev/null || fail "pass file content incorrect"
 for service_name in ieum_target_admin ieum_target ieum_target_rehearsal; do
