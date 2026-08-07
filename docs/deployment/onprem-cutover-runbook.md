@@ -232,7 +232,6 @@ sudo install -m 0600 -o root -g root /dev/null /etc/ieum/app-ai.env
 sudo install -m 0600 -o root -g root /dev/null /etc/ieum/postgres.pg_service.conf
 sudo install -m 0600 -o root -g root /dev/null /etc/ieum/postgres.pgpass
 sudo install -m 0600 -o root -g root /dev/null /etc/ieum/release-signing.allowed_signers
-sudo install -m 0600 -o root -g root /dev/null /etc/ieum/docker-registry.env
 ```
 
 Do **not** create `/srv/ieum/current` as a directory: the first accepted deployment creates it atomically as a symlink to `/srv/ieum/releases/<release-id>`. The root wrapper alone spools a signed CI bundle under `/srv/ieum/staging`; `ieum-runner` cannot write `staging`, `releases`, `current`, `/etc/ieum`, or deployment state.
@@ -241,7 +240,7 @@ Install the reviewed copies of `deploy-release.sh`, `db-preflight.sh`, `install-
 
 Populate the runtime and libpq files manually through a secret-safe terminal/editor; never construct them in a workflow log. The service/pass files are for the root-owned database preflight/restore tools only and must never be copied into an application container or GitHub Actions. Install the public half of the separate release-signing key as an `ieum-release` entry in `/etc/ieum/release-signing.allowed_signers`; its private half belongs only in the protected GitHub Environment and is never copied to the host.
 
-Populate `/etc/ieum/docker-registry.env` from `deploy/onprem/docker-registry.env.example` through an administrative, secret-safe terminal. It must remain owned by `root:root`, mode `0600`, and contain exactly these two nonblank lines—no comments, blank lines, quotes, duplicate keys, or other keys—because the literal parser rejects any other form:
+Ieum's Docker Hub release repositories are public, so `/etc/ieum/docker-registry.env` is optional. If it is absent, the root release helper pulls anonymously and explicitly ignores any inherited `DOCKER_CONFIG`. If Docker Hub credentials are later required, populate this optional file from `deploy/onprem/docker-registry.env.example` through an administrative, secret-safe terminal. A present file must remain owned by `root:root`, mode `0600`, and contain exactly these two nonblank lines—no comments, blank lines, quotes, duplicate keys, or other keys—because the literal parser rejects any other form:
 
 ```dotenv
 DOCKER_REGISTRY_USERNAME=<docker-hub-pull-username>

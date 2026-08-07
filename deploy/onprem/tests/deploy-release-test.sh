@@ -58,6 +58,7 @@ cat > "$bin/docker" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'docker %s\n' "$*" >> "$FAKE_CALL_LOG"
+printf 'docker-config=%s command=%s\n' "${DOCKER_CONFIG:-}" "$*" >> "$FAKE_CALL_LOG"
 if [[ "${1:-}" == login ]]; then
   config_dir="${DOCKER_CONFIG:-$HOME/.docker}"
   mkdir -p "$config_dir"
@@ -90,7 +91,10 @@ case "${1:-}" in
     [[ "${FAKE_DOCKER_DOWN_FAIL:-0}" != 1 ]] || exit 42
     ;;
   pull)
-    [[ -n "${DOCKER_CONFIG:-}" && -f "$DOCKER_CONFIG/config.json" ]] || exit 91
+    [[ "${FAKE_DOCKER_PULL_FAIL:-0}" != 1 ]] || exit 88
+    if [[ "${FAKE_DOCKER_PULL_REQUIRE_AUTH:-0}" == 1 ]]; then
+      [[ -n "${DOCKER_CONFIG:-}" && -f "$DOCKER_CONFIG/config.json" ]] || exit 91
+    fi
     ;;
   *) ;;
 esac
@@ -133,6 +137,7 @@ cat > "$bin/stage-nginx" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'stage-nginx %s\n' "$*" >> "$FAKE_CALL_LOG"
+if [[ "${1:-}" == --remove && "${FAKE_STAGE_REMOVE_FAIL:-0}" == 1 ]]; then exit 74; fi
 EOF
 cat > "$bin/production-nginx" <<'EOF'
 #!/usr/bin/env bash
@@ -287,6 +292,86 @@ empty_current_json="$($helper current --json)"
 jq -e 'keys == ["backend_sha", "bundle_sha256", "frontend_sha", "images", "migration_sha256", "previous_release", "rebuild", "release_id"] and (.[] == null)' <<< "$empty_current_json" >/dev/null \
   || fail "empty current status did not return the stable null schema"
 
+# Docker Hub images are public.  An absent optional credential file must use
+# anonymous pull rather than preventing a first deployment before any runtime
+# or Nginx state exists.
+anonymous_release_root="$tmp/anonymous/srv/ieum"
+anonymous_state_root="$tmp/anonymous/var/lib/ieum"
+anonymous_registry_env="$tmp/anonymous/etc/ieum/docker-registry.env"
+mkdir -p "$anonymous_release_root/staging" "$anonymous_release_root/releases" "$anonymous_release_root/locks" \
+  "$anonymous_state_root/deployments" "$anonymous_state_root/locks" "$anonymous_state_root/maintenance"
+chmod 700 "$anonymous_release_root/staging" "$anonymous_release_root/releases" "$anonymous_release_root/locks" \
+  "$anonymous_state_root" "$anonymous_state_root/deployments" "$anonymous_state_root/locks" "$anonymous_state_root/maintenance"
+printf 'IEUM_PRODUCTION_WRITE_FENCE=enabled\n' > "$anonymous_state_root/maintenance/write-fence"
+chmod 600 "$anonymous_state_root/maintenance/write-fence"
+anonymous_release_id="r-123456788-1-0123456789abcdef0123456789abcdef01234566"
+anonymous_bundle=()
+while IFS= read -r bundle_part; do
+  anonymous_bundle[${#anonymous_bundle[@]}]="$bundle_part"
+done < <(build_envelope "$anonymous_release_id" null anonymous-pull)
+: > "$call_log"
+if ! IEUM_RELEASE_ROOT="$anonymous_release_root" \
+  IEUM_RELEASE_STATE_ROOT="$anonymous_state_root" \
+  IEUM_RELEASE_DOCKER_REGISTRY_ENV="$anonymous_registry_env" \
+  IEUM_RELEASE_WRITE_FENCE_PATH="$anonymous_state_root/maintenance/write-fence" \
+  IEUM_RELEASE_PUBLIC_WRITE_COMMITTED_PATH="$anonymous_state_root/state/public-write-committed" \
+  DOCKER_CONFIG="$tmp/inherited-docker-auth" \
+  "$helper" apply \
+    --release-id "$anonymous_release_id" \
+    --expected-current none \
+    --bundle-sha256 "${anonymous_bundle[2]}" < "${anonymous_bundle[1]}" >"$tmp/stdout" 2>"$tmp/stderr"; then
+  cat "$tmp/stderr" >&2
+  fail "public image release was rejected without optional registry credentials"
+fi
+[[ -L "$anonymous_release_root/current" ]] || fail "anonymous pull release did not promote current"
+grep -F 'docker compose --project-name ieum' "$call_log" | grep -F ' pull app-main app-ai' >/dev/null \
+  || fail "anonymous image pull was not invoked"
+if grep -Fq 'docker login docker.io' "$call_log"; then
+  fail "anonymous image pull unexpectedly logged into Docker Hub"
+fi
+if grep -Fq "docker-config=$tmp/inherited-docker-auth command=compose" "$call_log"; then
+  fail "anonymous image pull inherited an ambient Docker credential directory"
+fi
+: > "$call_log"
+
+# A pull failure occurs before candidate services or staging Nginx exist.  Its
+# rollback must not attempt to remove a non-existent staging configuration.
+pre_runtime_release_root="$tmp/pre-runtime/srv/ieum"
+pre_runtime_state_root="$tmp/pre-runtime/var/lib/ieum"
+mkdir -p "$pre_runtime_release_root/staging" "$pre_runtime_release_root/releases" "$pre_runtime_release_root/locks" \
+  "$pre_runtime_state_root/deployments" "$pre_runtime_state_root/locks" "$pre_runtime_state_root/maintenance"
+chmod 700 "$pre_runtime_release_root/staging" "$pre_runtime_release_root/releases" "$pre_runtime_release_root/locks" \
+  "$pre_runtime_state_root" "$pre_runtime_state_root/deployments" "$pre_runtime_state_root/locks" "$pre_runtime_state_root/maintenance"
+printf 'IEUM_PRODUCTION_WRITE_FENCE=enabled\n' > "$pre_runtime_state_root/maintenance/write-fence"
+chmod 600 "$pre_runtime_state_root/maintenance/write-fence"
+pre_runtime_release_id="r-123456787-1-0123456789abcdef0123456789abcdef01234565"
+pre_runtime_bundle=()
+while IFS= read -r bundle_part; do
+  pre_runtime_bundle[${#pre_runtime_bundle[@]}]="$bundle_part"
+done < <(build_envelope "$pre_runtime_release_id" null pre-runtime-cleanup)
+: > "$call_log"
+if FAKE_DOCKER_PULL_FAIL=1 FAKE_STAGE_REMOVE_FAIL=1 \
+  IEUM_RELEASE_ROOT="$pre_runtime_release_root" \
+  IEUM_RELEASE_STATE_ROOT="$pre_runtime_state_root" \
+  IEUM_RELEASE_WRITE_FENCE_PATH="$pre_runtime_state_root/maintenance/write-fence" \
+  IEUM_RELEASE_PUBLIC_WRITE_COMMITTED_PATH="$pre_runtime_state_root/state/public-write-committed" \
+  "$helper" apply \
+    --release-id "$pre_runtime_release_id" \
+    --expected-current none \
+    --bundle-sha256 "${pre_runtime_bundle[2]}" < "${pre_runtime_bundle[1]}" >"$tmp/stdout" 2>"$tmp/stderr"; then
+  fail "pull failure was accepted"
+fi
+grep -Fqx 'PHASE=FAILED_PRE_MIGRATION_ROLLED_BACK' "$pre_runtime_state_root/deployments/$pre_runtime_release_id/activation.env" \
+  || fail "pre-runtime pull failure did not complete a clean rollback"
+if grep -Fq 'stage-nginx --remove' "$call_log"; then
+  fail "pre-runtime pull failure attempted to remove an unstaged Nginx configuration"
+fi
+if grep -Fq 'manual intervention is required' "$tmp/stderr"; then
+  fail "pre-runtime pull failure incorrectly required manual intervention"
+fi
+[[ ! -e "$pre_runtime_release_root/current" ]] || fail "pre-runtime pull failure changed current release"
+: > "$call_log"
+
 if FAKE_SIGNATURE_FAIL=1 "$helper" apply \
   --release-id "$release_id" \
   --expected-current none \
@@ -401,24 +486,6 @@ other_bundle=()
 while IFS= read -r bundle_part; do
   other_bundle[${#other_bundle[@]}]="$bundle_part"
 done < <(build_envelope "$other_release_id" "$previous_release_json" stale)
-
-credential_missing_release_id="r-123456795-1-0123456789abcdef0123456789abcdef01234571"
-credential_missing_bundle=()
-while IFS= read -r bundle_part; do
-  credential_missing_bundle[${#credential_missing_bundle[@]}]="$bundle_part"
-done < <(build_envelope "$credential_missing_release_id" "$previous_release_json" missing-registry-credentials)
-: > "$call_log"
-mv "$docker_registry_env" "$docker_registry_env.missing"
-if "$helper" apply \
-  --release-id "$credential_missing_release_id" \
-  --expected-current "$release_id" \
-  --bundle-sha256 "${credential_missing_bundle[2]}" < "${credential_missing_bundle[1]}" >"$tmp/stdout" 2>"$tmp/stderr"; then
-  fail "release activated without the Docker registry credential file"
-fi
-grep -F 'Docker registry credential file is unsafe' "$tmp/stderr" >/dev/null || fail "missing Docker registry credential rejection was not reported"
-if grep -Eq 'docker (login|compose .* (pull|down))' "$call_log"; then fail "missing credentials were checked after Docker login/pull/stop"; fi
-[[ "$(readlink "$release_root/current")" == "$release_root/releases/$release_id" ]] || fail "missing Docker credentials changed current release"
-mv "$docker_registry_env.missing" "$docker_registry_env"
 
 credential_insecure_release_id="r-123456796-1-0123456789abcdef0123456789abcdef01234572"
 credential_insecure_bundle=()
@@ -571,31 +638,6 @@ fi
 grep -F "rollback to $release_id activated" "$tmp/stdout" >/dev/null || fail "rollback success was not reported"
 [[ "$(readlink "$release_root/current")" == "$release_root/releases/$release_id" ]] || fail "rollback did not atomically restore the previous release"
 grep -F "production-nginx --release-id $release_id --confirm-public-ingress" "$call_log" >/dev/null || fail "rollback did not restore production ingress for the target release"
-
-# When the first activation has no previous release, a failed candidate cleanup
-# must fail closed. Swallowing compose down here can leave stale fixed-port
-# containers behind while reporting a successful rollback.
-no_previous_release_id="r-123456797-1-0123456789abcdef0123456789abcdef01234573"
-no_previous_bundle=()
-while IFS= read -r bundle_part; do
-  no_previous_bundle[${#no_previous_bundle[@]}]="$bundle_part"
-done < <(build_envelope "$no_previous_release_id" null no-previous-cleanup)
-rm "$release_root/current"
-rm "$state_root/maintenance/write-fence"
-if FAKE_DOCKER_DOWN_FAIL=1 "$helper" apply \
-  --release-id "$no_previous_release_id" \
-  --expected-current none \
-  --bundle-sha256 "${no_previous_bundle[2]}" < "${no_previous_bundle[1]}" >"$tmp/stdout" 2>"$tmp/stderr"; then
-  fail "first activation reported success after candidate cleanup failed"
-fi
-grep -F 'candidate runtime cleanup failed; manual intervention is required' "$tmp/stderr" >/dev/null \
-  || fail "failed first-activation cleanup did not report manual intervention"
-grep -Fqx 'PHASE=MANUAL_INTERVENTION' "$state_root/deployments/$no_previous_release_id/activation.env" \
-  || fail "failed first-activation cleanup did not journal manual intervention"
-[[ ! -e "$release_root/current" ]] || fail "failed first-activation cleanup changed current symlink"
-printf 'IEUM_PRODUCTION_WRITE_FENCE=enabled\n' > "$state_root/maintenance/write-fence"
-chmod 600 "$state_root/maintenance/write-fence"
-ln -s "$release_root/releases/$release_id" "$release_root/current"
 
 mkdir -p "$state_root/state"
 chmod 700 "$state_root/state"
