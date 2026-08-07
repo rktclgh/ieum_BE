@@ -2,7 +2,9 @@
 set -u
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 HELPER="$SCRIPT_DIR/../scripts/install-self-hosted-runner.sh"
-TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/ieum-runner.XXXXXX"); trap 'rm -rf "$TMP_DIR"' EXIT
+# The helper intentionally rejects a world-writable parent chain. GitHub's
+# hosted Linux runner leaves TMPDIR unset, so /tmp is not a valid fixture root.
+TMP_DIR=$(mktemp -d "$SCRIPT_DIR/.ieum-runner-test.XXXXXX"); trap 'rm -rf "$TMP_DIR"' EXIT
 RUNNER_ROOT="$TMP_DIR/runners"; SERVICE_ROOT="$TMP_DIR/systemd"; BIN_ROOT="$TMP_DIR/bin"; mkdir -p "$RUNNER_ROOT" "$SERVICE_ROOT" "$BIN_ROOT"
 RUNNER_HOME="$TMP_DIR/ieum-runner-home"; mkdir -p "$RUNNER_HOME"
 TOKEN_FILE="$TMP_DIR/registration.token"; printf 'test-registration-token\n' >"$TOKEN_FILE"; chmod 600 "$TOKEN_FILE"
