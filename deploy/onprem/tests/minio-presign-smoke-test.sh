@@ -17,8 +17,10 @@ chmod 600 "$env_file"
 PYTHONPATH="$root/deploy/onprem/scripts" IEUM_MINIO_PRESIGN_SMOKE_TEST_MODE=1 IEUM_MINIO_PRESIGN_SMOKE_ENV_FILE="$env_file" \
 python3 - <<'PY'
 import importlib.util
+import contextlib
 import hashlib
 import hmac
+import io
 import os
 import urllib.parse
 
@@ -36,6 +38,7 @@ class FixedDateTime:
 
 smoke.dt.datetime = FixedDateTime
 smoke.secrets.token_hex = lambda count: "ab" * count
+retired_origin_allowed = False
 
 def fake_request(url, method, headers=None, body=None, **kwargs):
     calls.append((method, headers or {}, body, url))
@@ -44,13 +47,14 @@ def fake_request(url, method, headers=None, body=None, **kwargs):
         assert query["X-Amz-Signature"][0]
         assert "fixture-secret" not in url
     if method == "OPTIONS":
+        allow_origin = headers["Origin"] if headers["Origin"] == smoke.PUBLIC_ORIGIN or (retired_origin_allowed and headers["Origin"] == smoke.RETIRED_ORIGIN) else ""
         return 204, {
-            "access-control-allow-origin": headers["Origin"],
+            "access-control-allow-origin": allow_origin,
             "access-control-allow-methods": "GET, PUT, HEAD, DELETE",
             "access-control-allow-headers": "content-type",
         }, b""
     if method == "GET":
-        if len(calls) > 8:
+        if sum(item[0] == "GET" for item in calls) > 1:
             return 404, {}, b""
         return 200, {"content-length": str(len(fixture))}, fixture
     if method == "HEAD":
@@ -59,12 +63,23 @@ def fake_request(url, method, headers=None, body=None, **kwargs):
 
 smoke.request = fake_request
 smoke.main()
-assert [item[0] for item in calls] == ["OPTIONS", "OPTIONS", "OPTIONS", "OPTIONS", "PUT", "GET", "HEAD", "DELETE", "GET", "DELETE"]
+assert [item[0] for item in calls] == ["OPTIONS", "OPTIONS", "OPTIONS", "PUT", "GET", "HEAD", "DELETE", "GET", "DELETE"]
 assert all(item[1].get("User-Agent") == smoke.USER_AGENT for item in calls)
-assert [item[1]["Access-Control-Request-Method"] for item in calls[:4]] == ["PUT", "DELETE", "PUT", "DELETE"]
+assert [item[1]["Access-Control-Request-Method"] for item in calls[:2]] == ["PUT", "DELETE"]
 assert calls[0][1]["Access-Control-Request-Headers"] == "content-type"
 assert "Access-Control-Request-Headers" not in calls[1][1]
-query = urllib.parse.parse_qs(urllib.parse.urlsplit(calls[4][3]).query)
+assert calls[2][1]["Origin"] == smoke.RETIRED_ORIGIN
+assert calls[3][1]["Origin"] == smoke.PUBLIC_ORIGIN
+query = urllib.parse.parse_qs(urllib.parse.urlsplit(calls[3][3]).query)
 assert query["X-Amz-Signature"][0] == "d6d49173319106adfde66b6e7aa4b441248935e6895c10ae7107f3a18474dc2d"
+calls.clear()
+retired_origin_allowed = True
+with contextlib.redirect_stderr(io.StringIO()):
+    try:
+        smoke.main()
+    except SystemExit as exc:
+        assert exc.code == 1
+    else:
+        raise AssertionError("retired CORS origin was accepted")
 print("minio presign smoke test: PASS")
 PY

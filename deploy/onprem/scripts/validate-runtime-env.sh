@@ -98,7 +98,7 @@ if [[ "$service" == app-main ]]; then
   require_exact REDIS_PORT 6379
   require_exact REDIS_DATABASE 1
   require_nonempty REDIS_PASSWORD
-  require_exact CORS_ALLOWED_ORIGINS https://ieum.rktclgh.site,https://ieum1.rktclgh.site
+  require_exact CORS_ALLOWED_ORIGINS https://ieum.rktclgh.site
   require_exact COOKIE_SECURE true
   require_exact WEB_PUSH_ENABLED true
   require_nonempty WEB_PUSH_VAPID_PUBLIC_KEY
