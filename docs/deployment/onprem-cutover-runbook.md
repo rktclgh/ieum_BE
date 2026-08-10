@@ -258,7 +258,7 @@ SPRING_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:5432/ieum
 REDIS_HOST=host.docker.internal
 REDIS_PORT=6379
 REDIS_PASSWORD=<existing-host-redis-password>
-CORS_ALLOWED_ORIGINS=https://ieum.rktclgh.site,https://ieum1.rktclgh.site
+CORS_ALLOWED_ORIGINS=https://ieum.rktclgh.site
 COOKIE_SECURE=true
 WEB_PUSH_ENABLED=true
 WEB_PUSH_VAPID_PUBLIC_KEY=<nonblank-server-generated-public-key>
@@ -504,17 +504,18 @@ could also affect the existing Vlainter tenant. Treat any future global-origin
 hardening as a separate shared-infrastructure change with every tenant origin
 inventoried and a MinIO restart window.
 
-For this cutover, prove the effective behavior instead: both
-`https://ieum1.rktclgh.site` and `https://ieum.rktclgh.site` must receive an
-exact matching CORS allow-origin response for PUT and DELETE preflights, with
-`content-type` allowed for PUT, and generated
+For final production, prove the effective behavior instead:
+`https://ieum.rktclgh.site` must receive an exact matching CORS allow-origin
+response for PUT and DELETE preflights, while the retired
+`https://ieum1.rktclgh.site` origin must receive no CORS allow-origin response.
+`content-type` must be allowed for PUT, and generated
 presigned PUT, GET, HEAD, and DELETE requests must pass through
 `https://files.rktclgh.site`. The HEAD request validates the signed public path
 without an Origin header because the community build does not expose a
 bucket-level method policy. A server-only unsigned `curl` success is
 insufficient.
 
-The root bootstrap installs `/usr/local/sbin/ieum-minio-presign-smoke`, and every local release apply runs it as a hard gate immediately after the production application and file Nginx vhosts are activated. It reads the root-only `/etc/ieum/app-main.env`, checks browser-like CORS preflights for both `https://ieum1.rktclgh.site` and `https://ieum.rktclgh.site`, then performs a secret-safe signed PUT/GET/HEAD/DELETE probe and confirms the fixture is no longer readable. A failed probe blocks activation; the helper emits operation-level errors only and removes its fixture on failure.
+The root bootstrap installs `/usr/local/sbin/ieum-minio-presign-smoke`, and every local release apply runs it as a hard gate immediately after the production application and file Nginx vhosts are activated. It reads the root-only `/etc/ieum/app-main.env`, checks that production CORS allows `https://ieum.rktclgh.site` and rejects `https://ieum1.rktclgh.site`, then performs a secret-safe signed PUT/GET/HEAD/DELETE probe and confirms the fixture is no longer readable. A failed probe blocks activation; the helper emits operation-level errors only and removes its fixture on failure.
 
 The MinIO console at 19001 remains loopback-only and must not receive a public Nginx server block.
 
@@ -532,7 +533,7 @@ When the signed release has started app-main and `curl http://127.0.0.1:18080/ac
 4. restore the previous `ieum1` file and reload again if validation or reload fails;
 5. prove `https://ieum1.rktclgh.site/actuator/health` remains externally blocked and run the read-only API, WebSocket/SSE, and origin-local smoke checks.
 
-Current host evidence is a hard blocker for this installation: `127.0.0.1:18080` is not listening and non-interactive `sudo -n` reports that a password is required. Do not bypass either condition or create an empty vhost. Once root bootstrap and app health are complete, verify the Cloudflare-proxied `ieum1` DNS record reaches this origin before considering the staging gate passed. During the pre-cutover read-only stage, production app-main CORS must allow exactly `https://ieum.rktclgh.site` and `https://ieum1.rktclgh.site` so browser API, WebSocket, and SSE verification uses the real origin. Remove `https://ieum1.rktclgh.site` only after the rollback/stabilization window closes, and update the runtime example and validator tests together.
+Current host evidence is a hard blocker for this installation: `127.0.0.1:18080` is not listening and non-interactive `sudo -n` reports that a password is required. Do not bypass either condition or create an empty vhost. Once root bootstrap and app health are complete, verify the Cloudflare-proxied `ieum1` DNS record reaches this origin before considering the staging gate passed. During that pre-cutover read-only stage, production app-main CORS may allow both staging and production origins. After staging DNS retirement, final production must allow exactly `https://ieum.rktclgh.site`; update the runtime example, validator, and MinIO CORS gate together.
 
 Only after staging passes may the production vhost be installed and the DNS record for `ieum.rktclgh.site` moved. The file hostname must also point to the prepared ingress before application traffic moves. If a proxy/CDN is used, verify it does not strip signed-query parameters or modify the `Host` behavior above.
 
@@ -870,7 +871,7 @@ Failure at either staging or production is a deploy failure, not a warning. A `5
 | App-ai | `127.0.0.1:18084/actuator/health` is UP | release script |
 | Inter-service | app-main report/dispatch call and app-ai callback succeed using Docker DNS and shared token | integration smoke |
 | AI | One permitted Bedrock request works with the reused server-held credential and verified model/profile; an Ieum-only least-privilege identity is post-cutover hardening | application log plus request |
-| Staging ingress | `ieum1.rktclgh.site` resolves through Cloudflare, uses the wildcard origin certificate, proxies to healthy 18080, allows browser API/WebSocket/SSE requests through the exact two-origin CORS list, blocks actuator/internal routes, and returns `405` for write methods | staging installer plus origin-local/external smoke |
+| Staging ingress (pre-cutover only) | `ieum1.rktclgh.site` resolves through Cloudflare, uses the wildcard origin certificate, proxies to healthy 18080, allows browser API/WebSocket/SSE requests through the exact two-origin CORS list, blocks actuator/internal routes, and returns `405` for write methods. Retire this origin after cutover; final production CORS allows only `ieum.rktclgh.site`. | staging installer plus origin-local/external smoke |
 | Public ingress | HTTPS endpoint returns expected response; WebSocket upgrade and SSE heartbeat work | external smoke |
 | Network exposure | Public scans cannot reach 5432, 6379, 18080, 18084, 9000, or 9001 | external scanner + `ss` |
 | Deploy path | GitHub Action supplies a checksummed non-secret bundle and exact image pair; fixed root wrapper owns lock; pre-migration rollback rehearsal works | protected environment run |
