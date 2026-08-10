@@ -12,6 +12,8 @@ import sys
 import urllib.parse
 
 USER_AGENT = "Mozilla/5.0 IeumOnpremPresignSmoke/1.0"
+PUBLIC_ORIGIN = "https://ieum.rktclgh.site"
+RETIRED_ORIGIN = "https://ieum1.rktclgh.site"
 
 
 def fail(message):
@@ -122,7 +124,7 @@ def main():
     body = b"ieum-minio-presign-smoke\n"
     urls = {method: presigned(base, values["AWS_S3_BUCKET"], key, values["AWS_ACCESS_KEY_ID"], values["AWS_SECRET_ACCESS_KEY"], values["AWS_S3_REGION"], method) for method in ("PUT", "GET", "HEAD", "DELETE")}
     try:
-        for origin in ("https://ieum1.rktclgh.site", "https://ieum.rktclgh.site"):
+        for origin in (PUBLIC_ORIGIN,):
             for method, requested_headers in (("PUT", "content-type"), ("DELETE", "")):
                 preflight_headers = {
                     "Origin": origin,
@@ -139,18 +141,26 @@ def main():
                     raise RuntimeError("CORS preflight response was invalid")
                 if requested_headers and "*" not in allow_headers and requested_headers not in allow_headers:
                     raise RuntimeError("CORS preflight did not allow the requested headers")
-        request(urls["PUT"], "PUT", {"Content-Type": "application/octet-stream", "Origin": "https://ieum1.rktclgh.site", "User-Agent": USER_AGENT}, body)
-        _, _, get_body = request(urls["GET"], "GET", {"Origin": "https://ieum1.rktclgh.site", "User-Agent": USER_AGENT})
+        _, retired_headers, _ = request(urls["PUT"], "OPTIONS", {
+            "Origin": RETIRED_ORIGIN,
+            "Access-Control-Request-Method": "PUT",
+            "Access-Control-Request-Headers": "content-type",
+            "User-Agent": USER_AGENT,
+        })
+        if retired_headers.get("access-control-allow-origin", "") in (RETIRED_ORIGIN, "*"):
+            raise RuntimeError("retired CORS origin was accepted")
+        request(urls["PUT"], "PUT", {"Content-Type": "application/octet-stream", "Origin": PUBLIC_ORIGIN, "User-Agent": USER_AGENT}, body)
+        _, _, get_body = request(urls["GET"], "GET", {"Origin": PUBLIC_ORIGIN, "User-Agent": USER_AGENT})
         if get_body != body:
             raise RuntimeError("GET body did not match the fixture")
         # Community MinIO applies CORS only to browser cross-origin operations;
         # validate the signed HEAD route without an Origin header. Browser CORS
-        # itself is covered by the two explicit preflight checks above.
+        # itself is covered by the explicit preflight checks above.
         head_status, head_headers, head_body = request(urls["HEAD"], "HEAD", {"User-Agent": USER_AGENT})
         if head_status < 200 or head_status >= 300 or head_body or head_headers.get("content-length") != str(len(body)):
             raise RuntimeError("HEAD response did not match the fixture")
-        request(urls["DELETE"], "DELETE", {"Origin": "https://ieum1.rktclgh.site", "User-Agent": USER_AGENT})
-        deleted_status, _, _ = request(urls["GET"], "GET", {"Origin": "https://ieum1.rktclgh.site", "User-Agent": USER_AGENT}, expected_statuses=(404,))
+        request(urls["DELETE"], "DELETE", {"Origin": PUBLIC_ORIGIN, "User-Agent": USER_AGENT})
+        deleted_status, _, _ = request(urls["GET"], "GET", {"Origin": PUBLIC_ORIGIN, "User-Agent": USER_AGENT}, expected_statuses=(404,))
         if deleted_status != 404:
             raise RuntimeError("deleted fixture remained readable")
     except RuntimeError as exc:

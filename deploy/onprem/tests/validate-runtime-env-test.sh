@@ -37,7 +37,7 @@ REDIS_HOST=host.docker.internal
 REDIS_PORT=6379
 REDIS_DATABASE=1
 REDIS_PASSWORD=redacted
-CORS_ALLOWED_ORIGINS=https://ieum.rktclgh.site,https://ieum1.rktclgh.site
+CORS_ALLOWED_ORIGINS=https://ieum.rktclgh.site
 COOKIE_SECURE=true
 WEB_PUSH_ENABLED=true
 WEB_PUSH_VAPID_PUBLIC_KEY=fixture-public-key
@@ -85,9 +85,9 @@ EOF
 assert_success "$VALIDATOR" app-main "$TMP_DIR/main.env" "$TMP_DIR/ai.env"
 assert_success "$VALIDATOR" app-ai "$TMP_DIR/ai.env" "$TMP_DIR/main.env"
 
-cp "$TMP_DIR/main.env" "$TMP_DIR/missing-stage-cors.env"
-replace_line "$TMP_DIR/missing-stage-cors.env" CORS_ALLOWED_ORIGINS CORS_ALLOWED_ORIGINS=https://ieum.rktclgh.site
-assert_failure "$VALIDATOR" app-main "$TMP_DIR/missing-stage-cors.env"
+cp "$TMP_DIR/main.env" "$TMP_DIR/stale-stage-cors.env"
+replace_line "$TMP_DIR/stale-stage-cors.env" CORS_ALLOWED_ORIGINS CORS_ALLOWED_ORIGINS=https://ieum.rktclgh.site,https://ieum1.rktclgh.site
+assert_failure "$VALIDATOR" app-main "$TMP_DIR/stale-stage-cors.env"
 
 cp "$TMP_DIR/main.env" "$TMP_DIR/blank-vapid.env"
 replace_line "$TMP_DIR/blank-vapid.env" WEB_PUSH_VAPID_PRIVATE_KEY WEB_PUSH_VAPID_PRIVATE_KEY=
