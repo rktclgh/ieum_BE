@@ -15,7 +15,7 @@
 - 작업 브랜치: **`feat/rabbitmq-ai-job-dispatch`**
 - 시작 전 반드시:
   ```bash
-  cd /Users/songchiho/Desktop/Hackerthon/code/ieum_be
+  cd "$(git rev-parse --show-toplevel)"   # 이 저장소(ieum_be) 루트로 이동
   git fetch --all
   git status --short --branch      # 현재 stray 브랜치 chore/inspect-visitor-source-ips-current 확인
   git switch -c feat/rabbitmq-ai-job-dispatch origin/develop
@@ -50,7 +50,7 @@
 ### 테스트 실행
 
 ```bash
-cd /Users/songchiho/Desktop/Hackerthon/code/ieum_be
+cd "$(git rev-parse --show-toplevel)"   # 이 저장소(ieum_be) 루트로 이동
 ./gradlew :common:test :app-main:test        # 표준
 ./gradlew :app-ai:test                       # app-ai 변경 시
 ./gradlew :app-main:bootJar :app-ai:bootJar  # 빌드 확인
@@ -682,7 +682,9 @@ chore: 런타임 환경 검증에 브로커 키 추가
 
 **파일**
 
-- 수정: `/Users/songchiho/Desktop/Hackerthon/code/api/API-SPEC.md`
+> `$IEUM_DOCS_DIR`는 이 git 저장소(`ieum_be`)의 형제 디렉터리인 비-git 문서 워크스페이스(`code/`)를 가리키는 로컬 환경변수다 — 워크스테이션마다 실제 절대경로가 다르므로 각자 맞게 설정한다(예: `export IEUM_DOCS_DIR=/path/to/code`).
+
+- 수정: `$IEUM_DOCS_DIR/api/API-SPEC.md`
 - 수정: `ieum_be/app-main/spec.md`, `ieum_be/app-ai/spec.md`(없으면 생성), `ieum_be/common/spec.md`, `ieum_be/spec.md`
 - 수정: `ieum_be/app-main/memory.md`, `ieum_be/app-ai/memory.md`, `ieum_be/common/memory.md`, `ieum_be/memory.md`
 - Notion: DB `API 명세서 (1)` (id `38771cfb-4244-802d-95a3-d2adc347cc77`)
@@ -708,9 +710,9 @@ chore: 런타임 환경 검증에 브로커 키 추가
 **실행할 명령**
 
 ```bash
-grep -n "Redis·SQS·outbox는 사용하지 않는다" /Users/songchiho/Desktop/Hackerthon/code/api/API-SPEC.md   # 결과 없어야 함
-grep -n "Redis/SQS와 app-main scheduled scan" /Users/songchiho/Desktop/Hackerthon/code/api/API-SPEC.md  # 결과 없어야 함
-grep -n "RabbitMQ" /Users/songchiho/Desktop/Hackerthon/code/api/API-SPEC.md                             # 새 절 존재
+grep -n "Redis·SQS·outbox는 사용하지 않는다" "$IEUM_DOCS_DIR/api/API-SPEC.md"   # 결과 없어야 함
+grep -n "Redis/SQS와 app-main scheduled scan" "$IEUM_DOCS_DIR/api/API-SPEC.md"  # 결과 없어야 함
+grep -n "RabbitMQ" "$IEUM_DOCS_DIR/api/API-SPEC.md"                             # 새 절 존재
 ```
 
 **커밋**
