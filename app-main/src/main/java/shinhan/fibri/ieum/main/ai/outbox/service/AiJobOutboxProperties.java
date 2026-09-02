@@ -36,6 +36,17 @@ public record AiJobOutboxProperties(
 		if (confirmTimeout == null || confirmTimeout.isZero() || confirmTimeout.isNegative()) {
 			throw new IllegalArgumentException("confirmTimeout must be positive");
 		}
+		if (confirmTimeout.multipliedBy(batchSize).compareTo(lease) > 0) {
+			// 클레임한 배치의 마지막 row는 앞선 (batchSize-1)개가 전부 confirmTimeout 을 다 채우는
+			// 최악의 경우 그만큼 늦게 처리된다. 그 총 시간이 lease 를 넘으면 처리 도중 lease 가 만료돼
+			// (1) 뒤늦은 confirm 이 펜싱에 막혀 버려지고 (2) lease 복구가 같은 row 를 재발행 대상으로
+			// 되돌려 중복 발행을 일으킨다.
+			throw new IllegalArgumentException(
+				"confirmTimeout (%s) x batchSize (%d) = %s must not exceed lease (%s)".formatted(
+					confirmTimeout, batchSize, confirmTimeout.multipliedBy(batchSize), lease
+				)
+			);
+		}
 		if (retentionDays < 1) {
 			throw new IllegalArgumentException("retentionDays must be at least 1");
 		}

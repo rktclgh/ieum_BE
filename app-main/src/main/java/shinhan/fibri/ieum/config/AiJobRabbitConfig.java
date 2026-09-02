@@ -237,7 +237,7 @@ public class AiJobRabbitConfig {
 	@Bean
 	AiJobOutboxProperties aiJobOutboxProperties(
 		@Value("${app.ai.outbox.worker-id:${HOSTNAME:local}-${random.uuid}}") String workerId,
-		@Value("${app.ai.outbox.lease:60s}") Duration lease,
+		@Value("${app.ai.outbox.lease:300s}") Duration lease,
 		@Value("${app.ai.outbox.max-attempts:8}") int maxAttempts,
 		@Value("${app.ai.outbox.batch-size:32}") int batchSize,
 		@Value("${app.ai.outbox.confirm-timeout:5s}") Duration confirmTimeout,
