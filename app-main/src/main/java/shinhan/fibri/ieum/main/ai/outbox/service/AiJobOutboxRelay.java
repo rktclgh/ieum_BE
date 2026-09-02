@@ -114,7 +114,19 @@ public class AiJobOutboxRelay {
 			properties.workerId(), leaseToken, claimed.size()
 		);
 		for (ClaimedAiJob job : claimed) {
-			publishAndSettle(job, leaseToken);
+			try {
+				publishAndSettle(job, leaseToken);
+			}
+			catch (RuntimeException failure) {
+				// job 하나의 예상 못한 실패(예: 정산 UPDATE 의 DataAccessException)가 나머지
+				// 클레임된 job 을 건드리지 못하게 격리한다(PR #255 finding 4). 격리하지 않으면
+				// 이 job 이후의 row 들이 lease 만 잡힌 채 publishing 으로 남아 lease 복구가
+				// 회수할 때까지 방치된다. payload·에러 원문은 로그에 남기지 않는다.
+				log.error(
+					"event=ai_job_outbox_settle_failure workerId={} outboxId={} jobId={} failureType={}",
+					properties.workerId(), job.outboxId(), job.jobId(), failure.getClass().getSimpleName()
+				);
+			}
 		}
 		return claimed.size();
 	}

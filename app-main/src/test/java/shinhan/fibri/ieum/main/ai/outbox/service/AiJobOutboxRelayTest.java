@@ -1,7 +1,6 @@
 package shinhan.fibri.ieum.main.ai.outbox.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -119,14 +118,15 @@ class AiJobOutboxRelayTest {
 		// PR #255 리뷰 finding 3: confirm 은 이미 ack 를 받았다 — markPublished 가 DB 예외로
 		// 실패하더라도 그건 "발행 실패"가 아니다. markPublished 를 브로커 왕복과 같은 try 안에
 		// 두면 그 예외가 RuntimeException 핸들러에 잡혀 publish_failed 로 오정산되고,
-		// 이미 브로커에 전달된 job 이 재시도되어 중복 발행된다.
+		// 이미 브로커에 전달된 job 이 재시도되어 중복 발행된다. (예외 자체의 격리는 finding 4가
+		// publishBatch 루프에서 담당한다 — 여기서는 "정산 분기가 틀리지 않는다"만 검증한다.)
 		ClaimedAiJob job = claimedJob(1);
 		stubClaim(job);
 		answerSend((message, correlation) -> correlation.getFuture().complete(new CorrelationData.Confirm(true, null)));
 		when(repository.markPublished(eq(11L), any(UUID.class)))
 			.thenThrow(new DataIntegrityViolationException("simulated DB failure"));
 
-		assertThatThrownBy(relay::publishBatch).isInstanceOf(DataIntegrityViolationException.class);
+		assertThat(relay.publishBatch()).isEqualTo(1);
 
 		verify(repository, never()).markRetry(anyLong(), any(UUID.class), anyLong(), anyString(), anyString());
 		verify(repository, never()).markDead(anyLong(), any(UUID.class), anyString(), anyString());
@@ -257,6 +257,38 @@ class AiJobOutboxRelayTest {
 		ordered.verify(rabbitTemplate)
 			.send(anyString(), anyString(), any(Message.class), any(CorrelationData.class));
 		ordered.verify(repository).markPublished(eq(11L), any(UUID.class));
+	}
+
+	@Test
+	void oneJobsSettlementFailureDoesNotStopTheRestOfTheBatch() {
+		// PR #255 리뷰 finding 4: publishAndSettle 이 예상 못한 RuntimeException 을 던지면
+		// (예: markPublished 의 DataAccessException) publishBatch 의 for 루프가 거기서 멈춰
+		// 나머지 클레임된 job 들이 lease 만 잡힌 채 publishing 상태로 남는다 — lease 복구가
+		// 회수할 때까지 방치된다. 루프는 job 단위로 격리돼야 한다.
+		UUID firstJobId = UUID.randomUUID();
+		UUID secondJobId = UUID.randomUUID();
+		ClaimedAiJob first = new ClaimedAiJob(
+			11L, firstJobId, "question_answer_dispatch", 42L,
+			AiJobTopology.ROUTING_KEY_QUESTION_ANSWER_DISPATCH, AiJobTopology.SCHEMA_VERSION,
+			PAYLOAD.formatted(firstJobId), 1
+		);
+		ClaimedAiJob second = new ClaimedAiJob(
+			12L, secondJobId, "question_answer_dispatch", 43L,
+			AiJobTopology.ROUTING_KEY_QUESTION_ANSWER_DISPATCH, AiJobTopology.SCHEMA_VERSION,
+			PAYLOAD.formatted(secondJobId), 1
+		);
+		when(repository.claim(anyString(), any(UUID.class), anyLong(), anyInt(), anyInt()))
+			.thenReturn(List.of(first, second));
+		answerSend((message, correlation) -> correlation.getFuture().complete(new CorrelationData.Confirm(true, null)));
+		when(repository.markPublished(eq(11L), any(UUID.class)))
+			.thenThrow(new DataIntegrityViolationException("simulated DB failure"));
+		when(repository.markPublished(eq(12L), any(UUID.class))).thenReturn(1);
+
+		int claimedCount = relay.publishBatch();
+
+		assertThat(claimedCount).isEqualTo(2);
+		verify(repository).markPublished(eq(11L), any(UUID.class));
+		verify(repository).markPublished(eq(12L), any(UUID.class));
 	}
 
 	@Test
