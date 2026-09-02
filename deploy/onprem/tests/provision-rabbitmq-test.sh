@@ -49,6 +49,35 @@ assert_not_contains "$BROKER_COMPOSE" '^[[:space:]]*-[[:space:]]*"[^"]*:5672"'
 assert_contains "$BROKER_COMPOSE" 'external: true'
 assert_contains "$BROKER_COMPOSE" 'ieum-rabbitmq-data'
 
+# Every port mapping under `ports:` must be loopback-only and none may
+# publish 5672 (regression guard, independent of the two greps above).
+port_lines=$(awk '
+  /^[[:space:]]*ports:/ { capture=1; next }
+  capture && /^[[:space:]]*-[[:space:]]*"/ { print; next }
+  capture && /^[[:space:]]*[A-Za-z_]+:/ { exit }
+' "$BROKER_COMPOSE")
+[[ -n "$port_lines" ]] || fail "no port mappings found in $BROKER_COMPOSE"
+while IFS= read -r port_line; do
+  [[ "$port_line" =~ \"127\.0\.0\.1: ]] || fail "port mapping is not bound to 127.0.0.1: $port_line"
+  [[ "$port_line" != *:5672* ]] || fail "port mapping publishes 5672 to the host: $port_line"
+done <<<"$port_lines"
+
+# Healthcheck regression guard: exec-form CMD has no shell, so a quoted
+# operator token like "&&" is passed straight through as a positional
+# argument instead of being interpreted — the previous bug in this file.
+# CMD-SHELL is required whenever the test string uses a shell operator.
+healthcheck_test_text=$(awk '
+  /test:/ { capture=1 }
+  capture { print }
+  /interval:/ { exit }
+' "$BROKER_COMPOSE")
+[[ -n "$healthcheck_test_text" ]] || fail "no healthcheck test found in $BROKER_COMPOSE"
+if ! printf '%s' "$healthcheck_test_text" | grep -Fq 'CMD-SHELL'; then
+  if printf '%s' "$healthcheck_test_text" | grep -Eq '"(&&|\|\||;|\|)"'; then
+    fail "healthcheck uses exec-form CMD with a shell operator token (needs CMD-SHELL): $healthcheck_test_text"
+  fi
+fi
+
 # --- Behavioral checks via fake docker/openssl binaries ---
 
 ETC_DIR="$TMP_DIR/etc-ieum"
