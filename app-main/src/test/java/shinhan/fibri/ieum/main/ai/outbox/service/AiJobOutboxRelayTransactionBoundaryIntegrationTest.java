@@ -69,7 +69,9 @@ class AiJobOutboxRelayTransactionBoundaryIntegrationTest {
 
 		@Bean
 		AiJobOutboxProperties aiJobOutboxProperties() {
-			return new AiJobOutboxProperties("worker-tx", Duration.ofSeconds(60), 8, 32, Duration.ofSeconds(5), 7, 100);
+			// lease 는 confirmTimeout x batchSize 이상이어야 한다(PR #255 finding 1) —
+			// 프로덕션 기본값(lease=300s, batch-size=32, confirm-timeout=5s)과 같은 조합을 쓴다.
+			return new AiJobOutboxProperties("worker-tx", Duration.ofSeconds(300), 8, 32, Duration.ofSeconds(5), 7, 100);
 		}
 	}
 
