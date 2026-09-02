@@ -103,7 +103,8 @@ public class AiJobOutboxRelay {
 	public int publishBatch() {
 		UUID leaseToken = UUID.randomUUID();
 		List<ClaimedAiJob> claimed = repository.claim(
-			properties.workerId(), leaseToken, properties.lease().toSeconds(), properties.batchSize()
+			properties.workerId(), leaseToken, properties.lease().toSeconds(), properties.batchSize(),
+			properties.maxAttempts()
 		);
 		if (claimed.isEmpty()) {
 			return 0;
@@ -113,7 +114,19 @@ public class AiJobOutboxRelay {
 			properties.workerId(), leaseToken, claimed.size()
 		);
 		for (ClaimedAiJob job : claimed) {
-			publishAndSettle(job, leaseToken);
+			try {
+				publishAndSettle(job, leaseToken);
+			}
+			catch (RuntimeException failure) {
+				// job 하나의 예상 못한 실패(예: 정산 UPDATE 의 DataAccessException)가 나머지
+				// 클레임된 job 을 건드리지 못하게 격리한다(PR #255 finding 4). 격리하지 않으면
+				// 이 job 이후의 row 들이 lease 만 잡힌 채 publishing 으로 남아 lease 복구가
+				// 회수할 때까지 방치된다. payload·에러 원문은 로그에 남기지 않는다.
+				log.error(
+					"event=ai_job_outbox_settle_failure workerId={} outboxId={} jobId={} failureType={}",
+					properties.workerId(), job.outboxId(), job.jobId(), failure.getClass().getSimpleName()
+				);
+			}
 		}
 		return claimed.size();
 	}
@@ -124,7 +137,7 @@ public class AiJobOutboxRelay {
 	)
 	public void recoverExpiredLeases() {
 		try {
-			int recovered = repository.recoverExpiredLeases();
+			int recovered = repository.recoverExpiredLeases(properties.maxAttempts());
 			if (recovered > 0) {
 				log.warn(
 					"event=ai_job_outbox_expired_lease_recovered workerId={} recoveredCount={}",
@@ -187,6 +200,21 @@ public class AiJobOutboxRelay {
 		}
 
 		long startedAt = System.nanoTime();
+		String failureCode = publishAndAwaitConfirm(job, exchange);
+		// 정산은 브로커 왕복 try 밖에서 한다(PR #255 finding 3). markPublished/markRetry/markDead 가
+		// DataAccessException 을 던지면, 그게 이 메서드를 호출한 publishBatch 로 그대로 전파돼야
+		// confirm 결과와 무관한 DB 오류를 "발행 실패"로 오정산해 이미 성공한 발행을 재시도(중복 발행)
+		// 시키는 사고를 막는다.
+		if (failureCode == null) {
+			markPublished(job, leaseToken, startedAt);
+		}
+		else {
+			settleFailure(job, leaseToken, failureCode, startedAt);
+		}
+	}
+
+	/** 브로커 왕복 + confirm 대기만 담당한다. 실패 원인 코드를 돌려줄 뿐 정산은 하지 않는다. */
+	private String publishAndAwaitConfirm(ClaimedAiJob job, String exchange) {
 		try {
 			CorrelationData correlation = new CorrelationData(job.jobId().toString());
 			rabbitTemplate.send(exchange, job.routingKey(), toMessage(job), correlation);
@@ -196,25 +224,23 @@ public class AiJobOutboxRelay {
 			ReturnedMessage returned = correlation.getReturned();
 			if (returned != null) {
 				// mandatory 반송. 큐가 아직 선언되지 않았거나 바인딩이 없다 — 브로커는 ACK 를 준다.
-				settleFailure(job, leaseToken, "returned", startedAt);
-				return;
+				return "returned";
 			}
 			if (confirm == null || !confirm.ack()) {
-				settleFailure(job, leaseToken, "nack", startedAt);
-				return;
+				return "nack";
 			}
-			markPublished(job, leaseToken, startedAt);
+			return null;
 		}
 		catch (TimeoutException timeout) {
 			// 발행 자체는 브로커에 닿았을 수 있다 → 재시도 시 중복 발행 가능. 소비 측 멱등성이 흡수한다.
-			settleFailure(job, leaseToken, "confirm_timeout", startedAt);
+			return "confirm_timeout";
 		}
 		catch (InterruptedException interrupted) {
 			Thread.currentThread().interrupt();
-			settleFailure(job, leaseToken, "interrupted", startedAt);
+			return "interrupted";
 		}
 		catch (ExecutionException | RuntimeException failure) {
-			settleFailure(job, leaseToken, "publish_failed", startedAt);
+			return "publish_failed";
 		}
 	}
 
