@@ -336,5 +336,68 @@ assert_success run_provision
 
 BROKER_ENV_FILE="$original_broker_env_file"
 
+# --- Finding 7: a broker op that fails AFTER add_user for the second
+# account must not lose the first account's already-generated password.
+# The old code batched every credential write into one call at the very
+# end of main() — if set_permissions for ieum_ai (the second account
+# ensure_user'd) died the whole script (set -Eeuo pipefail), that batched
+# writer never ran and ieum_main's freshly generated password — already
+# live on the broker via add_user — was recorded nowhere. A retry then
+# sees ieum_main via list_users and skips add_user/change_password for it
+# forever (finding C2's own fix), permanently losing that credential.
+# Persisting immediately after each add_user call fixes this. ---
+rm -f "$generated"
+cat >"$BIN_DIR/docker" <<'EOF'
+#!/usr/bin/env bash
+set -u
+printf '%s\n' "$*" >>"${FAKE_DOCKER_LOG:?}"
+case "${1-}" in
+  compose)
+    shift
+    sub=''
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --project-name|--file|--env-file) shift 2 ;;
+        up) sub=up; shift ;;
+        -d) shift ;;
+        ps) sub=ps; shift ;;
+        -q) shift ;;
+        rabbitmq) shift ;;
+        *) shift ;;
+      esac
+    done
+    if [[ "$sub" == ps ]]; then printf 'fake-rabbitmq-cid\n'; fi
+    exit 0
+    ;;
+  inspect)
+    printf 'healthy\n'
+    exit 0
+    ;;
+  exec)
+    if [[ "${*}" == *'list_users'* ]]; then
+      # Fresh broker: neither account exists yet.
+      exit 0
+    fi
+    if [[ "${*}" == *'set_permissions'* && "${*}" == *' ieum_ai '* ]]; then
+      # The failure point: ieum_ai's add_user has already succeeded (and
+      # its password already persisted) by the time this runs.
+      exit 1
+    fi
+    exit 0
+    ;;
+  *) exit 0 ;;
+esac
+EOF
+chmod 700 "$BIN_DIR/docker"
+: >"$DOCKER_LOG"
+assert_failure run_provision
+grep -Fq 'add_user ieum_main' "$DOCKER_LOG" || fail "ieum_main add_user was not attempted before the failure"
+grep -Fq 'add_user ieum_ai' "$DOCKER_LOG" || fail "ieum_ai add_user was not attempted before the failure"
+[[ -f "$generated" ]] || fail "ieum_main's credential was lost when a later broker op failed (finding 7)"
+grep -Fq 'IEUM_MAIN_RABBITMQ_PASSWORD=deadbeefcafefixturehexpassword00' "$generated" \
+  || fail "ieum_main password missing from generated credentials after a later failure (finding 7)"
+[[ "$(stat -c '%a' "$generated" 2>/dev/null || stat -f '%Lp' "$generated")" == 600 ]] \
+  || fail "credentials file written mid-failure is not mode 0600"
+
 printf 'passed=%d failed=%d\n' "$pass" "$fail_count"
 test "$fail_count" -eq 0
