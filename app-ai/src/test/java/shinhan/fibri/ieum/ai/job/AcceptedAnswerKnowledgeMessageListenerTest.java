@@ -45,16 +45,32 @@ class AcceptedAnswerKnowledgeMessageListenerTest {
 		verifyNoInteractions(deadLetterPublisher);
 	}
 
-	@ParameterizedTest
-	@EnumSource(value = AcceptedAnswerKnowledgeTaskSubmission.class, names = {"SATURATED", "DISABLED"})
-	void saturatedOrDisabledIsNackedWithoutRequeue(AcceptedAnswerKnowledgeTaskSubmission submission) throws Exception {
-		when(lane.submit(99L)).thenReturn(submission);
+	@Test
+	void saturatedSubmissionDelegatesToTheDeadLetterPublisherForRetryOrDeadLetterDecision() throws Exception {
+		when(lane.submit(99L)).thenReturn(AcceptedAnswerKnowledgeTaskSubmission.SATURATED);
+		Message message = validMessage(99L);
 
-		listener.onMessage(validMessage(99L), channel, 3L);
+		listener.onMessage(message, channel, 3L);
 
-		verify(channel).basicNack(3L, false, false);
+		verify(deadLetterPublisher).retryOrDeadLetter(
+			channel, 3L, message, AiJobMessageSettlement.REASON_DISPATCH_SATURATED
+		);
 		verify(channel, never()).basicAck(anyLong(), anyBoolean());
-		verifyNoInteractions(deadLetterPublisher);
+		verify(channel, never()).basicNack(anyLong(), anyBoolean(), anyBoolean());
+	}
+
+	@Test
+	void disabledSubmissionDelegatesToTheDeadLetterPublisherForRetryOrDeadLetterDecision() throws Exception {
+		when(lane.submit(99L)).thenReturn(AcceptedAnswerKnowledgeTaskSubmission.DISABLED);
+		Message message = validMessage(99L);
+
+		listener.onMessage(message, channel, 3L);
+
+		verify(deadLetterPublisher).retryOrDeadLetter(
+			channel, 3L, message, AiJobMessageSettlement.REASON_DISPATCH_DISABLED
+		);
+		verify(channel, never()).basicAck(anyLong(), anyBoolean());
+		verify(channel, never()).basicNack(anyLong(), anyBoolean(), anyBoolean());
 	}
 
 	@Test

@@ -47,16 +47,32 @@ class QuestionAnswerJobMessageListenerTest {
 		verifyNoInteractions(deadLetterPublisher);
 	}
 
-	@ParameterizedTest
-	@EnumSource(value = QuestionAnswerJobDispatchResult.class, names = {"SATURATED", "DISABLED"})
-	void saturatedOrDisabledResultsAreNackedWithoutRequeue(QuestionAnswerJobDispatchResult result) throws Exception {
-		when(dispatchService.dispatch(42L)).thenReturn(result);
+	@Test
+	void saturatedResultDelegatesToTheDeadLetterPublisherForRetryOrDeadLetterDecision() throws Exception {
+		when(dispatchService.dispatch(42L)).thenReturn(QuestionAnswerJobDispatchResult.SATURATED);
+		Message message = validMessage(42L);
 
-		listener.onMessage(validMessage(42L), channel, 7L);
+		listener.onMessage(message, channel, 7L);
 
-		verify(channel).basicNack(7L, false, false);
+		verify(deadLetterPublisher).retryOrDeadLetter(
+			channel, 7L, message, AiJobMessageSettlement.REASON_DISPATCH_SATURATED
+		);
 		verify(channel, never()).basicAck(anyLong(), anyBoolean());
-		verifyNoInteractions(deadLetterPublisher);
+		verify(channel, never()).basicNack(anyLong(), anyBoolean(), anyBoolean());
+	}
+
+	@Test
+	void disabledResultDelegatesToTheDeadLetterPublisherForRetryOrDeadLetterDecision() throws Exception {
+		when(dispatchService.dispatch(42L)).thenReturn(QuestionAnswerJobDispatchResult.DISABLED);
+		Message message = validMessage(42L);
+
+		listener.onMessage(message, channel, 7L);
+
+		verify(deadLetterPublisher).retryOrDeadLetter(
+			channel, 7L, message, AiJobMessageSettlement.REASON_DISPATCH_DISABLED
+		);
+		verify(channel, never()).basicAck(anyLong(), anyBoolean());
+		verify(channel, never()).basicNack(anyLong(), anyBoolean(), anyBoolean());
 	}
 
 	@Test
