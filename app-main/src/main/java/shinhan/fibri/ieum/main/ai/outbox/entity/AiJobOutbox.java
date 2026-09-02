@@ -87,7 +87,7 @@ public class AiJobOutbox {
 	protected AiJobOutbox() {
 	}
 
-	private AiJobOutbox(UUID jobId, String jobType, Long jobKey, String routingKey, String payload) {
+	private AiJobOutbox(UUID jobId, String jobType, Long jobKey, String routingKey, int schemaVersion, String payload) {
 		this.jobId = Objects.requireNonNull(jobId, "jobId must not be null");
 		this.jobType = Objects.requireNonNull(jobType, "jobType must not be null");
 		this.jobKey = Objects.requireNonNull(jobKey, "jobKey must not be null");
@@ -95,8 +95,11 @@ public class AiJobOutbox {
 			throw new IllegalArgumentException("jobKey must be positive: " + jobKey);
 		}
 		this.routingKey = Objects.requireNonNull(routingKey, "routingKey must not be null");
+		if (schemaVersion < 1) {
+			throw new IllegalArgumentException("schemaVersion must be >= 1: " + schemaVersion);
+		}
 		this.payload = Objects.requireNonNull(payload, "payload must not be null");
-		this.schemaVersion = 1;
+		this.schemaVersion = (short) schemaVersion;
 		this.status = "pending";
 		this.attempts = 0;
 		OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
@@ -105,9 +108,22 @@ public class AiJobOutbox {
 		this.updatedAt = now;
 	}
 
-	/** pending 상태의 outbox row를 만든다. 도메인 트랜잭션 안에서 호출된다(spec.md §8.1). */
-	public static AiJobOutbox pending(UUID jobId, String jobType, Long jobKey, String routingKey, String payload) {
-		return new AiJobOutbox(jobId, jobType, jobKey, routingKey, payload);
+	/**
+	 * pending 상태의 outbox row를 만든다. 도메인 트랜잭션 안에서 호출된다(spec.md §8.1).
+	 *
+	 * <p>{@code schemaVersion}은 호출자가 넘긴다 — 이 컬럼과 payload JSON 안의 {@code schemaVersion}
+	 * 필드는 반드시 같은 값이어야 한다(같은 상수, {@code AiJobTopology.SCHEMA_VERSION}에서 나와야 한다).
+	 * 이 엔티티가 자체적으로 하드코딩하면 상수를 올렸을 때 컬럼과 payload가 어긋난다.
+	 */
+	public static AiJobOutbox pending(
+		UUID jobId,
+		String jobType,
+		Long jobKey,
+		String routingKey,
+		int schemaVersion,
+		String payload
+	) {
+		return new AiJobOutbox(jobId, jobType, jobKey, routingKey, schemaVersion, payload);
 	}
 
 	public Long getId() {

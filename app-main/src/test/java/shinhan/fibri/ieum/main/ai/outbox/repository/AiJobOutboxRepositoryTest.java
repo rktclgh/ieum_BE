@@ -21,6 +21,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import shinhan.fibri.ieum.common.ai.job.AiJobTopology;
 import shinhan.fibri.ieum.main.ai.outbox.entity.AiJobOutbox;
 import shinhan.fibri.ieum.testsupport.CanonicalPostgresContainer;
 import shinhan.fibri.ieum.testsupport.CanonicalPostgresDataSource;
@@ -74,7 +75,8 @@ class AiJobOutboxRepositoryTest {
 			""".formatted(jobId).strip();
 
 		AiJobOutbox saved = repository.saveAndFlush(AiJobOutbox.pending(
-			jobId, "question_answer_dispatch", 42L, "ai.question-answer.dispatch", payloadJson
+			jobId, "question_answer_dispatch", 42L, "ai.question-answer.dispatch",
+			AiJobTopology.SCHEMA_VERSION, payloadJson
 		));
 		entityManager.clear();
 
@@ -83,7 +85,11 @@ class AiJobOutboxRepositoryTest {
 		assertThat(reloaded.getJobType()).isEqualTo("question_answer_dispatch");
 		assertThat(reloaded.getJobKey()).isEqualTo(42L);
 		assertThat(reloaded.getRoutingKey()).isEqualTo("ai.question-answer.dispatch");
-		assertThat(reloaded.getSchemaVersion()).isEqualTo((short) 1);
+		// 컬럼의 schema_version이 토폴로지 상수와, 그리고 payload 안의 schemaVersion 필드와도 같아야 한다 —
+		// 상수를 올렸는데 엔티티가 값을 자체 하드코딩하면 컬럼과 payload가 어긋나는 사고를 여기서 잡는다.
+		assertThat(reloaded.getSchemaVersion()).isEqualTo((short) AiJobTopology.SCHEMA_VERSION);
+		assertThat(reloaded.getSchemaVersion())
+			.isEqualTo((short) objectMapper.readTree(reloaded.getPayload()).get("schemaVersion").asInt());
 		assertThat(reloaded.getStatus()).isEqualTo("pending");
 		assertThat(reloaded.getAttempts()).isEqualTo((short) 0);
 		assertThat(reloaded.getNextAttemptAt()).isNotNull();
@@ -102,7 +108,7 @@ class AiJobOutboxRepositoryTest {
 		UUID jobId = UUID.randomUUID();
 		AiJobOutbox saved = repository.saveAndFlush(AiJobOutbox.pending(
 			jobId, "accepted_answer_knowledge_ingest", 7L, "ai.accepted-answer.ingest",
-			"{\"answerId\":7,\"jobId\":\"%s\"}".formatted(jobId)
+			AiJobTopology.SCHEMA_VERSION, "{\"answerId\":7,\"jobId\":\"%s\"}".formatted(jobId)
 		));
 
 		String questionIdFromJsonb = jdbc.queryForObject(
@@ -124,11 +130,13 @@ class AiJobOutboxRepositoryTest {
 	void duplicateJobIdViolatesUniqueConstraint() {
 		UUID jobId = UUID.randomUUID();
 		repository.saveAndFlush(AiJobOutbox.pending(
-			jobId, "question_answer_dispatch", 1L, "ai.question-answer.dispatch", "{\"questionId\":1}"
+			jobId, "question_answer_dispatch", 1L, "ai.question-answer.dispatch",
+			AiJobTopology.SCHEMA_VERSION, "{\"questionId\":1}"
 		));
 
 		assertThatThrownBy(() -> repository.saveAndFlush(AiJobOutbox.pending(
-			jobId, "question_answer_dispatch", 2L, "ai.question-answer.dispatch", "{\"questionId\":2}"
+			jobId, "question_answer_dispatch", 2L, "ai.question-answer.dispatch",
+			AiJobTopology.SCHEMA_VERSION, "{\"questionId\":2}"
 		))).isInstanceOf(DataIntegrityViolationException.class);
 	}
 }

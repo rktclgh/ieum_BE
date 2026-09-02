@@ -68,7 +68,7 @@ class AiJobOutboxSchemaValidateTest {
 	void persistsAndReadsBackThroughTheValidatedMapping() {
 		UUID jobId = UUID.randomUUID();
 		AiJobOutbox saved = repository.saveAndFlush(AiJobOutbox.pending(
-			jobId, "question_answer_dispatch", 1L, "ai.question-answer.dispatch", "{\"questionId\":1}"
+			jobId, "question_answer_dispatch", 1L, "ai.question-answer.dispatch", 1, "{\"questionId\":1}"
 		));
 
 		assertThat(repository.findById(saved.getId()).orElseThrow().getJobId()).isEqualTo(jobId);

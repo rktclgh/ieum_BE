@@ -60,6 +60,7 @@ public class AiJobOutboxWriter {
 			AiJobType.QUESTION_ANSWER_DISPATCH.value(),
 			questionId,
 			AiJobTopology.ROUTING_KEY_QUESTION_ANSWER_DISPATCH,
+			AiJobTopology.SCHEMA_VERSION,
 			writeJson(message)
 		));
 	}
@@ -84,6 +85,7 @@ public class AiJobOutboxWriter {
 			AiJobType.ACCEPTED_ANSWER_KNOWLEDGE_INGEST.value(),
 			answerId,
 			AiJobTopology.ROUTING_KEY_ACCEPTED_ANSWER_INGEST,
+			AiJobTopology.SCHEMA_VERSION,
 			writeJson(message)
 		));
 	}
