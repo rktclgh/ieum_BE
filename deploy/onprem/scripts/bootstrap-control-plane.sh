@@ -152,14 +152,13 @@ require_rabbitmq() {
       alias_count=$((alias_count + 1))
     fi
   done <<<"$records"
-  [[ "$alias_count" -eq 1 ]] || die 'ieum network must expose exactly one container with the rabbitmq DNS alias'
+  [[ "$alias_count" -eq 1 ]] || die 'ieum network must expose exactly one container with the rabbitmq DNS alias — run ieum-provision-rabbitmq first'
   rabbitmq_running=$("$DOCKER_BIN" inspect --format '{{.State.Running}}' "$rabbitmq_container" 2>/dev/null) || \
     die 'unable to inspect the RabbitMQ container state'
-  [[ "$rabbitmq_running" == true ]] || die 'RabbitMQ container is not running'
+  [[ "$rabbitmq_running" == true ]] || die 'RabbitMQ container is not running — run ieum-provision-rabbitmq first'
   "$DOCKER_BIN" exec "$rabbitmq_container" rabbitmq-diagnostics -q check_running \
-    >/dev/null 2>&1 || die 'RabbitMQ is not reachable through the rabbitmq Docker DNS alias'
+    >/dev/null 2>&1 || die 'RabbitMQ is not reachable through the rabbitmq Docker DNS alias — run ieum-provision-rabbitmq first'
 }
-require_rabbitmq
 
 safe_dir() {
   local path=$1
@@ -260,6 +259,13 @@ for item in "${DISPATCH_HELPERS[@]}"; do
   [[ -f "$target_path" && ! -L "$target_path" ]] || die "helper installation failed: $target_path"
   [[ "$(owner_of "$target_path")" == "$EXPECTED_OWNER" ]] || die "helper destination has unexpected owner: $target_path"
 done
+
+# Checked only after the helpers above are installed (finding I3): the
+# RabbitMQ preflight used to run before ieum-provision-rabbitmq existed on
+# disk, so a fresh host with no broker yet could never get past this script
+# to install the very tool that provisions one. An operator hitting this
+# failure now has ieum-provision-rabbitmq already in place to run.
+require_rabbitmq
 
 if [[ "$install_runner_user" == true ]]; then
   runner_user='ieum-runner'

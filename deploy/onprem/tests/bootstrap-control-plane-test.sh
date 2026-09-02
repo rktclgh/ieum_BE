@@ -276,6 +276,22 @@ FAKE_DOCKER_RABBITMQ=unreachable
 assert_failure run_bootstrap
 unset FAKE_DOCKER_RABBITMQ
 
+# Ordering (finding I3): helpers must install *before* the RabbitMQ preflight
+# runs, so an operator hitting this failure can immediately run the
+# freshly-installed ieum-provision-rabbitmq helper to stand the broker up —
+# without that ordering, the preflight blocks the very step that installs
+# the tool that fixes the preflight.
+rm -f "$INSTALL_ROOT/ieum-provision-rabbitmq"
+FAKE_DOCKER_RABBITMQ=missing
+assert_failure run_bootstrap
+[[ -f "$INSTALL_ROOT/ieum-provision-rabbitmq" && ! -L "$INSTALL_ROOT/ieum-provision-rabbitmq" ]] || {
+  printf 'FAIL helpers were not installed before the rabbitmq preflight ran\n' >&2; fail=$((fail + 1));
+}
+grep -Fq 'ieum-provision-rabbitmq' "$TMP_DIR/stderr" || {
+  printf 'FAIL rabbitmq preflight failure message did not point at ieum-provision-rabbitmq\n' >&2; fail=$((fail + 1));
+}
+unset FAKE_DOCKER_RABBITMQ
+
 : >"$TMP_DIR/docker.log"
 assert_success run_bootstrap
 grep -Fq 'exec /rabbitmq-container rabbitmq-diagnostics -q check_running' "$TMP_DIR/docker.log" || {
