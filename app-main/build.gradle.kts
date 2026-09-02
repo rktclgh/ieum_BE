@@ -32,6 +32,8 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-websocket")
 	implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.2")
 	implementation("com.interaso:webpush:1.3.0")
+	// RabbitMQ AI job dispatch (spec.md §4.1) — 토폴로지 선언 + outbox relay publisher
+	implementation("org.springframework.boot:spring-boot-starter-amqp")
 
 	compileOnly("org.projectlombok:lombok")
 	developmentOnly("org.springframework.boot:spring-boot-devtools")
@@ -42,6 +44,8 @@ dependencies {
 	testImplementation(testFixtures(project(":common")))
 	testImplementation("org.testcontainers:testcontainers-junit-jupiter:2.0.5")
 	testImplementation("org.testcontainers:testcontainers-postgresql:2.0.5")
+	testImplementation("org.testcontainers:testcontainers-rabbitmq:2.0.5")
+	testImplementation("org.springframework.boot:spring-boot-starter-amqp-test")
 	testRuntimeOnly("com.h2database:h2")
 	testRuntimeOnly("org.postgresql:postgresql")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
@@ -52,3 +56,4 @@ dependencies {
 tasks.withType<Test> {
 	useJUnitPlatform()
 }
+
