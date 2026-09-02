@@ -5,7 +5,10 @@ import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.AllNestedConditions;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Conditional;
+import org.springframework.context.annotation.ConfigurationCondition.ConfigurationPhase;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -21,9 +24,17 @@ import org.springframework.stereotype.Service;
  * 같은 row 를 계속 재발행한다 — 중복 메시지가 생길 수 있지만, app-main 의 알림 유니크 제약(§8.4)이
  * 흡수한다. 한 row 의 발행 실패(예외 또는 {@link CallbackHttpResult#FAILED})가 나머지 row 처리를
  * 막지 않는다 — {@code AiJobOutboxRelay.publishBatch}의 per-job 격리와 같은 이유다.
+ *
+ * <p><b>세 조건이 모두 참이어야 활성화된다</b>(리뷰 발견 사항 I2). {@code app.ai.completion-relay.enabled}
+ * 하나만 보면, {@code app.ai.features.question-answer-enabled}(기본값 {@code false})가 꺼져 있어
+ * {@link QuestionCompletionCallbackConfiguration} 자체가 비활성일 때 이 빈의 생성자 의존성인
+ * {@link QuestionCompletionCallbackClient} 빈이 아예 없어 컨텍스트 기동이 실패한다. 또한
+ * {@code app.ai.question-answer.callback.transport=http}일 때 relay 를 켜면 HTTP 콜백을 재발행하는
+ * "재폴러"가 돼 버려 이 클래스의 존재 이유(브로커 왕복 안전망)와 맞지 않는다. 그래서
+ * {@link RelayRequiredCondition}이 세 프로퍼티를 전부 확인한다.
  */
 @Service
-@ConditionalOnProperty(name = "app.ai.completion-relay.enabled", havingValue = "true")
+@Conditional(QuestionCompletionOutboxRelay.RelayRequiredCondition.class)
 public class QuestionCompletionOutboxRelay {
 
 	private static final Logger log = LoggerFactory.getLogger(QuestionCompletionOutboxRelay.class);
@@ -85,6 +96,32 @@ public class QuestionCompletionOutboxRelay {
 				"event=question_completion_relay_row_failure questionId={} answerId={} failureType={}",
 				pending.questionId(), pending.answerId(), failure.getClass().getSimpleName()
 			);
+		}
+	}
+
+	/**
+	 * {@code REGISTER_BEAN} 이어야 한다 — 이 조건은 {@code @Configuration}이 아니라 이 클래스(평범한
+	 * {@code @Service})에 직접 붙어 있으므로, 컴포넌트 스캔이 빈 정의를 등록하는 시점에 평가된다.
+	 * app-main의 {@code AiResultRabbitConfig.RabbitTopologyRequiredCondition}과 달리 여기서
+	 * {@code PARSE_CONFIGURATION}을 쓰면 안 된다 — 그건 {@code @Configuration} 클래스 자체에 붙은
+	 * 조건에만 해당하는 이야기다.
+	 */
+	static class RelayRequiredCondition extends AllNestedConditions {
+
+		RelayRequiredCondition() {
+			super(ConfigurationPhase.REGISTER_BEAN);
+		}
+
+		@ConditionalOnProperty(name = "app.ai.completion-relay.enabled", havingValue = "true")
+		static class RelayEnabled {
+		}
+
+		@ConditionalOnProperty(name = "app.ai.features.question-answer-enabled", havingValue = "true")
+		static class QuestionAnswerFeatureEnabled {
+		}
+
+		@ConditionalOnProperty(name = "app.ai.question-answer.callback.transport", havingValue = "rabbitmq")
+		static class CallbackTransportIsRabbitmq {
 		}
 	}
 }
