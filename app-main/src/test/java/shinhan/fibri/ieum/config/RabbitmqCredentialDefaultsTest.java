@@ -25,7 +25,7 @@ class RabbitmqCredentialDefaultsTest {
 
 	@Test
 	void defaultsToGuestWhenEnvironmentVariablesAreUnset() throws IOException {
-		StandardEnvironment environment = environmentWithout("RABBITMQ_USERNAME", "RABBITMQ_PASSWORD");
+		StandardEnvironment environment = environmentWithoutRabbitmqCredentials();
 
 		assertThat(environment.getProperty("spring.rabbitmq.username")).isEqualTo("guest");
 		assertThat(environment.getProperty("spring.rabbitmq.password")).isEqualTo("guest");
@@ -33,7 +33,7 @@ class RabbitmqCredentialDefaultsTest {
 
 	@Test
 	void honorsExplicitEnvironmentVariablesOverTheGuestDefault() throws IOException {
-		StandardEnvironment environment = environmentWithout("RABBITMQ_USERNAME", "RABBITMQ_PASSWORD");
+		StandardEnvironment environment = environmentWithoutRabbitmqCredentials();
 		environment.getPropertySources()
 			.addFirst(new MapPropertySource(
 				"explicit", Map.of("RABBITMQ_USERNAME", "ieum_main", "RABBITMQ_PASSWORD", "secret")
@@ -48,7 +48,7 @@ class RabbitmqCredentialDefaultsTest {
 	 * 테스트가 그 값을 우연히 주워 통과하지 않도록, 시스템 환경변수/프로퍼티 소스를 제거하고 순수
 	 * application.properties 소스만 남긴다.
 	 */
-	private StandardEnvironment environmentWithout(String... keys) throws IOException {
+	private StandardEnvironment environmentWithoutRabbitmqCredentials() throws IOException {
 		StandardEnvironment environment = new StandardEnvironment();
 		environment.getPropertySources().remove(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME);
 		environment.getPropertySources().remove(StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME);
