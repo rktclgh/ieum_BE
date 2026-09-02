@@ -84,18 +84,32 @@ class AiJobRabbitTopologyTest {
 					channel.exchangeDeclarePassive(exchange);
 				}
 			}
-			// 바인딩 확인: jobs exchange 로 mandatory 발행이 반송되지 않아야 한다.
-			assertThat(routable(AiJobTopology.EXCHANGE_JOBS, AiJobTopology.ROUTING_KEY_QUESTION_ANSWER_DISPATCH))
-				.isTrue();
-			assertThat(routable(AiJobTopology.EXCHANGE_JOBS, AiJobTopology.ROUTING_KEY_ACCEPTED_ANSWER_INGEST))
-				.isTrue();
-			assertThat(routable(AiJobTopology.EXCHANGE_RESULTS, AiJobTopology.ROUTING_KEY_QUESTION_ANSWER_COMPLETED))
-				.isTrue();
-			assertThat(routable(
-				AiJobTopology.EXCHANGE_RETRY, AiJobTopology.QUEUE_QUESTION_ANSWER_DISPATCH_RETRY
-			)).isTrue();
-			assertThat(routable(AiJobTopology.EXCHANGE_DLX, AiJobTopology.QUEUE_QUESTION_ANSWER_DISPATCH_DLQ))
-				.isTrue();
+			// routable() 이 실제로 남기는 "{}" 프로브를, 검증이 끝나면(실패해도) 반드시 치운다 —
+			// 이 클래스와 AiJobPublisherConfirmIntegrationTest 가 공유하는 static 브로커에 프로브가
+			// 남으면 다른 테스트의 receive()/getMessageCount() 가 그걸 집어 든다.
+			try {
+				// 바인딩 확인: jobs exchange 로 mandatory 발행이 반송되지 않아야 한다.
+				assertThat(routable(AiJobTopology.EXCHANGE_JOBS, AiJobTopology.ROUTING_KEY_QUESTION_ANSWER_DISPATCH))
+					.isTrue();
+				assertThat(routable(AiJobTopology.EXCHANGE_JOBS, AiJobTopology.ROUTING_KEY_ACCEPTED_ANSWER_INGEST))
+					.isTrue();
+				assertThat(routable(
+					AiJobTopology.EXCHANGE_RESULTS, AiJobTopology.ROUTING_KEY_QUESTION_ANSWER_COMPLETED
+				)).isTrue();
+				assertThat(routable(
+					AiJobTopology.EXCHANGE_RETRY, AiJobTopology.QUEUE_QUESTION_ANSWER_DISPATCH_RETRY
+				)).isTrue();
+				assertThat(routable(AiJobTopology.EXCHANGE_DLX, AiJobTopology.QUEUE_QUESTION_ANSWER_DISPATCH_DLQ))
+					.isTrue();
+			}
+			finally {
+				purgeProbeMessages(admin);
+			}
+			// 정리가 실제로 효과가 있었는지: 다른 테스트가 이 static 브로커를 이어받기 전에
+			// 프로브가 하나도 안 남아 있어야 한다.
+			for (String queue : ALL_QUEUES) {
+				assertThat(admin.getQueueInfo(queue).getMessageCount()).as("queue %s", queue).isZero();
+			}
 		});
 	}
 
@@ -187,6 +201,18 @@ class AiJobRabbitTopologyTest {
 		));
 		expected.put(AiJobTopology.QUEUE_QUESTION_ANSWER_COMPLETED_DLQ, Map.of());
 		return expected;
+	}
+
+	/**
+	 * {@code routable()} 프로브가 작업 큐에 남긴 뒤 retry TTL 만료로 dead-letter 돼 되돌아올 수도 있는
+	 * work/retry/DLQ 큐를 전부 비운다. work queue 로 라우팅된 프로브는 소비되지 않으면 그대로 남고,
+	 * retry queue 로 직접 발행된 프로브는 TTL 이 지나면 원래 work queue 로 dead-letter 된다 — 그래서
+	 * {@code ALL_QUEUES} 전체를 비워야 어느 경로로도 다른 테스트에 새지 않는다.
+	 */
+	private static void purgeProbeMessages(RabbitAdmin admin) {
+		for (String queue : ALL_QUEUES) {
+			admin.purgeQueue(queue, false);
+		}
 	}
 
 	/** mandatory 발행이 반송되지 않으면 해당 exchange/routing key 에 바인딩이 있다는 뜻이다. */
