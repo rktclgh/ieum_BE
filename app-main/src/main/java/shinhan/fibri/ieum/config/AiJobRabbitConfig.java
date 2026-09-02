@@ -15,6 +15,7 @@ import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.support.converter.JacksonJsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.amqp.autoconfigure.RabbitTemplateConfigurer;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -123,30 +124,34 @@ public class AiJobRabbitConfig {
 			AiJobTopology.ROUTING_KEY_ACCEPTED_ANSWER_INGEST);
 	}
 
-	/** {@code aiRetryExchange}는 {@link AiResultRabbitConfig}가 선언한다 — 빈 이름으로 주입받는다. */
+	/**
+	 * {@code aiRetryExchange}는 {@link AiResultRabbitConfig}가 선언한다 — 빈 이름으로 주입받는다.
+	 * {@code -parameters} 컴파일 플래그(파라미터 이름 기반 by-name 주입)에만 기대지 않도록
+	 * {@code @Qualifier}를 명시한다(CodeRabbit PR #257 finding 3) — 빌드 설정이 바뀌어도 안전하다.
+	 */
 	@Bean
-	Binding aiQuestionAnswerDispatchRetryBinding(DirectExchange aiRetryExchange) {
+	Binding aiQuestionAnswerDispatchRetryBinding(@Qualifier("aiRetryExchange") DirectExchange aiRetryExchange) {
 		return bind(aiQuestionAnswerDispatchRetryQueue(), aiRetryExchange,
 			AiJobTopology.QUEUE_QUESTION_ANSWER_DISPATCH_RETRY);
 	}
 
 	/** {@code aiRetryExchange}는 {@link AiResultRabbitConfig}가 선언한다 — 빈 이름으로 주입받는다. */
 	@Bean
-	Binding aiAcceptedAnswerIngestRetryBinding(DirectExchange aiRetryExchange) {
+	Binding aiAcceptedAnswerIngestRetryBinding(@Qualifier("aiRetryExchange") DirectExchange aiRetryExchange) {
 		return bind(aiAcceptedAnswerIngestRetryQueue(), aiRetryExchange,
 			AiJobTopology.QUEUE_ACCEPTED_ANSWER_INGEST_RETRY);
 	}
 
 	/** {@code aiDlxExchange}는 {@link AiResultRabbitConfig}가 선언한다 — 빈 이름으로 주입받는다. */
 	@Bean
-	Binding aiQuestionAnswerDispatchDlqBinding(DirectExchange aiDlxExchange) {
+	Binding aiQuestionAnswerDispatchDlqBinding(@Qualifier("aiDlxExchange") DirectExchange aiDlxExchange) {
 		return bind(aiQuestionAnswerDispatchDlq(), aiDlxExchange,
 			AiJobTopology.QUEUE_QUESTION_ANSWER_DISPATCH_DLQ);
 	}
 
 	/** {@code aiDlxExchange}는 {@link AiResultRabbitConfig}가 선언한다 — 빈 이름으로 주입받는다. */
 	@Bean
-	Binding aiAcceptedAnswerIngestDlqBinding(DirectExchange aiDlxExchange) {
+	Binding aiAcceptedAnswerIngestDlqBinding(@Qualifier("aiDlxExchange") DirectExchange aiDlxExchange) {
 		return bind(aiAcceptedAnswerIngestDlq(), aiDlxExchange,
 			AiJobTopology.QUEUE_ACCEPTED_ANSWER_INGEST_DLQ);
 	}
