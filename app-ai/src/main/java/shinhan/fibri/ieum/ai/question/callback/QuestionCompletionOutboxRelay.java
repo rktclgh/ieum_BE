@@ -7,9 +7,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.AllNestedConditions;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.ConfigurationCondition.ConfigurationPhase;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.stereotype.Service;
 
 /**
@@ -39,6 +42,16 @@ public class QuestionCompletionOutboxRelay {
 
 	private static final Logger log = LoggerFactory.getLogger(QuestionCompletionOutboxRelay.class);
 
+	/**
+	 * relay 전용 단일 스레드 스케줄러 빈 이름(CodeRabbit PR #257 finding 1). {@code deliver}가 최대
+	 * 5초까지 걸리는 콜백 호출을 배치당 최대 {@code batchSize}번 직렬로 반복하므로, app-ai 의 공유
+	 * 기본 {@code TaskScheduler}(Spring Boot 기본 풀 크기 1)를 그대로 쓰면 이 relay 배치 하나가
+	 * {@link shinhan.fibri.ieum.ai.knowledge.relations.KnowledgeRelationCandidateTaskRecovery} 등
+	 * 같은 풀을 쓰는 다른 모든 {@code @Scheduled} 작업을 몇 분씩 밀어낼 수 있다. relay 를 자기 전용
+	 * 스레드로 분리해 서로 영향을 주지 않게 한다.
+	 */
+	static final String RELAY_SCHEDULER_BEAN_NAME = "questionCompletionRelayScheduler";
+
 	private final QuestionCompletionCallbackRepository repository;
 	private final QuestionCompletionCallbackClient client;
 	private final int batchSize;
@@ -56,7 +69,22 @@ public class QuestionCompletionOutboxRelay {
 		this.batchSize = batchSize;
 	}
 
-	@Scheduled(fixedDelayString = "${app.ai.question-answer.callback.recovery-interval:60s}")
+	/**
+	 * {@code scheduler}에 전용 빈 이름을 명시해 app-ai 공유 기본 스케줄러를 쓰지 않는다(위
+	 * {@link #RELAY_SCHEDULER_BEAN_NAME} 참고, CodeRabbit PR #257 finding 1).
+	 */
+	@Bean(RELAY_SCHEDULER_BEAN_NAME)
+	TaskScheduler questionCompletionRelayScheduler() {
+		ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+		scheduler.setPoolSize(1);
+		scheduler.setThreadNamePrefix("question-completion-relay-");
+		return scheduler;
+	}
+
+	@Scheduled(
+		scheduler = RELAY_SCHEDULER_BEAN_NAME,
+		fixedDelayString = "${app.ai.question-answer.callback.recovery-interval:60s}"
+	)
 	public void relayPendingCompletions() {
 		List<PendingQuestionCompletion> batch;
 		try {

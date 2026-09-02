@@ -109,6 +109,47 @@ class AiJobDispatchTransportSwitchTest {
 			});
 	}
 
+	/**
+	 * CodeRabbit PR #257 finding 1. {@code pollAndPublish}는 배치당 최대 32개 job 을 직렬로
+	 * 발행하며 각 confirm 대기가 최대 5초까지 걸릴 수 있다 — app-main 의 공유 기본 스케줄러(풀
+	 * 크기 1, {@link SchedulingConfig})를 그대로 쓰면 다른 모든 {@code @Scheduled} 작업을 몇 분씩
+	 * 밀어낼 수 있다. relay 가 뜰 때는 전용 단일 스레드 스케줄러 빈도 함께 떠야 한다.
+	 */
+	@Test
+	void rabbitmqTransportAlsoCreatesTheDedicatedOutboxScheduler() {
+		runner()
+			.withPropertyValues("app.ai.dispatch.transport=rabbitmq")
+			.run(context -> {
+				assertThat(context).hasBean(AiJobOutboxRelay.OUTBOX_SCHEDULER_BEAN_NAME);
+				assertThat(context.getBean(AiJobOutboxRelay.OUTBOX_SCHEDULER_BEAN_NAME))
+					.isInstanceOf(org.springframework.scheduling.TaskScheduler.class);
+			});
+	}
+
+	@Test
+	void httpTransportCreatesNoDedicatedOutboxScheduler() {
+		runner()
+			.withPropertyValues("app.ai.dispatch.transport=http")
+			.run(context -> assertThat(context).doesNotHaveBean(AiJobOutboxRelay.OUTBOX_SCHEDULER_BEAN_NAME));
+	}
+
+	/**
+	 * relay 의 세 {@code @Scheduled} 메서드가 실제로 전용 스케줄러 빈 이름을 참조하는지 어노테이션
+	 * 메타데이터로 직접 확인한다 — 공유 기본 스케줄러가 아니라는 계약을 값으로 고정한다.
+	 */
+	@Test
+	void allThreeScheduledMethodsReferenceTheDedicatedScheduler() throws NoSuchMethodException {
+		for (String methodName : new String[] {"pollAndPublish", "recoverExpiredLeases", "purgePublishedJobs"}) {
+			org.springframework.scheduling.annotation.Scheduled scheduled = AiJobOutboxRelay.class
+				.getMethod(methodName)
+				.getAnnotation(org.springframework.scheduling.annotation.Scheduled.class);
+			assertThat(scheduled).isNotNull();
+			assertThat(scheduled.scheduler())
+				.as("method %s", methodName)
+				.isEqualTo(AiJobOutboxRelay.OUTBOX_SCHEDULER_BEAN_NAME);
+		}
+	}
+
 	@Test
 	void unknownTransportValueFailsContextStartup() {
 		runner()
