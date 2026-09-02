@@ -173,10 +173,14 @@ if grep -Fq 'management' "$DOCKER_LOG" || grep -Fq 'administrator' "$DOCKER_LOG"
   fail "an app account was granted a management/administrator tag"
 fi
 
-# permissions must be scoped per spec.md §10.1.
-grep -Fq 'set_permissions -p /ieum ieum_main ^ieum\.(ai|main)\..*$ ^ieum\.ai\.(jobs|retry|dlx)$ ^ieum\.main\..*$' "$DOCKER_LOG" \
+# permissions must be scoped per spec.md §10.1. queue.bind needs WRITE on the
+# queue and READ on the exchange it binds from — both apps declare the full
+# topology (all 9 queues, all 4 exchanges), so write must cover every queue
+# (plus each app's publish exchange) and read must cover every exchange
+# (plus each app's consumed queue(s)).
+grep -Fq 'set_permissions -p /ieum ieum_main ^ieum\.(ai|main)\..*$ ^ieum\.(ai|main)\..*$ ^ieum\.ai\.(jobs|results|retry|dlx)$|^ieum\.main\.question-answer\.completed$' "$DOCKER_LOG" \
   || fail "ieum_main permissions do not match spec.md §10.1"
-grep -Fq 'set_permissions -p /ieum ieum_ai ^ieum\.(ai|main)\..*$ ^ieum\.ai\.(results|retry|dlx)$ ^ieum\.ai\..*$' "$DOCKER_LOG" \
+grep -Fq 'set_permissions -p /ieum ieum_ai ^ieum\.(ai|main)\..*$ ^ieum\.(ai|main)\..*$ ^ieum\.ai\.(jobs|results|retry|dlx|question-answer\.dispatch|accepted-answer\.ingest)$' "$DOCKER_LOG" \
   || fail "ieum_ai permissions do not match spec.md §10.1"
 
 # memory/disk limits from spec.md §11.3.

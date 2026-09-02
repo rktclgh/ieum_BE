@@ -162,12 +162,30 @@ main() {
   # Idempotent: `|| true` tolerates an already-deleted guest account.
   exec_rmq delete_user guest >/dev/null 2>&1 || true
 
+  # RabbitMQ's `queue.bind` checks WRITE on the queue being bound and READ on
+  # the exchange it is bound *from* (only `basic.publish` needs write on an
+  # exchange) — the previous regexes below granted write on exchanges and
+  # read on the wrong namespace, so every `queue.bind` call either app makes
+  # at startup was refused (spec.md §10.1, finding C1). Both app-main
+  # (AiJobRabbitConfig + AiResultRabbitConfig) and app-ai
+  # (AiJobRabbitConfiguration) declare the FULL topology — all 9 queues,
+  # bound from all 4 exchanges — so both accounts need write on every queue
+  # (bind-write-on-queue) in addition to the one exchange each actually
+  # publishes to (basic.publish), and read on all 4 exchanges
+  # (bind-read-on-exchange) in addition to the queue(s) each actually
+  # consumes (basic.consume).
   ensure_user ieum_main "$(generate_password)"
-  ensure_permissions ieum_main '^ieum\.(ai|main)\..*$' '^ieum\.ai\.(jobs|retry|dlx)$' '^ieum\.main\..*$'
+  ensure_permissions ieum_main \
+    '^ieum\.(ai|main)\..*$' \
+    '^ieum\.(ai|main)\..*$' \
+    '^ieum\.ai\.(jobs|results|retry|dlx)$|^ieum\.main\.question-answer\.completed$'
   ensure_no_tags ieum_main
 
   ensure_user ieum_ai "$(generate_password)"
-  ensure_permissions ieum_ai '^ieum\.(ai|main)\..*$' '^ieum\.ai\.(results|retry|dlx)$' '^ieum\.ai\..*$'
+  ensure_permissions ieum_ai \
+    '^ieum\.(ai|main)\..*$' \
+    '^ieum\.(ai|main)\..*$' \
+    '^ieum\.ai\.(jobs|results|retry|dlx|question-answer\.dispatch|accepted-answer\.ingest)$'
   ensure_no_tags ieum_ai
 
   write_generated_credentials
