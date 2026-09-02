@@ -82,4 +82,28 @@ class QuestionCompletionCallbackConfigurationTest {
 					.isInstanceOf(RabbitQuestionCompletionCallbackClient.class);
 			});
 	}
+
+	/**
+	 * CodeRabbit PR #257 finding 2. transport=rabbitmq 인 배포는 HTTP 콜백값
+	 * (base-origin/allowed-origins/internal-token)을 채우지 않는다 — 채우지 않았다는 이유로 컨텍스트
+	 * 기동이 실패해서는 안 된다. HTTP 콜백값이 아예 없어도 Rabbit 클라이언트만 정상적으로 뜬다.
+	 */
+	@Test
+	void rabbitmqTransportStartsWithoutAnyHttpCallbackConfiguration() {
+		contextRunner
+			.withBean(RabbitTemplate.class, () -> mock(RabbitTemplate.class))
+			.withBean(ObjectMapper.class, ObjectMapper::new)
+			.withPropertyValues(
+				"app.ai.features.question-answer-enabled=true",
+				"app.ai.question-answer.callback.transport=rabbitmq"
+			)
+			.run(context -> {
+				assertThat(context).hasNotFailed();
+				assertThat(context).doesNotHaveBean(QuestionCompletionCallbackProperties.class);
+				assertThat(context).doesNotHaveBean("questionCompletionCallbackHttpClient");
+				assertThat(context).hasSingleBean(QuestionCompletionCallbackClient.class);
+				assertThat(context.getBean(QuestionCompletionCallbackClient.class))
+					.isInstanceOf(RabbitQuestionCompletionCallbackClient.class);
+			});
+	}
 }

@@ -28,7 +28,15 @@ public class QuestionCompletionCallbackConfiguration {
 	private static final int CALLBACK_QUEUE_CAPACITY = 32;
 	private static final String TRANSPORT_PROPERTY = "app.ai.question-answer.callback.transport";
 
+	/**
+	 * {@code transport=rabbitmq}일 때는 만들지 않는다(CodeRabbit PR #257 finding 2). 이 빈이 무조건
+	 * 만들어지던 시절엔 {@code base-origin}/{@code allowed-origins}/{@code internal-token}이 비어 있으면
+	 * {@link QuestionCompletionCallbackProperties#create}가 즉시 던져 — Rabbit 클라이언트를 쓰기로 한
+	 * 배포에서도 HTTP 콜백 설정을 채우지 않으면 컨텍스트 기동 자체가 실패했다. HTTP 콜백값은 HTTP
+	 * transport 를 고를 때만 의미가 있으므로 조건을 맞춘다.
+	 */
 	@Bean
+	@ConditionalOnProperty(name = TRANSPORT_PROPERTY, havingValue = "http", matchIfMissing = true)
 	QuestionCompletionCallbackProperties questionCompletionCallbackProperties(
 		@Value("${app.ai.question-answer.callback.base-origin:}") String baseOrigin,
 		@Value("${app.ai.question-answer.callback.allowed-origins:}") String allowedOrigins,
@@ -45,7 +53,9 @@ public class QuestionCompletionCallbackConfiguration {
 		);
 	}
 
+	/** {@code questionCompletionCallbackProperties}와 같은 이유로 같은 조건을 건다 — 그 빈에 의존한다. */
 	@Bean("questionCompletionCallbackHttpClient")
+	@ConditionalOnProperty(name = TRANSPORT_PROPERTY, havingValue = "http", matchIfMissing = true)
 	HttpClient questionCompletionCallbackHttpClient(QuestionCompletionCallbackProperties properties) {
 		return HttpClient.newBuilder()
 			.connectTimeout(properties.connectTimeout())
