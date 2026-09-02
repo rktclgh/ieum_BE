@@ -67,6 +67,7 @@ class QuestionAnswerDispatchEndToEndTest {
 	private JdbcClient jdbc;
 	private CachingConnectionFactory connectionFactory;
 	private ExecutorService laneExecutor;
+	private SimpleQueueDrainer drainer;
 
 	@AfterAll
 	static void cleanUpDatabase() {
@@ -87,8 +88,24 @@ class QuestionAnswerDispatchEndToEndTest {
 		connectionFactory.setPassword(AiJobRabbitContainer.password());
 	}
 
+	/**
+	 * 리뷰 발견 사항(4b): 원래는 테스트 메서드 본문 중간(마지막 assert 이전)에서 {@code drainer.stop()}을
+	 * 호출했다 — 그 전에 assert 나 latch 대기가 실패하면 {@code drainer}가 실제 브로커 채널을 계속 붙든
+	 * 채 남아, 같은 정적 싱글턴 브로커({@code AiJobRabbitContainer})를 공유하는 이후 테스트의 큐를
+	 * 몰래 소비할 수 있었다. 다른 리소스(laneExecutor, connectionFactory)와 같은 자리인 여기서, 테스트
+	 * 성공/실패와 무관하게 항상 정리한다.
+	 */
 	@AfterEach
 	void tearDown() {
+		if (drainer != null) {
+			try {
+				drainer.stop();
+			}
+			catch (Exception exception) {
+				// best-effort: 채널/커넥션이 이미 닫혀 있어도 나머지 정리(laneExecutor,
+				// connectionFactory)는 반드시 실행돼야 한다.
+			}
+		}
 		if (laneExecutor != null) {
 			laneExecutor.shutdownNow();
 		}
@@ -110,11 +127,23 @@ class QuestionAnswerDispatchEndToEndTest {
 		QuestionTaskWorkRepository repository = new JdbcQuestionTaskWorkRepository(jdbc);
 		AtomicInteger orchestratorInvocations = new AtomicInteger();
 		CountDownLatch firstClaimStarted = new CountDownLatch(1);
+		// 리뷰 발견 사항(4a): 이전에는 orchestrator 가 즉시 리턴해버려, processor 가 언제 상태를
+		// 완료/실패로 전이시킬지가 우연에 맡겨져 있었다 — 두 번째(중복) 메시지가 도착하기 전에 이미
+		// 전이가 끝나버리면 activeLease() 흡수 경로를 전혀 검증하지 못한 채 우연히 통과할 수 있었다.
+		// 이 latch 로 첫 claim 을 명시적으로 붙잡아, 중복 메시지를 소비·검증할 때까지
+		// status='processing' + lease_until(미래) 창을 결정적으로 열어 둔다.
+		CountDownLatch releaseFirstClaim = new CountDownLatch(1);
 		QuestionAnswerOrchestrator orchestrator = claim -> {
 			orchestratorInvocations.incrementAndGet();
 			firstClaimStarted.countDown();
-			// 의도적으로 아무것도 하지 않는다: DB 행이 status='processing' + lease_until(미래)로
-			// 남아 있어야 두 번째 메시지가 activeLease() 로 흡수되는 창이 생긴다.
+			try {
+				if (!releaseFirstClaim.await(10, TimeUnit.SECONDS)) {
+					throw new IllegalStateException("test did not release the first claim within 10s");
+				}
+			}
+			catch (InterruptedException interrupted) {
+				Thread.currentThread().interrupt();
+			}
 		};
 		laneExecutor = Executors.newSingleThreadExecutor();
 		QuestionAnswerTaskProcessor processor = new QuestionAnswerTaskProcessor(
@@ -128,34 +157,41 @@ class QuestionAnswerDispatchEndToEndTest {
 		QuestionAnswerJobMessageListener listener =
 			new QuestionAnswerJobMessageListener(dispatchService, deadLetterPublisher, OBJECT_MAPPER);
 
-		SimpleQueueDrainer drainer = new SimpleQueueDrainer(connectionFactory, listener);
+		// 필드에 담아 둔다 — tearDown()이 assert 성공/실패와 무관하게 정리한다(리뷰 발견 사항 4b).
+		drainer = new SimpleQueueDrainer(connectionFactory, listener);
 		drainer.start(AiJobTopology.QUEUE_QUESTION_ANSWER_DISPATCH);
 
-		RabbitTemplate template = new RabbitTemplate(connectionFactory);
-		template.send(
-			AiJobTopology.EXCHANGE_JOBS,
-			AiJobTopology.ROUTING_KEY_QUESTION_ANSWER_DISPATCH,
-			dispatchMessage(questionId, "created")
-		);
+		try {
+			RabbitTemplate template = new RabbitTemplate(connectionFactory);
+			template.send(
+				AiJobTopology.EXCHANGE_JOBS,
+				AiJobTopology.ROUTING_KEY_QUESTION_ANSWER_DISPATCH,
+				dispatchMessage(questionId, "created")
+			);
 
-		assertThat(firstClaimStarted.await(10, TimeUnit.SECONDS))
-			.as("first message's async lane execution must actually claim the DB row")
-			.isTrue();
+			assertThat(firstClaimStarted.await(10, TimeUnit.SECONDS))
+				.as("first message's async lane execution must actually claim the DB row")
+				.isTrue();
 
-		template.send(
-			AiJobTopology.EXCHANGE_JOBS,
-			AiJobTopology.ROUTING_KEY_QUESTION_ANSWER_DISPATCH,
-			dispatchMessage(questionId, "regenerated")
-		);
+			template.send(
+				AiJobTopology.EXCHANGE_JOBS,
+				AiJobTopology.ROUTING_KEY_QUESTION_ANSWER_DISPATCH,
+				dispatchMessage(questionId, "regenerated")
+			);
 
-		awaitUntil(Duration.ofSeconds(10), () -> drainer.processedCount() >= 2);
-		drainer.stop();
+			awaitUntil(Duration.ofSeconds(10), () -> drainer.processedCount() >= 2);
 
-		assertThat(orchestratorInvocations.get())
-			.as("lane submission must happen exactly once despite two messages for the same questionId")
-			.isEqualTo(1);
-		assertThat(taskStatus(questionId)).isEqualTo("processing");
-		verifyNoInteractions(deadLetterPublisher);
+			assertThat(orchestratorInvocations.get())
+				.as("lane submission must happen exactly once despite two messages for the same questionId")
+				.isEqualTo(1);
+			assertThat(taskStatus(questionId)).isEqualTo("processing");
+			verifyNoInteractions(deadLetterPublisher);
+		}
+		finally {
+			// 첫 claim 을 여기서 풀어준다 — assert 가 실패해도 lane 스레드가 영원히 블록된 채 남지
+			// 않도록(리뷰 발견 사항 4a). 실제 정리(drainer.stop() 등)는 tearDown()이 담당한다.
+			releaseFirstClaim.countDown();
+		}
 	}
 
 	private Message dispatchMessage(long questionId, String reason) throws Exception {
