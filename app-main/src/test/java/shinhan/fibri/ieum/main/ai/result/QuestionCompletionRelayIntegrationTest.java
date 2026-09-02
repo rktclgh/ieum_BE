@@ -78,8 +78,12 @@ class QuestionCompletionRelayIntegrationTest {
 		// 안전망으로 재발행했을 때와 같은 상황이다(spec.md §8.5 "ACK 될 때까지 계속 재발행").
 		publishCompletedMessage(fixture.questionId(), fixture.answerId());
 
-		// 두 번째 메시지도 정상 소비(ACK)되는지 확인하기 위해 큐가 비워질 때까지 기다린다.
+		// 두 번째 메시지도 정상 소비(ACK)되는지 확인하기 위해 큐가 비워질 때까지 기다린다. waitUntil
+		// 은 타임아웃돼도 예외를 던지지 않으므로, 아래 assertThat 없이는 두 번째 메시지가 실제로
+		// 소비되지 않은 채 남아 있어도(예: 리스너가 죽어 큐에 쌓이기만 해도) notificationCount 가
+		// 이미 1이라는 이유만으로 테스트가 공허하게 통과할 수 있었다(CodeRabbit PR #257 finding 5).
 		waitUntil(() -> queueMessageCount() == 0, Duration.ofSeconds(15));
+		assertThat(queueMessageCount()).isZero();
 
 		assertThat(notificationCount(fixture.questionId())).isEqualTo(1);
 	}
