@@ -32,7 +32,10 @@ class AiJobPublisherConfirmIntegrationTest {
 		return new ApplicationContextRunner()
 			.withInitializer(bootConversionService())
 			.withConfiguration(AutoConfigurations.of(RabbitAutoConfiguration.class))
-			.withUserConfiguration(AiJobRabbitConfig.class)
+			// AiResultRabbitConfig 가 aiRetryExchange/aiDlxExchange(디스패치 큐의 retry/DLQ 바인딩이
+			// 참조하는 공유 exchange)를 선언한다 — 리뷰 라운드 1 finding으로 분리된 클래스, 없으면
+			// aiQuestionAnswerDispatchRetryBinding 등의 빈 생성이 실패한다.
+			.withUserConfiguration(AiJobRabbitConfig.class, AiResultRabbitConfig.class)
 			.withPropertyValues(
 				"app.ai.outbox.enabled=true",
 				"spring.rabbitmq.host=" + AiJobRabbitContainer.host(),
