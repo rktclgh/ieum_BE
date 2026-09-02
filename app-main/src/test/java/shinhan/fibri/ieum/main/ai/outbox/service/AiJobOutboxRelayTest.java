@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.main.ai.outbox.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -28,6 +29,7 @@ import org.springframework.amqp.core.MessageProperties;
 import org.springframework.amqp.core.ReturnedMessage;
 import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.dao.DataIntegrityViolationException;
 import shinhan.fibri.ieum.common.ai.job.AiJobTopology;
 import shinhan.fibri.ieum.main.ai.outbox.repository.AiJobOutboxRepository;
 import shinhan.fibri.ieum.main.ai.outbox.repository.ClaimedAiJob;
@@ -108,6 +110,24 @@ class AiJobOutboxRelayTest {
 		assertThat(relay.publishBatch()).isEqualTo(1);
 
 		verify(repository).markPublished(eq(11L), any(UUID.class));
+		verify(repository, never()).markRetry(anyLong(), any(UUID.class), anyLong(), anyString(), anyString());
+		verify(repository, never()).markDead(anyLong(), any(UUID.class), anyString(), anyString());
+	}
+
+	@Test
+	void markPublishedThrowingDoesNotFalsifyTheSettlementAsAFailure() {
+		// PR #255 리뷰 finding 3: confirm 은 이미 ack 를 받았다 — markPublished 가 DB 예외로
+		// 실패하더라도 그건 "발행 실패"가 아니다. markPublished 를 브로커 왕복과 같은 try 안에
+		// 두면 그 예외가 RuntimeException 핸들러에 잡혀 publish_failed 로 오정산되고,
+		// 이미 브로커에 전달된 job 이 재시도되어 중복 발행된다.
+		ClaimedAiJob job = claimedJob(1);
+		stubClaim(job);
+		answerSend((message, correlation) -> correlation.getFuture().complete(new CorrelationData.Confirm(true, null)));
+		when(repository.markPublished(eq(11L), any(UUID.class)))
+			.thenThrow(new DataIntegrityViolationException("simulated DB failure"));
+
+		assertThatThrownBy(relay::publishBatch).isInstanceOf(DataIntegrityViolationException.class);
+
 		verify(repository, never()).markRetry(anyLong(), any(UUID.class), anyLong(), anyString(), anyString());
 		verify(repository, never()).markDead(anyLong(), any(UUID.class), anyString(), anyString());
 	}
