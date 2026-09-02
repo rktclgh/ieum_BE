@@ -60,6 +60,19 @@ require_exact() {
   actual=$(value_of "$key")
   [[ "$actual" == "$expected" ]] || fail "invalid value for ${key}"
 }
+require_enum() {
+  local key=$1; shift
+  local actual allowed match=0 candidate
+  require_key "$key"
+  actual=$(value_of "$key")
+  for candidate in "$@"; do
+    [[ "$actual" == "$candidate" ]] && { match=1; break; }
+  done
+  if [[ "$match" -ne 1 ]]; then
+    allowed=$(IFS='|'; printf '%s' "$*")
+    fail "invalid value for ${key} (expected one of: ${allowed})"
+  fi
+}
 contains_csv_token() {
   local csv=$1 wanted=$2 token
   IFS=',' read -r -a tokens <<< "$csv"
@@ -98,7 +111,7 @@ require_exact RABBITMQ_PORT 5672
 require_exact RABBITMQ_VIRTUAL_HOST /ieum
 require_nonempty RABBITMQ_USERNAME
 require_nonempty RABBITMQ_PASSWORD
-require_key APP_AI_DISPATCH_TRANSPORT
+require_enum APP_AI_DISPATCH_TRANSPORT http rabbitmq
 
 if [[ "$service" == app-main ]]; then
   require_exact RABBITMQ_USERNAME ieum_main

@@ -238,6 +238,22 @@ cp "$TMP_DIR/main.env" "$TMP_DIR/missing-dispatch-transport.env"
 grep -v '^APP_AI_DISPATCH_TRANSPORT=' "$TMP_DIR/main.env" > "$TMP_DIR/missing-dispatch-transport.env"
 assert_failure "$VALIDATOR" app-main "$TMP_DIR/missing-dispatch-transport.env"
 
+# APP_AI_DISPATCH_TRANSPORT must be one of the two values the app actually
+# understands (finding I4) — a typo used to pass this validator (it only
+# checked the key existed) and would only be caught by a startup failure
+# deep inside the app much later.
+cp "$TMP_DIR/main.env" "$TMP_DIR/bad-dispatch-transport.env"
+replace_line "$TMP_DIR/bad-dispatch-transport.env" APP_AI_DISPATCH_TRANSPORT APP_AI_DISPATCH_TRANSPORT=carrier-pigeon
+assert_failure "$VALIDATOR" app-main "$TMP_DIR/bad-dispatch-transport.env"
+
+cp "$TMP_DIR/ai.env" "$TMP_DIR/ai-bad-dispatch-transport.env"
+replace_line "$TMP_DIR/ai-bad-dispatch-transport.env" APP_AI_DISPATCH_TRANSPORT APP_AI_DISPATCH_TRANSPORT=carrier-pigeon
+assert_failure "$VALIDATOR" app-ai "$TMP_DIR/ai-bad-dispatch-transport.env"
+
+cp "$TMP_DIR/ai.env" "$TMP_DIR/ai-good-dispatch-transport.env"
+replace_line "$TMP_DIR/ai-good-dispatch-transport.env" APP_AI_DISPATCH_TRANSPORT APP_AI_DISPATCH_TRANSPORT=http
+assert_success "$VALIDATOR" app-ai "$TMP_DIR/ai-good-dispatch-transport.env"
+
 output=$({ "$VALIDATOR" app-main "$TMP_DIR/bad.env"; } 2>&1 || true)
 if printf '%s' "$output" | grep -Eq 'redacted|shared-token|different-token|fixture-rabbitmq-(main|ai)-password'; then
   printf 'FAIL (secret leaked in validator output)\n' >&2; fail=$((fail + 1))
