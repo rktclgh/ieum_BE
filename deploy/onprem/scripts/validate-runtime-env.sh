@@ -103,18 +103,57 @@ scan_unsafe_addresses "$env_file"
 
 require_nonempty APP_AI_INTERNAL_CALLBACK_TOKEN
 
-# RabbitMQ AI job transport (spec.md §11.4). Shared by both services; the
-# per-service username check below prevents an app-main credential from
-# ending up in app-ai's env file or vice versa.
-require_exact RABBITMQ_HOST rabbitmq
-require_exact RABBITMQ_PORT 5672
-require_exact RABBITMQ_VIRTUAL_HOST /ieum
-require_nonempty RABBITMQ_USERNAME
-require_nonempty RABBITMQ_PASSWORD
 require_enum APP_AI_DISPATCH_TRANSPORT http rabbitmq
 
+# Whether this service will ever dial the broker at all (CodeRabbit PR #257
+# finding 6). A pure-HTTP deployment (dispatch=http, result consumer
+# explicitly disabled, callback transport=http, completion relay off) never
+# opens a RabbitMQ connection, so it should not have to provision or store
+# broker credentials. Kept in sync by hand with bootstrap-control-plane.sh's
+# copy of the same rule (search that script for "broker_required") — that
+# script cannot source this one because it runs before any per-service env
+# file necessarily exists on a fresh host.
+broker_required() {
+  if [[ "$(value_of APP_AI_DISPATCH_TRANSPORT)" == rabbitmq ]]; then return 0; fi
+  if [[ "$service" == app-main ]]; then
+    # app-main's result consumer (QuestionAnswerCompletedMessageListener /
+    # AiResultRabbitConfig) defaults to enabled and opens a listener
+    # connection unless explicitly turned off.
+    local consumer_enabled=true
+    if has_key APP_AI_RESULT_CONSUMER_ENABLED; then
+      consumer_enabled=$(value_of APP_AI_RESULT_CONSUMER_ENABLED)
+    fi
+    if [[ "$consumer_enabled" != false ]]; then return 0; else return 1; fi
+  fi
+  # app-ai: the dispatch consumer is always on (matchIfMissing=true, already
+  # covered by the transport check above), but the completion callback can
+  # independently go over the broker.
+  local callback_transport=http relay_enabled=false
+  if has_key APP_AI_QUESTION_CALLBACK_TRANSPORT; then
+    callback_transport=$(value_of APP_AI_QUESTION_CALLBACK_TRANSPORT)
+  fi
+  if has_key APP_AI_COMPLETION_RELAY_ENABLED; then
+    relay_enabled=$(value_of APP_AI_COMPLETION_RELAY_ENABLED)
+  fi
+  if [[ "$callback_transport" == rabbitmq || "$relay_enabled" == true ]]; then return 0; else return 1; fi
+}
+
+# RabbitMQ AI job transport (spec.md §11.4). Shared by both services; the
+# per-service username check below prevents an app-main credential from
+# ending up in app-ai's env file or vice versa. Skipped entirely in pure
+# HTTP mode (finding 6) — no broker credentials to validate.
+if broker_required; then
+  require_exact RABBITMQ_HOST rabbitmq
+  require_exact RABBITMQ_PORT 5672
+  require_exact RABBITMQ_VIRTUAL_HOST /ieum
+  require_nonempty RABBITMQ_USERNAME
+  require_nonempty RABBITMQ_PASSWORD
+else
+  printf 'INFO: %s runs in pure HTTP mode; skipping RabbitMQ credential checks\n' "$service" >&2
+fi
+
 if [[ "$service" == app-main ]]; then
-  require_exact RABBITMQ_USERNAME ieum_main
+  if broker_required; then require_exact RABBITMQ_USERNAME ieum_main; fi
   require_exact SERVER_PORT 8080
   require_exact SERVER_FORWARD_HEADERS_STRATEGY native
   require_exact SPRING_DATASOURCE_URL jdbc:postgresql://host.docker.internal:5432/ieum
@@ -159,7 +198,7 @@ else
     APP_FILE_S3_TMP_PREFIX APP_FILE_S3_FINAL_PREFIX; do
     has_key "$forbidden_key" && fail "app-ai must not define ${forbidden_key}"
   done
-  require_exact RABBITMQ_USERNAME ieum_ai
+  if broker_required; then require_exact RABBITMQ_USERNAME ieum_ai; fi
   require_exact SERVER_PORT 8081
   require_exact SPRING_DATASOURCE_URL jdbc:postgresql://host.docker.internal:5432/ieum
   require_exact AWS_REGION ap-northeast-2

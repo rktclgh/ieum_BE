@@ -254,6 +254,63 @@ cp "$TMP_DIR/ai.env" "$TMP_DIR/ai-good-dispatch-transport.env"
 replace_line "$TMP_DIR/ai-good-dispatch-transport.env" APP_AI_DISPATCH_TRANSPORT APP_AI_DISPATCH_TRANSPORT=http
 assert_success "$VALIDATOR" app-ai "$TMP_DIR/ai-good-dispatch-transport.env"
 
+# --- CodeRabbit PR #257 finding 6: broker credentials must not be required
+# in pure HTTP mode, but must still be required whenever anything actually
+# dials the broker (rabbitmq transport, or app-main's result consumer left
+# at its default-enabled value). ---
+
+# app-main default (APP_AI_RESULT_CONSUMER_ENABLED unset -> defaults to
+# true, per application.properties) still requires RabbitMQ even though
+# dispatch transport is http — the result consumer opens a listener
+# connection regardless of the dispatch direction.
+cp "$TMP_DIR/main.env" "$TMP_DIR/main-default-consumer-no-rabbitmq.env"
+grep -vE '^RABBITMQ_(HOST|PORT|VIRTUAL_HOST|USERNAME|PASSWORD)=' "$TMP_DIR/main.env" \
+  > "$TMP_DIR/main-default-consumer-no-rabbitmq.env"
+assert_failure "$VALIDATOR" app-main "$TMP_DIR/main-default-consumer-no-rabbitmq.env"
+
+# app-main with the result consumer explicitly turned off and dispatch
+# transport=http is pure HTTP mode: no RabbitMQ keys needed at all.
+cp "$TMP_DIR/main.env" "$TMP_DIR/main-pure-http.env"
+grep -vE '^RABBITMQ_(HOST|PORT|VIRTUAL_HOST|USERNAME|PASSWORD)=' "$TMP_DIR/main.env" \
+  > "$TMP_DIR/main-pure-http.env.tmp"
+mv "$TMP_DIR/main-pure-http.env.tmp" "$TMP_DIR/main-pure-http.env"
+printf 'APP_AI_RESULT_CONSUMER_ENABLED=false\n' >> "$TMP_DIR/main-pure-http.env"
+assert_success "$VALIDATOR" app-main "$TMP_DIR/main-pure-http.env"
+
+# Same pure-HTTP env but dispatch transport flipped to rabbitmq must still
+# require the broker keys — rabbitmq mode always requires them regardless
+# of the consumer flag.
+cp "$TMP_DIR/main-pure-http.env" "$TMP_DIR/main-rabbitmq-transport-no-keys.env"
+replace_line "$TMP_DIR/main-rabbitmq-transport-no-keys.env" APP_AI_DISPATCH_TRANSPORT \
+  APP_AI_DISPATCH_TRANSPORT=rabbitmq
+assert_failure "$VALIDATOR" app-main "$TMP_DIR/main-rabbitmq-transport-no-keys.env"
+
+# app-ai in full-http mode (dispatch=http, callback transport unset/http,
+# completion relay unset/off) needs no RabbitMQ keys either.
+cp "$TMP_DIR/ai.env" "$TMP_DIR/ai-pure-http.env"
+replace_line "$TMP_DIR/ai-pure-http.env" APP_AI_DISPATCH_TRANSPORT APP_AI_DISPATCH_TRANSPORT=http
+grep -vE '^RABBITMQ_(HOST|PORT|VIRTUAL_HOST|USERNAME|PASSWORD)=' "$TMP_DIR/ai-pure-http.env" \
+  > "$TMP_DIR/ai-pure-http.env.tmp"
+mv "$TMP_DIR/ai-pure-http.env.tmp" "$TMP_DIR/ai-pure-http.env"
+assert_success "$VALIDATOR" app-ai "$TMP_DIR/ai-pure-http.env"
+
+# app-ai with dispatch=http but the completion relay explicitly turned on
+# still needs the broker (the relay publishes over RabbitMQ regardless of
+# dispatch direction).
+cp "$TMP_DIR/ai-pure-http.env" "$TMP_DIR/ai-relay-enabled-no-keys.env"
+printf 'APP_AI_COMPLETION_RELAY_ENABLED=true\n' >> "$TMP_DIR/ai-relay-enabled-no-keys.env"
+assert_failure "$VALIDATOR" app-ai "$TMP_DIR/ai-relay-enabled-no-keys.env"
+
+# app-ai with dispatch=http but callback transport explicitly rabbitmq also
+# needs the broker.
+cp "$TMP_DIR/ai-pure-http.env" "$TMP_DIR/ai-callback-rabbitmq-no-keys.env"
+printf 'APP_AI_QUESTION_CALLBACK_TRANSPORT=rabbitmq\n' >> "$TMP_DIR/ai-callback-rabbitmq-no-keys.env"
+assert_failure "$VALIDATOR" app-ai "$TMP_DIR/ai-callback-rabbitmq-no-keys.env"
+
+# app-ai's own dispatch transport=rabbitmq (its default) always requires the
+# broker even with the RabbitMQ keys present, unchanged (regression guard).
+assert_success "$VALIDATOR" app-ai "$TMP_DIR/ai.env"
+
 output=$({ "$VALIDATOR" app-main "$TMP_DIR/bad.env"; } 2>&1 || true)
 if printf '%s' "$output" | grep -Eq 'redacted|shared-token|different-token|fixture-rabbitmq-(main|ai)-password'; then
   printf 'FAIL (secret leaked in validator output)\n' >&2; fail=$((fail + 1))

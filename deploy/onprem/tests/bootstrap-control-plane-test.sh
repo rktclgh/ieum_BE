@@ -301,6 +301,47 @@ if grep -Eq '(^|[[:space:]])(start|stop|rm)([[:space:]]|$)' "$TMP_DIR/docker.log
   printf 'FAIL preflight started, stopped, or removed a container\n' >&2; fail=$((fail + 1))
 fi
 
+# --- CodeRabbit PR #257 finding 6: the RabbitMQ preflight must be skipped
+# entirely in pure HTTP mode, and must still run whenever anything in the
+# per-service env files this control plane manages will actually dial the
+# broker. No env files exist yet in every test above this point, so
+# broker_required's fail-closed default (missing file -> required) is what
+# has kept every prior FAKE_DOCKER_RABBITMQ scenario meaningful. ---
+
+# Both services in pure HTTP mode (dispatch=http, app-main's result
+# consumer explicitly disabled, app-ai's callback/relay left off): the
+# preflight must be skipped even when the broker is entirely absent.
+printf 'APP_AI_DISPATCH_TRANSPORT=http\nAPP_AI_RESULT_CONSUMER_ENABLED=false\n' >"$ETC_ROOT/app-main.env"
+printf 'APP_AI_DISPATCH_TRANSPORT=http\n' >"$ETC_ROOT/app-ai.env"
+FAKE_DOCKER_RABBITMQ=missing
+assert_success run_bootstrap
+grep -Fq 'pure HTTP mode detected; skipping RabbitMQ preflight' "$TMP_DIR/stdout" || {
+  printf 'FAIL pure-http bootstrap did not report skipping the rabbitmq preflight\n' >&2; fail=$((fail + 1));
+}
+unset FAKE_DOCKER_RABBITMQ
+
+# app-main left at its default (APP_AI_RESULT_CONSUMER_ENABLED unset ->
+# defaults to true) still requires the broker even with dispatch=http.
+printf 'APP_AI_DISPATCH_TRANSPORT=http\n' >"$ETC_ROOT/app-main.env"
+FAKE_DOCKER_RABBITMQ=missing
+assert_failure run_bootstrap
+grep -Fq 'ieum-provision-rabbitmq' "$TMP_DIR/stderr" || {
+  printf 'FAIL default (consumer unset) bootstrap did not require the rabbitmq preflight\n' >&2; fail=$((fail + 1));
+}
+unset FAKE_DOCKER_RABBITMQ
+
+# app-ai's dispatch transport flipped to rabbitmq requires the broker again,
+# regardless of app-main's settings.
+printf 'APP_AI_DISPATCH_TRANSPORT=http\nAPP_AI_RESULT_CONSUMER_ENABLED=false\n' >"$ETC_ROOT/app-main.env"
+printf 'APP_AI_DISPATCH_TRANSPORT=rabbitmq\n' >"$ETC_ROOT/app-ai.env"
+FAKE_DOCKER_RABBITMQ=missing
+assert_failure run_bootstrap
+unset FAKE_DOCKER_RABBITMQ
+
+# Reset back to "no env files yet" (the fresh-host case) for every test
+# below, matching this suite's baseline fixture state.
+rm -f "$ETC_ROOT/app-main.env" "$ETC_ROOT/app-ai.env"
+
 FAKE_DOCKER_COMPOSE=missing
 assert_failure run_bootstrap
 unset FAKE_DOCKER_COMPOSE
