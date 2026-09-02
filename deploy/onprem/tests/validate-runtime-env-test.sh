@@ -62,6 +62,12 @@ AWS_S3_REGION=us-east-1
 AWS_S3_API_CALL_TIMEOUT_SECONDS=10
 AWS_S3_API_CALL_ATTEMPT_TIMEOUT_SECONDS=3
 APP_AI_INTERNAL_CALLBACK_TOKEN=shared-token
+APP_AI_DISPATCH_TRANSPORT=http
+RABBITMQ_HOST=rabbitmq
+RABBITMQ_PORT=5672
+RABBITMQ_VIRTUAL_HOST=/ieum
+RABBITMQ_USERNAME=ieum_main
+RABBITMQ_PASSWORD=fixture-rabbitmq-main-password
 EOF
 cat >"$TMP_DIR/ai.env" <<'EOF'
 SERVER_PORT=8081
@@ -80,6 +86,12 @@ APP_AI_QUESTION_CALLBACK_ALLOWED_ORIGINS=http://app-main:8080
 APP_AI_QUESTION_CALLBACK_CONNECT_TIMEOUT=2s
 APP_AI_QUESTION_CALLBACK_READ_TIMEOUT=5s
 APP_AI_INTERNAL_CALLBACK_TOKEN=shared-token
+APP_AI_DISPATCH_TRANSPORT=rabbitmq
+RABBITMQ_HOST=rabbitmq
+RABBITMQ_PORT=5672
+RABBITMQ_VIRTUAL_HOST=/ieum
+RABBITMQ_USERNAME=ieum_ai
+RABBITMQ_PASSWORD=fixture-rabbitmq-ai-password
 EOF
 
 assert_success "$VALIDATOR" app-main "$TMP_DIR/main.env" "$TMP_DIR/ai.env"
@@ -186,8 +198,44 @@ cp "$TMP_DIR/main.env" "$TMP_DIR/mismatch.env"
 replace_line "$TMP_DIR/mismatch.env" APP_AI_INTERNAL_CALLBACK_TOKEN APP_AI_INTERNAL_CALLBACK_TOKEN=different-token
 assert_failure "$VALIDATOR" app-main "$TMP_DIR/main.env" "$TMP_DIR/mismatch.env"
 
+cp "$TMP_DIR/main.env" "$TMP_DIR/missing-rabbitmq-host.env"
+grep -v '^RABBITMQ_HOST=' "$TMP_DIR/main.env" > "$TMP_DIR/missing-rabbitmq-host.env"
+assert_failure "$VALIDATOR" app-main "$TMP_DIR/missing-rabbitmq-host.env"
+
+cp "$TMP_DIR/main.env" "$TMP_DIR/wrong-rabbitmq-host.env"
+replace_line "$TMP_DIR/wrong-rabbitmq-host.env" RABBITMQ_HOST RABBITMQ_HOST=localhost
+assert_failure "$VALIDATOR" app-main "$TMP_DIR/wrong-rabbitmq-host.env"
+
+cp "$TMP_DIR/main.env" "$TMP_DIR/wrong-rabbitmq-vhost.env"
+replace_line "$TMP_DIR/wrong-rabbitmq-vhost.env" RABBITMQ_VIRTUAL_HOST RABBITMQ_VIRTUAL_HOST=/
+assert_failure "$VALIDATOR" app-main "$TMP_DIR/wrong-rabbitmq-vhost.env"
+
+cp "$TMP_DIR/main.env" "$TMP_DIR/blank-rabbitmq-password.env"
+replace_line "$TMP_DIR/blank-rabbitmq-password.env" RABBITMQ_PASSWORD RABBITMQ_PASSWORD=
+assert_failure "$VALIDATOR" app-main "$TMP_DIR/blank-rabbitmq-password.env"
+
+# Cross-credential protection: an app-ai username must never validate for
+# app-main, and vice versa.
+cp "$TMP_DIR/main.env" "$TMP_DIR/main-with-ai-username.env"
+replace_line "$TMP_DIR/main-with-ai-username.env" RABBITMQ_USERNAME RABBITMQ_USERNAME=ieum_ai
+assert_failure "$VALIDATOR" app-main "$TMP_DIR/main-with-ai-username.env"
+
+cp "$TMP_DIR/ai.env" "$TMP_DIR/ai-with-main-username.env"
+replace_line "$TMP_DIR/ai-with-main-username.env" RABBITMQ_USERNAME RABBITMQ_USERNAME=ieum_main
+assert_failure "$VALIDATOR" app-ai "$TMP_DIR/ai-with-main-username.env"
+
+# scan_unsafe_addresses already scans *_HOST keys; an AWS private RabbitMQ
+# host must be rejected the same way as any other unsafe host value.
+cp "$TMP_DIR/main.env" "$TMP_DIR/unsafe-rabbitmq-host.env"
+replace_line "$TMP_DIR/unsafe-rabbitmq-host.env" RABBITMQ_HOST RABBITMQ_HOST=broker.internal.ap-northeast-2.rds.amazonaws.com
+assert_failure "$VALIDATOR" app-main "$TMP_DIR/unsafe-rabbitmq-host.env"
+
+cp "$TMP_DIR/main.env" "$TMP_DIR/missing-dispatch-transport.env"
+grep -v '^APP_AI_DISPATCH_TRANSPORT=' "$TMP_DIR/main.env" > "$TMP_DIR/missing-dispatch-transport.env"
+assert_failure "$VALIDATOR" app-main "$TMP_DIR/missing-dispatch-transport.env"
+
 output=$({ "$VALIDATOR" app-main "$TMP_DIR/bad.env"; } 2>&1 || true)
-if printf '%s' "$output" | grep -Eq 'redacted|shared-token|different-token'; then
+if printf '%s' "$output" | grep -Eq 'redacted|shared-token|different-token|fixture-rabbitmq-(main|ai)-password'; then
   printf 'FAIL (secret leaked in validator output)\n' >&2; fail=$((fail + 1))
 else pass=$((pass + 1)); fi
 

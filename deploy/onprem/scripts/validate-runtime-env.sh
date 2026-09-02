@@ -90,7 +90,18 @@ scan_unsafe_addresses "$env_file"
 
 require_nonempty APP_AI_INTERNAL_CALLBACK_TOKEN
 
+# RabbitMQ AI job transport (spec.md §11.4). Shared by both services; the
+# per-service username check below prevents an app-main credential from
+# ending up in app-ai's env file or vice versa.
+require_exact RABBITMQ_HOST rabbitmq
+require_exact RABBITMQ_PORT 5672
+require_exact RABBITMQ_VIRTUAL_HOST /ieum
+require_nonempty RABBITMQ_USERNAME
+require_nonempty RABBITMQ_PASSWORD
+require_key APP_AI_DISPATCH_TRANSPORT
+
 if [[ "$service" == app-main ]]; then
+  require_exact RABBITMQ_USERNAME ieum_main
   require_exact SERVER_PORT 8080
   require_exact SERVER_FORWARD_HEADERS_STRATEGY native
   require_exact SPRING_DATASOURCE_URL jdbc:postgresql://host.docker.internal:5432/ieum
@@ -135,6 +146,7 @@ else
     APP_FILE_S3_TMP_PREFIX APP_FILE_S3_FINAL_PREFIX; do
     has_key "$forbidden_key" && fail "app-ai must not define ${forbidden_key}"
   done
+  require_exact RABBITMQ_USERNAME ieum_ai
   require_exact SERVER_PORT 8081
   require_exact SPRING_DATASOURCE_URL jdbc:postgresql://host.docker.internal:5432/ieum
   require_exact AWS_REGION ap-northeast-2
