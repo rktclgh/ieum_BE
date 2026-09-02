@@ -33,6 +33,13 @@ import shinhan.fibri.ieum.common.ai.job.AiJobTopology;
  * 카운트가 상한({@code AiJobTopology.MAX_DELIVERY_ATTEMPTS})에 도달하면 {@link AiJobDeadLetterPublisher}가
  * NACK 대신 DLQ 경로로 전환한다(spec.md §6.3).
  *
+ * <p><b>dispatch 중 예외</b>: {@code dispatchService.dispatch(...)}(또는 그 뒤의 {@code settle}) 밖으로
+ * 새는 {@code RuntimeException}(예: {@code DataAccessException})을 그대로 흘려보내면 Spring의
+ * {@code default-requeue-rejected=false} 처리기가 {@code x-death}를 보지 않고 NACK 하므로 재시도
+ * 상한을 절대 만나지 못한 채 work↔retry 큐를 영원히 순환한다. 그래서 이 리스너는 그 예외를 잡아
+ * {@link AiJobDeadLetterPublisher#retryOrDeadLetter}로 명시적으로 위임한다
+ * ({@link AiJobMessageSettlement#REASON_DISPATCH_EXCEPTION}) — 상한 판정을 다시 정상 경로에 태운다.
+ *
  * <p>멱등성은 {@code jobId}가 아니라 {@code ai_question_tasks}의 DB 상태 머신이 보장한다
  * (spec.md §8.2) — {@link QuestionAnswerJobDispatchService#dispatch(long)}가 이미 이 판단을 한다.
  */
@@ -84,10 +91,19 @@ public class QuestionAnswerJobMessageListener {
 			return;
 		}
 
-		QuestionAnswerJobDispatchResult result = dispatchService.dispatch(questionId);
-		log.info("event=ai_job_consumed jobType=question_answer_dispatch questionId={} result={}",
-			questionId, result);
-		settle(result, message, channel, deliveryTag);
+		try {
+			QuestionAnswerJobDispatchResult result = dispatchService.dispatch(questionId);
+			log.info("event=ai_job_consumed jobType=question_answer_dispatch questionId={} result={}",
+				questionId, result);
+			settle(result, message, channel, deliveryTag);
+		}
+		catch (RuntimeException failure) {
+			log.error(
+				"event=ai_job_dispatch_exception jobType=question_answer_dispatch questionId={} failureType={}",
+				questionId, failure.getClass().getSimpleName());
+			deadLetterPublisher.retryOrDeadLetter(
+				channel, deliveryTag, message, AiJobMessageSettlement.REASON_DISPATCH_EXCEPTION);
+		}
 	}
 
 	private void settle(QuestionAnswerJobDispatchResult result, Message message, Channel channel, long deliveryTag)

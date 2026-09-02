@@ -23,6 +23,10 @@ import shinhan.fibri.ieum.common.ai.job.AiJobTopology;
  * <p><b>ACK 시점 계약</b>은 {@link QuestionAnswerJobMessageListener}와 같다(spec.md §8.3) —
  * lane 제출 성공 시점에 ACK 한다. 상태 검증(멱등성)은 워커의 {@code claimByAnswerId(answerId)}가
  * lease/attempt fencing 으로 담당하므로, 이 컨슈머는 DB 조회 없이 lane 에 넣기만 한다.
+ *
+ * <p><b>dispatch 중 예외</b> 처리도 {@link QuestionAnswerJobMessageListener}와 같다 — {@code lane.submit(...)}
+ * 밖으로 새는 {@code RuntimeException}을 잡아 {@link AiJobDeadLetterPublisher#retryOrDeadLetter}로
+ * 위임한다({@link AiJobMessageSettlement#REASON_DISPATCH_EXCEPTION}), 재시도 상한을 우회하지 않도록.
  */
 @Component
 public class AcceptedAnswerKnowledgeMessageListener {
@@ -72,10 +76,19 @@ public class AcceptedAnswerKnowledgeMessageListener {
 			return;
 		}
 
-		AcceptedAnswerKnowledgeTaskSubmission submission = lane.submit(answerId);
-		log.info("event=ai_job_consumed jobType=accepted_answer_knowledge_ingest answerId={} result={}",
-			answerId, submission);
-		settle(submission, message, channel, deliveryTag);
+		try {
+			AcceptedAnswerKnowledgeTaskSubmission submission = lane.submit(answerId);
+			log.info("event=ai_job_consumed jobType=accepted_answer_knowledge_ingest answerId={} result={}",
+				answerId, submission);
+			settle(submission, message, channel, deliveryTag);
+		}
+		catch (RuntimeException failure) {
+			log.error(
+				"event=ai_job_dispatch_exception jobType=accepted_answer_knowledge_ingest answerId={} failureType={}",
+				answerId, failure.getClass().getSimpleName());
+			deadLetterPublisher.retryOrDeadLetter(
+				channel, deliveryTag, message, AiJobMessageSettlement.REASON_DISPATCH_EXCEPTION);
+		}
 	}
 
 	private void settle(AcceptedAnswerKnowledgeTaskSubmission submission, Message message, Channel channel,

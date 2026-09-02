@@ -152,6 +152,58 @@ class AiJobRetryDlqIntegrationTest {
 		assertThat(queueMessageCount(DLQ)).isEqualTo(1);
 	}
 
+	/**
+	 * 리뷰 발견 사항 보강: {@code dispatchService.dispatch(...)}가 매번 {@code RuntimeException}을
+	 * 던지는 경우도 위 SATURATED 시나리오와 동일하게 재시도 상한을 거쳐 DLQ 에 도착해야 한다 — 리스너가
+	 * 이 예외를 잡지 않고 그대로 흘려보내면 Spring 의 {@code default-requeue-rejected=false} 처리기가
+	 * {@code x-death}를 보지 않고 NACK 하므로 상한에 도달하지 못한 채 work↔retry 큐를 영원히 순환한다.
+	 */
+	@Test
+	void messageWhoseDispatchThrowsIsRetriedFiveTimesThenLandsInTheDlqExactlyOnce() throws Exception {
+		QuestionAnswerJobDispatchService dispatchService = mock(QuestionAnswerJobDispatchService.class);
+		when(dispatchService.dispatch(778L)).thenThrow(new IllegalStateException("boom"));
+		AiJobDeadLetterPublisher deadLetterPublisher = new RabbitAiJobDeadLetterPublisher();
+		QuestionAnswerJobMessageListener listener =
+			new QuestionAnswerJobMessageListener(dispatchService, deadLetterPublisher, objectMapper);
+
+		AtomicInteger workDeliveries = new AtomicInteger();
+		CountDownLatch dlqLatch = new CountDownLatch(1);
+		List<Map<String, Object>> dlqHeaders = new CopyOnWriteArrayList<>();
+
+		workDrainer = AiJobRawQueueDrainer.consumingWith(WORK_QUEUE, (channel, delivery) -> {
+			workDeliveries.incrementAndGet();
+			Message message = toSpringMessage(delivery.getBody(), delivery.getProperties().getHeaders(), WORK_QUEUE);
+			listener.onMessage(message, channel, delivery.getEnvelope().getDeliveryTag());
+		});
+		dlqDrainer = AiJobRawQueueDrainer.consumingWith(DLQ, (channel, delivery) -> {
+			dlqHeaders.add(delivery.getProperties().getHeaders());
+			dlqLatch.countDown();
+		});
+
+		publishRaw(dispatchMessageJson(778L).getBytes(StandardCharsets.UTF_8));
+
+		assertThat(dlqLatch.await(20, TimeUnit.SECONDS))
+			.as("message must land in the DLQ after MAX_DELIVERY_ATTEMPTS retries even when dispatch throws")
+			.isTrue();
+
+		Thread.sleep(RETRY_TTL_MS_FOR_TEST + 500L);
+
+		dlqDrainer.stop();
+		dlqDrainer = null;
+		Thread.sleep(200);
+
+		assertThat(workDeliveries.get())
+			.as("exactly one initial delivery + MAX_DELIVERY_ATTEMPTS retries")
+			.isEqualTo(1 + AiJobTopology.MAX_DELIVERY_ATTEMPTS);
+		assertThat(dlqHeaders).hasSize(1);
+		assertThat(String.valueOf(dlqHeaders.get(0).get(AiJobDeadLetterPublisher.HEADER_DLQ_REASON)))
+			.isEqualTo(AiJobMessageSettlement.REASON_DISPATCH_EXCEPTION);
+		assertThat(dlqHeaders.get(0).get("x-death")).as("x-death must be preserved on the DLQ message").isNotNull();
+		assertThat(queueMessageCount(WORK_QUEUE)).isZero();
+		assertThat(queueMessageCount(RETRY_QUEUE)).isZero();
+		assertThat(queueMessageCount(DLQ)).isEqualTo(1);
+	}
+
 	private long queueMessageCount(String queue) {
 		var info = admin.getQueueInfo(queue);
 		return info == null ? -1 : info.getMessageCount();
