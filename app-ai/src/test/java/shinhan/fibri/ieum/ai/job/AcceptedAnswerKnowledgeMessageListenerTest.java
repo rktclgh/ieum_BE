@@ -15,6 +15,7 @@ import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageProperties;
 import shinhan.fibri.ieum.ai.job.dlq.AiJobDeadLetterPublisher;
@@ -99,6 +100,19 @@ class AcceptedAnswerKnowledgeMessageListenerTest {
 		verifyNoInteractions(lane);
 	}
 
+	@ParameterizedTest
+	@ValueSource(strings = {"42.9", "\"42\"", "true"})
+	void nonIntegralAnswerIdIsDeadLetteredWithoutCallingTheLane(String answerIdLiteral) throws Exception {
+		Message message = messageWithAnswerIdLiteral(answerIdLiteral);
+
+		listener.onMessage(message, channel, 3L);
+
+		verify(deadLetterPublisher).deadLetter(
+			eq(channel), eq(3L), eq(message), eq(AiJobMessageSettlement.REASON_INVALID_PAYLOAD)
+		);
+		verifyNoInteractions(lane);
+	}
+
 	@Test
 	void unparseablePayloadIsDeadLetteredWithoutCallingTheLane() throws Exception {
 		Message message = rawMessage("{{{not json".getBytes(StandardCharsets.UTF_8));
@@ -134,6 +148,15 @@ class AcceptedAnswerKnowledgeMessageListenerTest {
 			 "jobType":"accepted_answer_knowledge_ingest","answerId":%d,
 			 "occurredAt":"2026-09-02T09:20:31.004Z"}
 			""".formatted(answerId);
+		return rawMessage(json.getBytes(StandardCharsets.UTF_8));
+	}
+
+	private static Message messageWithAnswerIdLiteral(String answerIdLiteral) {
+		String json = """
+			{"schemaVersion":1,"jobId":"22222222-2222-2222-2222-222222222222",
+			 "jobType":"accepted_answer_knowledge_ingest","answerId":%s,
+			 "occurredAt":"2026-09-02T09:20:31.004Z"}
+			""".formatted(answerIdLiteral);
 		return rawMessage(json.getBytes(StandardCharsets.UTF_8));
 	}
 

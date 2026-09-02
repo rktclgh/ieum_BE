@@ -15,6 +15,7 @@ import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageProperties;
 import shinhan.fibri.ieum.ai.job.dlq.AiJobDeadLetterPublisher;
@@ -137,6 +138,20 @@ class QuestionAnswerJobMessageListenerTest {
 		verifyNoInteractions(dispatchService);
 	}
 
+	@ParameterizedTest
+	@ValueSource(strings = {"42.9", "\"42\"", "true"})
+	void nonIntegralQuestionIdIsDeadLetteredWithoutCallingTheDispatchService(String questionIdLiteral)
+		throws Exception {
+		Message message = messageWithQuestionIdLiteral(questionIdLiteral);
+
+		listener.onMessage(message, channel, 7L);
+
+		verify(deadLetterPublisher).deadLetter(
+			eq(channel), eq(7L), eq(message), eq(AiJobMessageSettlement.REASON_INVALID_PAYLOAD)
+		);
+		verifyNoInteractions(dispatchService);
+	}
+
 	@Test
 	void missingSchemaVersionIsDeadLetteredWithoutCallingTheDispatchService() throws Exception {
 		String json = """
@@ -180,6 +195,15 @@ class QuestionAnswerJobMessageListenerTest {
 			 "jobType":"question_answer_dispatch","questionId":%d,"reason":"created",
 			 "occurredAt":"2026-09-02T09:15:04.512Z"}
 			""".formatted(questionId);
+		return rawMessage(json.getBytes(StandardCharsets.UTF_8));
+	}
+
+	private static Message messageWithQuestionIdLiteral(String questionIdLiteral) {
+		String json = """
+			{"schemaVersion":1,"jobId":"11111111-1111-1111-1111-111111111111",
+			 "jobType":"question_answer_dispatch","questionId":%s,"reason":"created",
+			 "occurredAt":"2026-09-02T09:15:04.512Z"}
+			""".formatted(questionIdLiteral);
 		return rawMessage(json.getBytes(StandardCharsets.UTF_8));
 	}
 

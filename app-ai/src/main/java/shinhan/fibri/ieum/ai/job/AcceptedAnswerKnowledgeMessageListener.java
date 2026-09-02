@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rabbitmq.client.Channel;
 import java.io.IOException;
 import java.util.Optional;
+import java.util.OptionalLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.core.Message;
@@ -78,11 +79,12 @@ public class AcceptedAnswerKnowledgeMessageListener {
 			return;
 		}
 
-		long answerId = root.path("answerId").asLong(0);
-		if (answerId <= 0) {
+		OptionalLong answerIdField = AiJobMessageSettlement.readPositiveIntegralId(root, "answerId");
+		if (answerIdField.isEmpty()) {
 			dlq(message, channel, deliveryTag, AiJobMessageSettlement.REASON_INVALID_PAYLOAD);
 			return;
 		}
+		long answerId = answerIdField.getAsLong();
 
 		try {
 			AcceptedAnswerKnowledgeTaskSubmission submission = lane.submit(answerId);

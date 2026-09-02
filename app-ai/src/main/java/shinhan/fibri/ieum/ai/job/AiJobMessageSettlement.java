@@ -1,6 +1,8 @@
 package shinhan.fibri.ieum.ai.job;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import java.util.Optional;
+import java.util.OptionalLong;
 import shinhan.fibri.ieum.common.ai.job.AiJobTopology;
 
 /**
@@ -62,5 +64,23 @@ public enum AiJobMessageSettlement {
 			return Optional.of(REASON_UNSUPPORTED_SCHEMA_VERSION);
 		}
 		return Optional.empty();
+	}
+
+	/**
+	 * 양의 정수 ID 필드({@code questionId}, {@code answerId})를 엄격하게 읽는다(리뷰 발견 사항).
+	 * {@link JsonNode#asLong(long)}은 소수/문자열/불리언 등 정수가 아닌 노드도 관대하게 변환해버려
+	 * ({@code 42.9} → {@code 42}, {@code "42"} → {@code 42}, {@code true} → {@code 1}) 잘못된 값이
+	 * 그대로 dispatch 되는 문제가 있다. 이 메서드는 노드가 <b>정수 JSON 타입</b>이고 {@code long} 범위에
+	 * 들어올 때만 값을 반환한다 — 필드 누락, 정수가 아닌 타입(소수·문자열·불리언 등), 범위 초과, 0
+	 * 이하는 전부 {@link OptionalLong#empty()}이며, 호출부는 이를 {@code REASON_INVALID_PAYLOAD}로
+	 * 즉시 DLQ 처리해야 한다.
+	 */
+	public static OptionalLong readPositiveIntegralId(JsonNode root, String field) {
+		JsonNode node = root.get(field);
+		if (node == null || node.isNull() || !node.isIntegralNumber() || !node.canConvertToLong()) {
+			return OptionalLong.empty();
+		}
+		long value = node.longValue();
+		return value > 0 ? OptionalLong.of(value) : OptionalLong.empty();
 	}
 }

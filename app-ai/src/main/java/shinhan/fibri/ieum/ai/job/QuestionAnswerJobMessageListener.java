@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rabbitmq.client.Channel;
 import java.io.IOException;
 import java.util.Optional;
+import java.util.OptionalLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.core.Message;
@@ -96,11 +97,12 @@ public class QuestionAnswerJobMessageListener {
 			return;
 		}
 
-		long questionId = root.path("questionId").asLong(0);
-		if (questionId <= 0) {
+		OptionalLong questionIdField = AiJobMessageSettlement.readPositiveIntegralId(root, "questionId");
+		if (questionIdField.isEmpty()) {
 			dlq(message, channel, deliveryTag, AiJobMessageSettlement.REASON_INVALID_PAYLOAD);
 			return;
 		}
+		long questionId = questionIdField.getAsLong();
 
 		try {
 			QuestionAnswerJobDispatchResult result = dispatchService.dispatch(questionId);
