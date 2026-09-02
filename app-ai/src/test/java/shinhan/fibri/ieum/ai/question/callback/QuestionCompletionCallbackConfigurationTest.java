@@ -3,9 +3,11 @@ package shinhan.fibri.ieum.ai.question.callback;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.http.HttpClient;
 import java.util.concurrent.ThreadPoolExecutor;
 import org.junit.jupiter.api.Test;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import shinhan.fibri.ieum.ai.question.service.QuestionCompletionCallbackWake;
@@ -43,6 +45,8 @@ class QuestionCompletionCallbackConfigurationTest {
 			.run(context -> {
 				assertThat(context).hasSingleBean(QuestionCompletionCallbackWake.class);
 				assertThat(context).hasSingleBean(QuestionCompletionCallbackClient.class);
+				assertThat(context.getBean(QuestionCompletionCallbackClient.class))
+					.isInstanceOf(HttpQuestionCompletionCallbackClient.class);
 				assertThat(context).hasSingleBean(QuestionCompletionCallbackProperties.class);
 				assertThat(context).doesNotHaveBean("questionCompletionCallbackRecoveryService");
 				assertThat(context).doesNotHaveBean("questionCompletionCallbackRecoveryScheduler");
@@ -57,6 +61,25 @@ class QuestionCompletionCallbackConfigurationTest {
 				assertThat(executor.getThreadPoolExecutor().getQueue().remainingCapacity()).isEqualTo(32);
 				assertThat(executor.getThreadPoolExecutor().getRejectedExecutionHandler())
 					.isInstanceOf(ThreadPoolExecutor.AbortPolicy.class);
+			});
+	}
+
+	@Test
+	void rabbitmqTransportSelectsTheRabbitClientInsteadOfHttp() {
+		contextRunner
+			.withBean(RabbitTemplate.class, () -> mock(RabbitTemplate.class))
+			.withBean(ObjectMapper.class, ObjectMapper::new)
+			.withPropertyValues(
+				"app.ai.features.question-answer-enabled=true",
+				"app.ai.question-answer.callback.base-origin=http://app-main.internal:8080",
+				"app.ai.question-answer.callback.allowed-origins=http://app-main.internal:8080",
+				"app.ai.question-answer.callback.internal-token=shared-secret",
+				"app.ai.question-answer.callback.transport=rabbitmq"
+			)
+			.run(context -> {
+				assertThat(context).hasSingleBean(QuestionCompletionCallbackClient.class);
+				assertThat(context.getBean(QuestionCompletionCallbackClient.class))
+					.isInstanceOf(RabbitQuestionCompletionCallbackClient.class);
 			});
 	}
 }
