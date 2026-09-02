@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "jobId": "0f2a8b41-6d4e-4a2b-9f61-2c8f0d1e3a77",
+  "jobType": "question_answer_dispatch",
+  "questionId": 12345,
+  "reason": "created",
+  "occurredAt": "2026-09-02T09:15:04.512Z"
+}
