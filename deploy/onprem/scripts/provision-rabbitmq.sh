@@ -106,19 +106,32 @@ generate_password() {
   "$OPENSSL_BIN" rand -hex 32
 }
 
-# add_user fails if the account already exists; fall back to resetting its
-# password only in that case so re-running this script never rotates a
-# password that was already handed to an app.
+# Whether `user` already exists on the broker, probed via `list_users`
+# (tab-separated `name\ttags` lines) rather than inferred from add_user's
+# exit status.
+user_exists() {
+  local user=$1 listing
+  listing=$(exec_rmq list_users --quiet) || die "unable to list rabbitmq users"
+  printf '%s\n' "$listing" | awk -F'\t' -v u="$user" '$1 == u { found = 1 } END { exit !found }'
+}
+
+# A password is generated and set exactly once per account, at creation
+# time. Re-running this script against an account that already exists must
+# never call `change_password` — doing so with a *freshly generated*
+# password (the previous bug) silently rotates the broker-side credential
+# to a value nobody records, locking the app out on its next reconnect.
+# `list_users` is queried first so "exists" is never inferred from
+# add_user's exit status.
 ensure_user() {
-  local user=$1 password=$2
-  if exec_rmq add_user "$user" "$password" >/dev/null 2>&1; then
-    NEW_USERS+=("$user=$password")
-  elif ! exec_rmq change_password "$user" "$password" >/dev/null 2>&1; then
-    # add_user's failure was expected to mean "already exists"; if
-    # change_password also fails, something else is wrong (broker
-    # unreachable, permissions, etc.) and must not be swallowed silently.
-    die "unable to reconcile rabbitmq account ${user}"
+  local user=$1
+  if user_exists "$user"; then
+    printf 'ieum provision rabbitmq: account %s exists, unchanged\n' "$user" >&2
+    return 0
   fi
+  local password
+  password=$(generate_password)
+  exec_rmq add_user "$user" "$password" >/dev/null || die "unable to create rabbitmq account ${user}"
+  NEW_USERS+=("$user=$password")
 }
 ensure_permissions() {
   local user=$1 configure=$2 write=$3 read=$4
@@ -174,14 +187,14 @@ main() {
   # publishes to (basic.publish), and read on all 4 exchanges
   # (bind-read-on-exchange) in addition to the queue(s) each actually
   # consumes (basic.consume).
-  ensure_user ieum_main "$(generate_password)"
+  ensure_user ieum_main
   ensure_permissions ieum_main \
     '^ieum\.(ai|main)\..*$' \
     '^ieum\.(ai|main)\..*$' \
     '^ieum\.ai\.(jobs|results|retry|dlx)$|^ieum\.main\.question-answer\.completed$'
   ensure_no_tags ieum_main
 
-  ensure_user ieum_ai "$(generate_password)"
+  ensure_user ieum_ai
   ensure_permissions ieum_ai \
     '^ieum\.(ai|main)\..*$' \
     '^ieum\.(ai|main)\..*$' \

@@ -204,7 +204,14 @@ grep -Fq 'IEUM_AI_RABBITMQ_PASSWORD=deadbeefcafefixturehexpassword00' "$generate
 grep -Fq 'deadbeefcafefixturehexpassword00' "$TMP_DIR/stdout" && fail "generated password leaked into stdout"
 grep -Fq 'deadbeefcafefixturehexpassword00' "$TMP_DIR/stderr" && fail "generated password leaked into stderr"
 
-# --- Idempotency: re-running does not rotate an already-provisioned account ---
+# --- Idempotency: re-running against a broker that already has both
+# accounts must not rotate their passwords. Probing existence via
+# `list_users` and skipping add_user/change_password entirely for an
+# account that is already there is the only safe behavior — calling
+# change_password with a freshly generated password (the previous bug)
+# silently changes the broker-side credential to a value that is never
+# recorded anywhere, locking the app out on its next connection attempt
+# (finding C2). ---
 cat >"$BIN_DIR/docker" <<'EOF'
 #!/usr/bin/env bash
 set -u
@@ -232,7 +239,15 @@ case "${1-}" in
     exit 0
     ;;
   exec)
-    if [[ "${*}" == *'add_user'* ]]; then exit 1; fi
+    if [[ "${*}" == *'list_users'* ]]; then
+      printf 'ieum_main\t[]\n'
+      printf 'ieum_ai\t[]\n'
+      exit 0
+    fi
+    if [[ "${*}" == *'add_user'* || "${*}" == *'change_password'* ]]; then
+      # An already-provisioned account must never reach either call.
+      exit 1
+    fi
     exit 0
     ;;
   *) exit 0 ;;
@@ -244,7 +259,9 @@ before_checksum=$(sha256sum "$generated" 2>/dev/null || shasum -a 256 "$generate
 assert_success run_provision
 after_checksum=$(sha256sum "$generated" 2>/dev/null || shasum -a 256 "$generated")
 [[ "$before_checksum" == "$after_checksum" ]] || fail "credentials file was rewritten for an already-provisioned account"
-grep -Fq 'rabbitmqctl change_password ieum_main' "$DOCKER_LOG" || fail "existing ieum_main was not reconciled via change_password"
+grep -Fq 'add_user' "$DOCKER_LOG" && fail "add_user was called for an already-provisioned account"
+grep -Fq 'change_password' "$DOCKER_LOG" && fail "change_password was called for an already-provisioned account (rotates the broker password without recording it — finding C2)"
+grep -Fq 'list_users' "$DOCKER_LOG" || fail "existing accounts were not probed via list_users before reconciling"
 
 # --- Failure: unsafe broker env file (world-readable) is rejected ---
 chmod 644 "$BROKER_ENV_FILE"
