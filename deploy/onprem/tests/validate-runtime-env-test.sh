@@ -210,6 +210,10 @@ cp "$TMP_DIR/main.env" "$TMP_DIR/wrong-rabbitmq-vhost.env"
 replace_line "$TMP_DIR/wrong-rabbitmq-vhost.env" RABBITMQ_VIRTUAL_HOST RABBITMQ_VIRTUAL_HOST=/
 assert_failure "$VALIDATOR" app-main "$TMP_DIR/wrong-rabbitmq-vhost.env"
 
+cp "$TMP_DIR/main.env" "$TMP_DIR/wrong-rabbitmq-port.env"
+replace_line "$TMP_DIR/wrong-rabbitmq-port.env" RABBITMQ_PORT RABBITMQ_PORT=5673
+assert_failure "$VALIDATOR" app-main "$TMP_DIR/wrong-rabbitmq-port.env"
+
 cp "$TMP_DIR/main.env" "$TMP_DIR/blank-rabbitmq-password.env"
 replace_line "$TMP_DIR/blank-rabbitmq-password.env" RABBITMQ_PASSWORD RABBITMQ_PASSWORD=
 assert_failure "$VALIDATOR" app-main "$TMP_DIR/blank-rabbitmq-password.env"

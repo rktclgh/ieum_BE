@@ -54,6 +54,30 @@ require_private_root_file() {
 }
 require_private_root_file "$BROKER_ENV_FILE" 'broker env file'
 
+# Fail closed before ever calling `compose up`: a blank or still-placeholder
+# admin/image value here means the broker would boot with guest-equivalent
+# credentials or fail to pull an image, and every check below this point
+# assumes a real broker is actually running. Never echo the value itself.
+value_of_env() {
+  local file=$1 key=$2
+  awk -F= -v k="$key" '
+    /^[[:space:]]*(#|$)/ { next }
+    $1 == k { value = substr($0, index($0, "=") + 1); found = 1 }
+    END { if (found) printf "%s", value }
+  ' "$file"
+}
+validate_broker_env_file() {
+  local file=$1 key value
+  for key in RABBITMQ_DEFAULT_USER RABBITMQ_DEFAULT_PASS RABBITMQ_IMAGE_DIGEST; do
+    value=$(value_of_env "$file" "$key")
+    [[ -n "$value" ]] || die "broker env file is missing or blank ${key}"
+    case "$value" in
+      *CHANGE_ME*|*'<'*) die "broker env file has a placeholder value for ${key}" ;;
+    esac
+  done
+}
+validate_broker_env_file "$BROKER_ENV_FILE"
+
 compose() {
   "$DOCKER_BIN" compose --project-name "$PROJECT_NAME" --file "$COMPOSE_FILE" --env-file "$BROKER_ENV_FILE" "$@"
 }
@@ -89,8 +113,11 @@ ensure_user() {
   local user=$1 password=$2
   if exec_rmq add_user "$user" "$password" >/dev/null 2>&1; then
     NEW_USERS+=("$user=$password")
-  else
-    exec_rmq change_password "$user" "$password" >/dev/null 2>&1 || true
+  elif ! exec_rmq change_password "$user" "$password" >/dev/null 2>&1; then
+    # add_user's failure was expected to mean "already exists"; if
+    # change_password also fails, something else is wrong (broker
+    # unreachable, permissions, etc.) and must not be swallowed silently.
+    die "unable to reconcile rabbitmq account ${user}"
   fi
 }
 ensure_permissions() {

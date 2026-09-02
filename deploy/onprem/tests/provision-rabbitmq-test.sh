@@ -247,5 +247,73 @@ chmod 644 "$BROKER_ENV_FILE"
 assert_failure run_provision
 chmod 600 "$BROKER_ENV_FILE"
 
+# --- Failure: broker env file content must be real, not blank/placeholder ---
+# compose up must never be reached with a blank or still-templated admin
+# credential or image reference. run_provision() always points the script at
+# the *shell variable* $BROKER_ENV_FILE (re-read on every call), so swap that
+# variable's value directly rather than trying to override it through env-var
+# prefixing (which would not survive the call into a nested shell function).
+write_broker_env_variant() {
+  local target=$1; shift
+  printf '%s\n' "$@" >"$target"
+  chmod 600 "$target"
+}
+assert_variant_rejected() {
+  local label=$1
+  : >"$DOCKER_LOG"
+  assert_failure run_provision
+  [[ -s "$DOCKER_LOG" ]] && fail "$label should fail before compose up is ever invoked"
+}
+
+variant_env="$ETC_DIR/rabbitmq-variant.env"
+original_broker_env_file="$BROKER_ENV_FILE"
+BROKER_ENV_FILE="$variant_env"
+
+write_broker_env_variant "$variant_env" \
+  'RABBITMQ_DEFAULT_VHOST=/ieum' 'RABBITMQ_DEFAULT_USER=' \
+  'RABBITMQ_DEFAULT_PASS=fixture-admin-password' 'RABBITMQ_IMAGE_DIGEST=rabbitmq@sha256:fixture'
+assert_variant_rejected "blank RABBITMQ_DEFAULT_USER"
+
+write_broker_env_variant "$variant_env" \
+  'RABBITMQ_DEFAULT_VHOST=/ieum' 'RABBITMQ_DEFAULT_USER=ieum_broker_admin' \
+  'RABBITMQ_DEFAULT_PASS=' 'RABBITMQ_IMAGE_DIGEST=rabbitmq@sha256:fixture'
+assert_variant_rejected "blank RABBITMQ_DEFAULT_PASS"
+
+write_broker_env_variant "$variant_env" \
+  'RABBITMQ_DEFAULT_VHOST=/ieum' 'RABBITMQ_DEFAULT_USER=ieum_broker_admin' \
+  'RABBITMQ_DEFAULT_PASS=fixture-admin-password' 'RABBITMQ_IMAGE_DIGEST='
+assert_variant_rejected "blank RABBITMQ_IMAGE_DIGEST"
+
+write_broker_env_variant "$variant_env" \
+  'RABBITMQ_DEFAULT_VHOST=/ieum' 'RABBITMQ_DEFAULT_USER=CHANGE_ME' \
+  'RABBITMQ_DEFAULT_PASS=fixture-admin-password' 'RABBITMQ_IMAGE_DIGEST=rabbitmq@sha256:fixture'
+assert_variant_rejected "placeholder RABBITMQ_DEFAULT_USER (CHANGE_ME)"
+
+write_broker_env_variant "$variant_env" \
+  'RABBITMQ_DEFAULT_VHOST=/ieum' 'RABBITMQ_DEFAULT_USER=ieum_broker_admin' \
+  'RABBITMQ_DEFAULT_PASS=<fill-me-in>' 'RABBITMQ_IMAGE_DIGEST=rabbitmq@sha256:fixture'
+assert_variant_rejected "placeholder RABBITMQ_DEFAULT_PASS (<...>)"
+
+write_broker_env_variant "$variant_env" \
+  'RABBITMQ_DEFAULT_VHOST=/ieum' 'RABBITMQ_DEFAULT_USER=ieum_broker_admin' \
+  'RABBITMQ_DEFAULT_PASS=fixture-admin-password' 'RABBITMQ_IMAGE_DIGEST=<pending>'
+assert_variant_rejected "placeholder RABBITMQ_IMAGE_DIGEST (<...>)"
+
+# Missing key entirely (not just blank) must also fail.
+write_broker_env_variant "$variant_env" \
+  'RABBITMQ_DEFAULT_VHOST=/ieum' 'RABBITMQ_DEFAULT_USER=ieum_broker_admin' \
+  'RABBITMQ_IMAGE_DIGEST=rabbitmq@sha256:fixture'
+assert_variant_rejected "missing RABBITMQ_DEFAULT_PASS key"
+
+# A fully valid variant (same shape as the main fixture) must still pass,
+# proving the validator isn't just rejecting everything.
+write_broker_env_variant "$variant_env" \
+  'RABBITMQ_DEFAULT_VHOST=/ieum' 'RABBITMQ_DEFAULT_USER=ieum_broker_admin' \
+  'RABBITMQ_DEFAULT_PASS=fixture-admin-password' 'RABBITMQ_IMAGE_DIGEST=rabbitmq@sha256:fixture'
+: >"$DOCKER_LOG"
+assert_success run_provision
+
+BROKER_ENV_FILE="$original_broker_env_file"
+
 printf 'passed=%d failed=%d\n' "$pass" "$fail_count"
 test "$fail_count" -eq 0
