@@ -712,6 +712,7 @@ chore: 런타임 환경 검증에 브로커 키 추가
 ```bash
 grep -n "Redis·SQS·outbox는 사용하지 않는다" "$IEUM_DOCS_DIR/api/API-SPEC.md"   # 결과 없어야 함
 grep -n "Redis/SQS와 app-main scheduled scan" "$IEUM_DOCS_DIR/api/API-SPEC.md"  # 결과 없어야 함
+grep -nE "startup/주기 callback discovery는 없다|자동 eventual delivery를 주장하지 않는다" "$IEUM_DOCS_DIR/api/API-SPEC.md"  # 결과 없어야 함
 grep -n "RabbitMQ" "$IEUM_DOCS_DIR/api/API-SPEC.md"                             # 새 절 존재
 ```
 
