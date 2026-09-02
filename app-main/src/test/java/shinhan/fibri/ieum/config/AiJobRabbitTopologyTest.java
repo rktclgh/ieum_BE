@@ -57,12 +57,12 @@ class AiJobRabbitTopologyTest {
 			.withInitializer(bootConversionService())
 			.withConfiguration(AutoConfigurations.of(RabbitAutoConfiguration.class))
 			// AiResultRabbitConfig 는 리뷰 라운드 1 finding 으로 결과(완료 통보) 토폴로지를
-			// AiJobRabbitConfig 에서 분리한 클래스다 — app.ai.outbox.enabled=true 이면
+			// AiJobRabbitConfig 에서 분리한 클래스다 — app.ai.dispatch.transport=rabbitmq 이면
 			// AnyNestedCondition 이 만족돼 여기서도 항상 함께 활성화된다. 전체 토폴로지를 검증하려면
 			// 둘 다 등록해야 한다.
 			.withUserConfiguration(AiJobRabbitConfig.class, AiResultRabbitConfig.class)
 			.withPropertyValues(
-				"app.ai.outbox.enabled=true",
+				"app.ai.dispatch.transport=rabbitmq",
 				"spring.rabbitmq.host=" + AiJobRabbitContainer.host(),
 				"spring.rabbitmq.port=" + AiJobRabbitContainer.amqpPort(),
 				"spring.rabbitmq.username=" + AiJobRabbitContainer.username(),

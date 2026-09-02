@@ -30,20 +30,22 @@ import shinhan.fibri.ieum.main.ai.outbox.service.AiJobOutboxProperties;
  * <p>app-ai 도 같은 {@link AiJobTopology} 상수로 같은 인자를 선언하므로, 어느 쪽이 먼저 뜨든 결과가
  * 같고 {@code PRECONDITION_FAILED} 가 구조적으로 나올 수 없다(spec.md §9 "큐 인자 불일치").
  *
- * <p>{@code app.ai.outbox.enabled=false}(기본값)이면 이 설정 자체가 통째로 비활성이다 — 즉
- * 전환 전에는 app-main 이 디스패치를 발행하지도, 이 클래스를 통해 브로커에 연결하지도 않는다.
+ * <p>{@code app.ai.dispatch.transport=http}(기본값)이면 이 설정 자체가 통째로 비활성이다 — 즉
+ * 전환 전에는 app-main 이 디스패치를 발행하지도, 이 클래스를 통해 브로커에 연결하지도 않는다. Task 8
+ * 이전에는 이 플래그가 {@code app.ai.outbox.enabled}였다 — {@code app.ai.dispatch.transport} 하나로
+ * HTTP 리스너 비활성화까지 함께 묶기 위해 대체했다(단일 스위치, application.properties 참고).
  *
  * <p><b>완료 결과(콜백) 큐 토폴로지는 여기 없다</b> — {@link AiResultRabbitConfig}로 분리했다
- * (리뷰 라운드 1 finding). spec.md §11.5 Stage 2는 이 클래스의 플래그(outbox)를 뒤집지 않고도
- * app-main 결과 컨슈머가 이미 살아 있기를 요구하므로, 결과 토폴로지를 이 플래그에 묶어 두면 Stage 2
- * 의 완료 메시지가 소비자 없이 쌓인다. {@code aiRetryExchange}/{@code aiDlxExchange}는 이 클래스의
- * 디스패치 큐도 참조하는 공유 exchange라 {@link AiResultRabbitConfig}에서 선언하고 여기서는 빈
- * 참조로만 받는다 — {@link AiResultRabbitConfig}는 outbox 플래그가 켜져 있어도 활성화되므로
- * ({@code RabbitTopologyRequiredCondition}) 이 클래스가 살아 있는 한 그 두 exchange 빈도 항상
- * 함께 존재한다.
+ * (리뷰 라운드 1 finding). spec.md §11.5 Stage 2는 이 클래스의 플래그({@code transport=rabbitmq})를
+ * 뒤집지 않고도 app-main 결과 컨슈머가 이미 살아 있기를 요구하므로, 결과 토폴로지를 이 플래그에 묶어
+ * 두면 Stage 2의 완료 메시지가 소비자 없이 쌓인다. {@code aiRetryExchange}/{@code aiDlxExchange}는
+ * 이 클래스의 디스패치 큐도 참조하는 공유 exchange라 {@link AiResultRabbitConfig}에서 선언하고
+ * 여기서는 빈 참조로만 받는다 — {@link AiResultRabbitConfig}는 디스패치 transport 가 rabbitmq 여도
+ * 활성화되므로({@code RabbitTopologyRequiredCondition}) 이 클래스가 살아 있는 한 그 두 exchange
+ * 빈도 항상 함께 존재한다.
  */
 @Configuration
-@ConditionalOnProperty(prefix = "app.ai.outbox", name = "enabled", havingValue = "true")
+@ConditionalOnProperty(name = "app.ai.dispatch.transport", havingValue = "rabbitmq")
 public class AiJobRabbitConfig {
 
 	private static final Logger log = LoggerFactory.getLogger(AiJobRabbitConfig.class);

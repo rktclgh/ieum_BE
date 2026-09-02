@@ -48,13 +48,14 @@ import shinhan.fibri.ieum.main.notification.internal.AiQuestionAnswerTicketNotFo
  * 로직(락, notificationProcessedAt 체크, deleted 플래그)이 이미 하고 있고, 이 리스너는 그 결과에
  * 개입하지 않는다.
  *
- * <p><b>활성 플래그는 {@code app.ai.outbox.enabled}가 아니다.</b> 그 플래그는 app-main 의 디스패치
- * 발행 relay(Stage 3, spec.md §11.5)를 켠다. 이 리스너는 별도의 {@code app.ai.result.consumer.enabled}
- * 로 게이트된다(기본값 {@code true}) — spec.md §11.5 롤아웃 Stage 2는 app-ai 쪽 플래그
- * (`APP_AI_QUESTION_CALLBACK_TRANSPORT=rabbitmq`, `APP_AI_COMPLETION_RELAY_ENABLED=true`)만 뒤집고
- * app-main 은 아무 것도 바꾸지 않은 채로 "app-main 결과 컨슈머가 받는다"고 명시하므로, 이 리스너는
- * outbox 플래그와 무관하게 기본적으로 켜져 있어야 한다 — app-ai 의 디스패치 컨슈머가 항상 켜져 있는
- * 것과 같은 이유·같은 패턴이다. 이 리스너가 필요로 하는 큐/exchange 토폴로지는
+ * <p><b>활성 플래그는 {@code app.ai.dispatch.transport}가 아니다.</b> 그 플래그는 app-main 의 디스패치
+ * 발행 relay(Stage 3, spec.md §11.5, {@code rabbitmq} 값)를 켠다. 이 리스너는 별도의
+ * {@code app.ai.result.consumer.enabled}로 게이트된다(기본값 {@code true}) — spec.md §11.5 롤아웃
+ * Stage 2는 app-ai 쪽 플래그(`APP_AI_QUESTION_CALLBACK_TRANSPORT=rabbitmq`,
+ * `APP_AI_COMPLETION_RELAY_ENABLED=true`)만 뒤집고 app-main 은 아무 것도 바꾸지 않은 채로
+ * "app-main 결과 컨슈머가 받는다"고 명시하므로, 이 리스너는 디스패치 transport 와 무관하게 기본적으로
+ * 켜져 있어야 한다 — app-ai 의 디스패치 컨슈머가 항상 켜져 있는 것과 같은 이유·같은 패턴이다. 이
+ * 리스너가 필요로 하는 큐/exchange 토폴로지는
  * {@link shinhan.fibri.ieum.config.AiResultRabbitConfig}가 같은 이름의 프로퍼티(둘 중 하나라도
  * 참이면) 로 독립적으로 선언한다 — 리뷰 라운드 1 finding.
  */

@@ -81,9 +81,9 @@ class AiJobOutboxRelayTransactionBoundaryIntegrationTest {
 	static void registerDataSourceProperties(DynamicPropertyRegistry registry) {
 		CanonicalPostgresDataSource.recreateAndRegister(registry, DATABASE);
 		registry.add("spring.jpa.hibernate.ddl-auto", () -> "none");
-		// AiJobOutboxRelay는 @ConditionalOnProperty(app.ai.outbox.enabled=true)다 —
+		// AiJobOutboxRelay는 @ConditionalOnProperty(app.ai.dispatch.transport=rabbitmq)다 —
 		// @Import로 직접 등록해도 이 조건은 그대로 평가되므로 켜야 빈이 실제로 생긴다.
-		registry.add("app.ai.outbox.enabled", () -> "true");
+		registry.add("app.ai.dispatch.transport", () -> "rabbitmq");
 	}
 
 	@Autowired

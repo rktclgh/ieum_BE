@@ -44,7 +44,7 @@ class QuestionCompletionRelayIntegrationTest {
 	@DynamicPropertySource
 	static void configure(DynamicPropertyRegistry registry) {
 		CanonicalPostgresDataSource.recreateAndRegister(registry, "ai_completion_relay");
-		registry.add("app.ai.outbox.enabled", () -> "true");
+		registry.add("app.ai.dispatch.transport", () -> "rabbitmq");
 		registry.add("spring.rabbitmq.host", AiJobRabbitContainer::host);
 		registry.add("spring.rabbitmq.port", AiJobRabbitContainer::amqpPort);
 		registry.add("spring.rabbitmq.username", AiJobRabbitContainer::username);

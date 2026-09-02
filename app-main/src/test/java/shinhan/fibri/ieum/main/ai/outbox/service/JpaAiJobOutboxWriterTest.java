@@ -15,14 +15,14 @@ import shinhan.fibri.ieum.common.ai.job.AiJobTopology;
 import shinhan.fibri.ieum.main.ai.outbox.entity.AiJobOutbox;
 import shinhan.fibri.ieum.main.ai.outbox.repository.AiJobOutboxRepository;
 
-class AiJobOutboxWriterTest {
+class JpaAiJobOutboxWriterTest {
 
 	/** ISO-8601 UTC, 밀리초 정밀도, 리터럴 {@code Z} — Task 2 골든 픽스처와 같은 형식이어야 한다. */
 	private static final String OCCURRED_AT_PATTERN = "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z";
 
 	private final AiJobOutboxRepository repository = mock(AiJobOutboxRepository.class);
 	private final ObjectMapper objectMapper = new ObjectMapper();
-	private final AiJobOutboxWriter writer = new AiJobOutboxWriter(repository, objectMapper);
+	private final AiJobOutboxWriter writer = new JpaAiJobOutboxWriter(repository, objectMapper);
 
 	@Test
 	void enqueueQuestionAnswerDispatchSavesPendingOutboxRowWithQuestionPayload() throws Exception {

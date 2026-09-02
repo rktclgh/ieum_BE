@@ -39,7 +39,7 @@ import shinhan.fibri.ieum.main.ai.outbox.repository.ClaimedAiJob;
  * <p>의미론은 정확히 at-least-once 다(spec.md §7.4). 중복 발행은 소비 측 멱등성이 흡수한다.
  */
 @Service
-@ConditionalOnProperty(prefix = "app.ai.outbox", name = "enabled", havingValue = "true")
+@ConditionalOnProperty(name = "app.ai.dispatch.transport", havingValue = "rabbitmq")
 public class AiJobOutboxRelay {
 
 	/** AMQP {@code app_id}. 어느 앱이 발행했는지 브로커에서 바로 보이게 한다(spec.md §6.5). */

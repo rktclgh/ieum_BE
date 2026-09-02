@@ -37,7 +37,7 @@ class AiJobPublisherConfirmIntegrationTest {
 			// aiQuestionAnswerDispatchRetryBinding 등의 빈 생성이 실패한다.
 			.withUserConfiguration(AiJobRabbitConfig.class, AiResultRabbitConfig.class)
 			.withPropertyValues(
-				"app.ai.outbox.enabled=true",
+				"app.ai.dispatch.transport=rabbitmq",
 				"spring.rabbitmq.host=" + AiJobRabbitContainer.host(),
 				"spring.rabbitmq.port=" + AiJobRabbitContainer.amqpPort(),
 				"spring.rabbitmq.username=" + AiJobRabbitContainer.username(),

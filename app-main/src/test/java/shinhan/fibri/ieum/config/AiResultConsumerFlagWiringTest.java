@@ -21,9 +21,9 @@ import shinhan.fibri.ieum.main.notification.internal.AiQuestionAnswerCompletionS
 
 /**
  * 리뷰 라운드 1 finding — 결과 컨슈머({@link QuestionAnswerCompletedMessageListener})가
- * {@code app.ai.outbox.enabled}(디스패치 relay 플래그, spec.md §11.5 Stage 3)에 잘못 묶여 있어서
- * Stage 2("app-main 결과 컨슈머가 받는다")의 완료 메시지가 소비자 없이 쌓이던 문제를 고쳤는지
- * 검증한다.
+ * 디스패치 relay 플래그(spec.md §11.5 Stage 3, Task 8 이후 {@code app.ai.dispatch.transport=rabbitmq})에
+ * 잘못 묶여 있어서 Stage 2("app-main 결과 컨슈머가 받는다")의 완료 메시지가 소비자 없이 쌓이던 문제를
+ * 고쳤는지 검증한다.
  *
  * <p>app-ai 의 {@code QuestionCompletionCallbackConfigurationTest}와 같은 스타일 — 실제 브로커 없이
  * ({@code RabbitAutoConfiguration}을 등록하지 않는다) 순수 빈 그래프만으로 조건부 활성화를 검증한다.
@@ -33,8 +33,8 @@ import shinhan.fibri.ieum.main.notification.internal.AiQuestionAnswerCompletionS
  * 선언도 일어나지 않는다).
  *
  * <p>{@code AiJobOutboxProperties}는 일부러 여기서 공급하지 않는다 — {@link AiJobRabbitConfig} 자체가
- * {@code app.ai.outbox.enabled=true}일 때 그 빈을 직접 만든다. 여기서 별도로 공급하면 outbox 가
- * 켜진 시나리오에서 {@code BeanDefinitionOverrideException}(같은 이름의 빈 중복 정의)이 난다.
+ * {@code app.ai.dispatch.transport=rabbitmq}일 때 그 빈을 직접 만든다. 여기서 별도로 공급하면 rabbitmq
+ * 전송 시나리오에서 {@code BeanDefinitionOverrideException}(같은 이름의 빈 중복 정의)이 난다.
  */
 class AiResultConsumerFlagWiringTest {
 
@@ -85,7 +85,7 @@ class AiResultConsumerFlagWiringTest {
 	@Test
 	void resultConsumerOnAndOutboxOffStartsTheListenerAndDeclaresTheResultsQueue() {
 		runner()
-			.withPropertyValues("app.ai.result.consumer.enabled=true", "app.ai.outbox.enabled=false")
+			.withPropertyValues("app.ai.result.consumer.enabled=true", "app.ai.dispatch.transport=http")
 			.run(context -> {
 				assertThat(context).hasSingleBean(QuestionAnswerCompletedMessageListener.class);
 				assertThat(context).doesNotHaveBean(AiJobOutboxRelay.class);
@@ -104,7 +104,7 @@ class AiResultConsumerFlagWiringTest {
 		// Stage 2(spec.md §11.5)는 app-main 쪽 프로퍼티를 하나도 뒤집지 않고도 결과 컨슈머가
 		// 이미 떠 있기를 요구한다 — 즉 matchIfMissing=true 가 이 요구사항의 핵심이다.
 		runner()
-			.withPropertyValues("app.ai.outbox.enabled=false")
+			.withPropertyValues("app.ai.dispatch.transport=http")
 			.run(context -> {
 				assertThat(context).hasSingleBean(QuestionAnswerCompletedMessageListener.class);
 				assertThat(declaredQueueNames(context)).contains(AiJobTopology.QUEUE_QUESTION_ANSWER_COMPLETED);
@@ -114,7 +114,7 @@ class AiResultConsumerFlagWiringTest {
 	@Test
 	void bothFlagsOffStartsNothing() {
 		runner()
-			.withPropertyValues("app.ai.result.consumer.enabled=false", "app.ai.outbox.enabled=false")
+			.withPropertyValues("app.ai.result.consumer.enabled=false", "app.ai.dispatch.transport=http")
 			.run(context -> {
 				assertThat(context).doesNotHaveBean(QuestionAnswerCompletedMessageListener.class);
 				assertThat(context).doesNotHaveBean(AiJobOutboxRelay.class);
@@ -125,7 +125,7 @@ class AiResultConsumerFlagWiringTest {
 	@Test
 	void outboxOnAndResultConsumerOffStartsTheRelayButNotTheListener() {
 		runner()
-			.withPropertyValues("app.ai.result.consumer.enabled=false", "app.ai.outbox.enabled=true")
+			.withPropertyValues("app.ai.result.consumer.enabled=false", "app.ai.dispatch.transport=rabbitmq")
 			.run(context -> {
 				assertThat(context).hasSingleBean(AiJobOutboxRelay.class);
 				assertThat(context).doesNotHaveBean(QuestionAnswerCompletedMessageListener.class);

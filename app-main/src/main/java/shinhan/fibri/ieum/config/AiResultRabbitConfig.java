@@ -22,15 +22,17 @@ import shinhan.fibri.ieum.common.ai.job.AiJobTopology;
  * <p><b>왜 {@link AiJobRabbitConfig}(디스패치 전용)와 분리했는가</b>: spec.md §11.5 롤아웃 표는
  * Stage 2에서 app-ai 쪽 플래그(`APP_AI_QUESTION_CALLBACK_TRANSPORT=rabbitmq`,
  * `APP_AI_COMPLETION_RELAY_ENABLED=true`)만 뒤집고 app-main 은 아무 것도 바꾸지 않은 채로 "완료
- * 통보만 MQ 로. app-main 결과 컨슈머가 받는다"고 명시한다. app-main 의 `APP_AI_OUTBOX_ENABLED`(디스
- * 패치 발행)는 Stage 3 에서야 뒤집힌다. 즉 결과 소비 경로는 디스패치 발행 경로보다 먼저, 독립적으로
- * 살아 있어야 한다 — 예전처럼 전체 토폴로지를 {@code app.ai.outbox.enabled} 하나에 묶어 두면 Stage 2
+ * 통보만 MQ 로. app-main 결과 컨슈머가 받는다"고 명시한다. app-main 의 `APP_AI_DISPATCH_TRANSPORT`
+ * (디스패치 발행, {@code rabbitmq} 값)는 Stage 3 에서야 뒤집힌다. 즉 결과 소비 경로는 디스패치 발행
+ * 경로보다 먼저, 독립적으로 살아 있어야 한다 — 전체 토폴로지를 이 스위치 하나에만 묶어 두면 Stage 2
  * 의 완료 메시지가 소비자 없이 큐에 쌓이기만 한다(리뷰 라운드 1 finding).
  *
- * <p>이 클래스는 {@code app.ai.outbox.enabled=true} 또는 {@code app.ai.result.consumer.enabled}
+ * <p>이 클래스는 {@code app.ai.dispatch.transport=rabbitmq} 또는 {@code app.ai.result.consumer.enabled}
  * (기본값 {@code true} — app-ai 디스패치 컨슈머가 항상 켜져 있는 것과 같은 패턴이다. app-main
  * {@code shinhan.fibri.ieum.main.ai.result.QuestionAnswerCompletedMessageListener}도 같은 이름의
  * 프로퍼티로 게이트된다) 중 <b>하나라도</b> 참이면 활성화된다({@link RabbitTopologyRequiredCondition}).
+ * Task 8 이전에는 첫 조건이 {@code app.ai.outbox.enabled=true}였다 — app-main 전체의 전송 스위치를
+ * {@code app.ai.dispatch.transport} 하나로 모으면서 대체했다(application.properties 참고).
  * {@code aiRetryExchange}/{@code aiDlxExchange}는 디스패치 큐({@link AiJobRabbitConfig})도 참조하는
  * <b>공유</b> exchange라서, 결과 컨슈머를 명시적으로 꺼도(outbox 만 켜진 경우) 반드시 여기서 선언돼야
  * 디스패치 쪽 바인딩이 깨지지 않는다.
@@ -137,8 +139,8 @@ public class AiResultRabbitConfig {
 	}
 
 	/**
-	 * {@code app.ai.outbox.enabled=true} 이거나 {@code app.ai.result.consumer.enabled}가
-	 * (기본값 포함) 참이면 활성. 프로퍼티 이름은 {@code QuestionAnswerCompletedMessageListener}의
+	 * {@code app.ai.dispatch.transport=rabbitmq} 이거나 {@code app.ai.result.consumer.enabled}가
+	 * (기본값 포함) 참이면 활성. 두 번째 프로퍼티 이름은 {@code QuestionAnswerCompletedMessageListener}의
 	 * 게이트와 반드시 동일해야 한다 — 여기 어긋나면 컨슈머가 소비할 큐가 선언되지 않는 사고가 난다.
 	 *
 	 * <p><b>{@code PARSE_CONFIGURATION} 이어야 한다 — {@code REGISTER_BEAN} 이 아니다.</b> 이 조건은
@@ -157,8 +159,8 @@ public class AiResultRabbitConfig {
 			super(ConfigurationPhase.PARSE_CONFIGURATION);
 		}
 
-		@ConditionalOnProperty(prefix = "app.ai.outbox", name = "enabled", havingValue = "true")
-		static class OutboxEnabled {
+		@ConditionalOnProperty(name = "app.ai.dispatch.transport", havingValue = "rabbitmq")
+		static class DispatchTransportIsRabbitmq {
 		}
 
 		@ConditionalOnProperty(name = "app.ai.result.consumer.enabled", havingValue = "true", matchIfMissing = true)
