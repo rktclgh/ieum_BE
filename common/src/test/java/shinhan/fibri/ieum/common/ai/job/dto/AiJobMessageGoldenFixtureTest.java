@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.InputStream;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import shinhan.fibri.ieum.common.ai.job.AiJobType;
 
@@ -69,12 +70,18 @@ class AiJobMessageGoldenFixtureTest {
 
 	/**
 	 * {@link JsonNode#equals} 는 IntNode/LongNode 처럼 값은 같지만 서브타입이 다른 숫자 노드를
-	 * 다르다고 판정한다. 계약 회귀 검증의 목적은 "같은 JSON 텍스트로 왕복되는가" 이므로
-	 * 정규화된 문자열 표현으로 비교한다.
+	 * 다르다고 판정하고, 원시 JSON 텍스트 비교는 record 컴포넌트 순서에 우연히 의존하게 된다
+	 * (와이어 계약과 무관한 필드 순서 변경에도 깨짐).
+	 *
+	 * <p>양쪽을 각자의 JSON 텍스트로 직렬화한 뒤 {@code readValue(..., Map.class)} 로 다시 파싱해
+	 * 비교한다. Jackson 이 Object/Map 역직렬화 시 숫자를 "값이 int 범위에 들어오면 Integer, 아니면
+	 * Long" 규칙으로 정규화하는 지점은 이 파싱 단계 하나뿐이므로, 원래 자바 타입이 int/long 무엇이든
+	 * (그리고 소스가 파일이든 POJO 직렬화 결과든) 양쪽이 동일한 규칙을 거쳐 같은 {@link Map} 표현이
+	 * 된다 — 키 순서와 무관하되 필드명·값은 엄격하게 비교된다.
 	 */
 	private void assertReserializesToGoldenText(Object message, JsonNode golden) throws Exception {
-		String reserializedText = objectMapper.writeValueAsString(objectMapper.valueToTree(message));
-		String goldenText = objectMapper.writeValueAsString(golden);
-		assertThat(reserializedText).isEqualTo(goldenText);
+		Map<?, ?> reserialized = objectMapper.readValue(objectMapper.writeValueAsString(message), Map.class);
+		Map<?, ?> goldenMap = objectMapper.readValue(objectMapper.writeValueAsString(golden), Map.class);
+		assertThat(reserialized).isEqualTo(goldenMap);
 	}
 }
