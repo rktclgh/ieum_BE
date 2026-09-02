@@ -26,6 +26,8 @@ dependencies {
 	implementation("com.google.genai:google-genai:1.56.0")
 	implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.2")
 	runtimeOnly("org.postgresql:postgresql")
+	// RabbitMQ AI job dispatch (spec.md §4.1) — app-main 과 동일 토폴로지 선언 + 컨슈머
+	implementation("org.springframework.boot:spring-boot-starter-amqp")
 
 	compileOnly("org.projectlombok:lombok")
 	developmentOnly("org.springframework.boot:spring-boot-devtools")
@@ -36,6 +38,8 @@ dependencies {
 	testImplementation(testFixtures(project(":common")))
 	testImplementation("org.testcontainers:testcontainers-junit-jupiter:2.0.5")
 	testImplementation("org.testcontainers:testcontainers-postgresql:2.0.5")
+	testImplementation("org.testcontainers:testcontainers-rabbitmq:2.0.5")
+	testImplementation("org.springframework.boot:spring-boot-starter-amqp-test")
 	testImplementation("org.postgresql:postgresql")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 	testCompileOnly("org.projectlombok:lombok")
