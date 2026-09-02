@@ -43,6 +43,7 @@ class AiJobOutboxRepositoryClaimTest {
 
 	private static final String DATABASE = "ieum_ai_job_outbox_claim";
 	private static final String WORKER = "worker-1";
+	private static final int MAX_ATTEMPTS = 8;
 
 	@DynamicPropertySource
 	static void registerDataSourceProperties(DynamicPropertyRegistry registry) {
@@ -88,7 +89,7 @@ class AiJobOutboxRepositoryClaimTest {
 		long outboxId = insertPending(1L);
 		UUID leaseToken = UUID.randomUUID();
 
-		List<ClaimedAiJob> claimed = repository.claim(WORKER, leaseToken, 60, 32);
+		List<ClaimedAiJob> claimed = repository.claim(WORKER, leaseToken, 60, 32, MAX_ATTEMPTS);
 
 		assertThat(claimed).hasSize(1);
 		ClaimedAiJob job = claimed.getFirst();
@@ -117,7 +118,7 @@ class AiJobOutboxRepositoryClaimTest {
 			outboxId
 		);
 
-		assertThat(repository.claim(WORKER, UUID.randomUUID(), 60, 32)).isEmpty();
+		assertThat(repository.claim(WORKER, UUID.randomUUID(), 60, 32, MAX_ATTEMPTS)).isEmpty();
 		assertThat(row(outboxId).get("status")).isEqualTo("retry");
 	}
 
@@ -138,7 +139,7 @@ class AiJobOutboxRepositoryClaimTest {
 				String workerId = "worker-" + worker;
 				results.add(pool.submit(() -> {
 					startTogether.await(10, TimeUnit.SECONDS);
-					List<ClaimedAiJob> claimed = repository.claim(workerId, UUID.randomUUID(), 60, rows);
+					List<ClaimedAiJob> claimed = repository.claim(workerId, UUID.randomUUID(), 60, rows, MAX_ATTEMPTS);
 					claimed.forEach(job -> claimedIds.add(job.outboxId()));
 					return claimed.size();
 				}));
@@ -162,7 +163,7 @@ class AiJobOutboxRepositoryClaimTest {
 	void markPublishedClearsTheLeaseAndStampsPublishedAt() {
 		long outboxId = insertPending(1L);
 		UUID leaseToken = UUID.randomUUID();
-		repository.claim(WORKER, leaseToken, 60, 32);
+		repository.claim(WORKER, leaseToken, 60, 32, MAX_ATTEMPTS);
 
 		assertThat(repository.markPublished(outboxId, leaseToken)).isEqualTo(1);
 
@@ -178,7 +179,7 @@ class AiJobOutboxRepositoryClaimTest {
 	void markRetryPushesNextAttemptAtIntoTheFutureAndRecordsTheError() {
 		long outboxId = insertPending(1L);
 		UUID leaseToken = UUID.randomUUID();
-		repository.claim(WORKER, leaseToken, 60, 32);
+		repository.claim(WORKER, leaseToken, 60, 32, MAX_ATTEMPTS);
 
 		assertThat(repository.markRetry(outboxId, leaseToken, 16, "nack", "broker nacked")).isEqualTo(1);
 
@@ -196,7 +197,7 @@ class AiJobOutboxRepositoryClaimTest {
 	void markDeadKeepsTheRowAsOperationalEvidence() {
 		long outboxId = insertPending(1L);
 		UUID leaseToken = UUID.randomUUID();
-		repository.claim(WORKER, leaseToken, 60, 32);
+		repository.claim(WORKER, leaseToken, 60, 32, MAX_ATTEMPTS);
 
 		assertThat(repository.markDead(outboxId, leaseToken, "nack", "gave up")).isEqualTo(1);
 
@@ -210,7 +211,7 @@ class AiJobOutboxRepositoryClaimTest {
 	void settlementIsFencedByTheLeaseToken() {
 		long outboxId = insertPending(1L);
 		UUID leaseToken = UUID.randomUUID();
-		repository.claim(WORKER, leaseToken, 60, 32);
+		repository.claim(WORKER, leaseToken, 60, 32, MAX_ATTEMPTS);
 
 		UUID staleToken = UUID.randomUUID();
 		assertThat(repository.markPublished(outboxId, staleToken)).isZero();
@@ -223,10 +224,10 @@ class AiJobOutboxRepositoryClaimTest {
 	void expiredLeaseRecoveryReturnsPublishingRowsToRetry() {
 		long expired = insertPending(1L);
 		long live = insertPending(2L);
-		repository.claim(WORKER, UUID.randomUUID(), 60, 32);
+		repository.claim(WORKER, UUID.randomUUID(), 60, 32, MAX_ATTEMPTS);
 		jdbc.update("UPDATE ai_job_outbox SET lease_until = now() - INTERVAL '1 minute' WHERE outbox_id = ?", expired);
 
-		assertThat(repository.recoverExpiredLeases()).isEqualTo(1);
+		assertThat(repository.recoverExpiredLeases(MAX_ATTEMPTS)).isEqualTo(1);
 
 		Map<String, Object> recovered = row(expired);
 		assertThat(recovered.get("status")).isEqualTo("retry");
@@ -234,6 +235,54 @@ class AiJobOutboxRepositoryClaimTest {
 		assertThat(recovered.get("lease_until")).isNull();
 		assertThat(recovered.get("locked_by")).isNull();
 		assertThat(row(live).get("status")).isEqualTo("publishing");
+	}
+
+	@Test
+	void expiredLeaseRecoveryMarksRowsAtTheAttemptCapAsDeadInsteadOfRetry() {
+		// PR #255 리뷰 finding 2: claimRows 는 attempts 를 증가시킨다. 상한(maxAttempts)에 이미
+		// 도달한 row 를 retry 로 되돌리면 다음 클레임에서 CHECK(attempts <= 20) 을 넘겨 배치
+		// UPDATE 전체가 롤백될 수 있다 — 그래서 복구 시점에 상한 도달 row 는 dead 로 못박는다.
+		int maxAttempts = 3;
+		long exhausted = insertPending(1L);
+		long stillRetryable = insertPending(2L);
+		repository.claim(WORKER, UUID.randomUUID(), 60, 32, maxAttempts);
+		jdbc.update(
+			"UPDATE ai_job_outbox SET lease_until = now() - INTERVAL '1 minute', attempts = ? WHERE outbox_id = ?",
+			maxAttempts, exhausted
+		);
+		jdbc.update(
+			"UPDATE ai_job_outbox SET lease_until = now() - INTERVAL '1 minute' WHERE outbox_id = ?",
+			stillRetryable
+		);
+
+		assertThat(repository.recoverExpiredLeases(maxAttempts)).isEqualTo(2);
+
+		Map<String, Object> deadRow = row(exhausted);
+		assertThat(deadRow.get("status")).isEqualTo("dead");
+		assertThat(deadRow.get("lease_token")).isNull();
+		assertThat(deadRow.get("lease_until")).isNull();
+		assertThat(deadRow.get("locked_by")).isNull();
+		assertThat(deadRow.get("last_error_code")).isEqualTo("lease_expired_exhausted");
+
+		Map<String, Object> retryRow = row(stillRetryable);
+		assertThat(retryRow.get("status")).isEqualTo("retry");
+		assertThat(retryRow.get("last_error_code")).isNull();
+	}
+
+	@Test
+	void claimNeverHandsOutARowAtOrAboveTheAttemptCap() {
+		// claimRows 자체가 attempts >= maxAttempts 인 row 를 후보에서 제외해야 attempts 컬럼이
+		// CHECK 상한을 절대 넘지 않는다(lease 복구가 dead 로 못박는 것과는 별개의 방어선).
+		int maxAttempts = 2;
+		long outboxId = insertPending(1L);
+		jdbc.update(
+			"UPDATE ai_job_outbox SET status = 'retry', attempts = ? WHERE outbox_id = ?",
+			maxAttempts, outboxId
+		);
+
+		assertThat(repository.claim(WORKER, UUID.randomUUID(), 60, 32, maxAttempts)).isEmpty();
+		assertThat(row(outboxId).get("status")).isEqualTo("retry");
+		assertThat(((Number) row(outboxId).get("attempts")).intValue()).isEqualTo(maxAttempts);
 	}
 
 	@Test

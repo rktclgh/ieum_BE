@@ -103,7 +103,8 @@ public class AiJobOutboxRelay {
 	public int publishBatch() {
 		UUID leaseToken = UUID.randomUUID();
 		List<ClaimedAiJob> claimed = repository.claim(
-			properties.workerId(), leaseToken, properties.lease().toSeconds(), properties.batchSize()
+			properties.workerId(), leaseToken, properties.lease().toSeconds(), properties.batchSize(),
+			properties.maxAttempts()
 		);
 		if (claimed.isEmpty()) {
 			return 0;
@@ -124,7 +125,7 @@ public class AiJobOutboxRelay {
 	)
 	public void recoverExpiredLeases() {
 		try {
-			int recovered = repository.recoverExpiredLeases();
+			int recovered = repository.recoverExpiredLeases(properties.maxAttempts());
 			if (recovered > 0) {
 				log.warn(
 					"event=ai_job_outbox_expired_lease_recovered workerId={} recoveredCount={}",

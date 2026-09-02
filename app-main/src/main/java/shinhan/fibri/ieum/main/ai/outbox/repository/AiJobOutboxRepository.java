@@ -31,7 +31,9 @@ public interface AiJobOutboxRepository extends JpaRepository<AiJobOutbox, Long> 
 	 * 브로커 왕복은 이 트랜잭션 <b>밖</b>에서 일어나야 한다.
 	 */
 	@Transactional
-	default List<ClaimedAiJob> claim(String workerId, UUID leaseToken, long leaseSeconds, int batchSize) {
+	default List<ClaimedAiJob> claim(
+		String workerId, UUID leaseToken, long leaseSeconds, int batchSize, int maxAttempts
+	) {
 		if (workerId == null || workerId.isBlank()) {
 			throw new IllegalArgumentException("workerId must not be blank");
 		}
@@ -44,12 +46,22 @@ public interface AiJobOutboxRepository extends JpaRepository<AiJobOutbox, Long> 
 		if (batchSize < 1) {
 			throw new IllegalArgumentException("batchSize must be positive: " + batchSize);
 		}
-		return claimRows(workerId, leaseToken.toString(), leaseSeconds, batchSize)
+		if (maxAttempts < 1) {
+			throw new IllegalArgumentException("maxAttempts must be positive: " + maxAttempts);
+		}
+		return claimRows(workerId, leaseToken.toString(), leaseSeconds, batchSize, maxAttempts)
 			.stream()
 			.map(ClaimedAiJob::fromRow)
 			.toList();
 	}
 
+	/**
+	 * {@code attempts >= :maxAttempts} 인 row 는 후보에서 제외한다 — 이 UPDATE 가 {@code attempts}를
+	 * 먼저 1 증가시키므로, 제외하지 않으면 {@code ck_ai_job_outbox_attempts}(0~20) CHECK 를 넘겨
+	 * 배치 전체가 롤백될 수 있다. 상한에 도달한 row 는 {@link #recoverExpiredLeases}나
+	 * {@code AiJobOutboxRelay#settleFailure}가 이미 {@code dead}로 못박아 여기 후보에 남지 않는 게
+	 * 정상 경로지만, 방어적으로도 이 술어가 있어야 한다.
+	 */
 	@Query(value = """
 		UPDATE ai_job_outbox
 		   SET status = 'publishing',
@@ -63,6 +75,7 @@ public interface AiJobOutboxRepository extends JpaRepository<AiJobOutbox, Long> 
 		           FROM ai_job_outbox
 		          WHERE status IN ('pending', 'retry')
 		            AND next_attempt_at <= now()
+		            AND attempts < :maxAttempts
 		          ORDER BY next_attempt_at, outbox_id
 		          FOR UPDATE SKIP LOCKED
 		          LIMIT :batchSize
@@ -73,7 +86,8 @@ public interface AiJobOutboxRepository extends JpaRepository<AiJobOutbox, Long> 
 		@Param("workerId") String workerId,
 		@Param("leaseToken") String leaseToken,
 		@Param("leaseSeconds") long leaseSeconds,
-		@Param("batchSize") int batchSize
+		@Param("batchSize") int batchSize,
+		@Param("maxAttempts") int maxAttempts
 	);
 
 	/** confirm ACK 정산. {@code published_at}을 채워야 CHECK 제약을 만족한다. */
@@ -163,20 +177,43 @@ public interface AiJobOutboxRepository extends JpaRepository<AiJobOutbox, Long> 
 		return markDeadRow(outboxId, requireLease(leaseToken), errorCode, errorMessage);
 	}
 
-	/** 발행 중 크래시로 lease만 남은 row를 되살린다(spec.md §7.4 "클레임 후 / 발행 전"). */
+	/**
+	 * 발행 중 크래시로 lease만 남은 row를 되살린다(spec.md §7.4 "클레임 후 / 발행 전").
+	 *
+	 * <p>{@code attempts}가 이미 {@code maxAttempts}에 도달한 row는 {@code retry}로 되돌리지 않는다 —
+	 * 되돌리면 다음 {@link #claimRows}가 {@code attempts}를 한 번 더 증가시켜
+	 * {@code ck_ai_job_outbox_attempts}(0~20) CHECK를 넘길 수 있고, 넘기면 그 배치 UPDATE 전체가
+	 * 롤백돼 아무 row도 발행되지 못한다. 대신 {@code dead}로 못박아 운영 증거로 남긴다(PR #255 finding 2).
+	 */
 	@Transactional
 	@Modifying
 	@Query(value = """
 		UPDATE ai_job_outbox
-		   SET status = 'retry',
+		   SET status = CASE WHEN attempts >= :maxAttempts THEN 'dead' ELSE 'retry' END,
 		       lease_token = NULL,
 		       lease_until = NULL,
 		       locked_by = NULL,
+		       last_error_code = CASE
+		           WHEN attempts >= :maxAttempts THEN 'lease_expired_exhausted'
+		           ELSE last_error_code
+		       END,
+		       last_error_message = CASE
+		           WHEN attempts >= :maxAttempts THEN 'AI job publish lease expired after exhausting retries'
+		           ELSE last_error_message
+		       END,
 		       updated_at = now()
 		 WHERE status = 'publishing'
 		   AND lease_until < now()
 		""", nativeQuery = true)
-	int recoverExpiredLeases();
+	int recoverExpiredLeasesRow(@Param("maxAttempts") int maxAttempts);
+
+	@Transactional
+	default int recoverExpiredLeases(int maxAttempts) {
+		if (maxAttempts < 1) {
+			throw new IllegalArgumentException("maxAttempts must be positive: " + maxAttempts);
+		}
+		return recoverExpiredLeasesRow(maxAttempts);
+	}
 
 	/**
 	 * 보존 삭제. {@code published}만 지운다 — {@code dead} row는 남긴다(spec.md §7.5).

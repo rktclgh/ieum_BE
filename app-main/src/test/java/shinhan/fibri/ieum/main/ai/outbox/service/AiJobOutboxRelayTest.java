@@ -82,7 +82,7 @@ class AiJobOutboxRelayTest {
 	}
 
 	private void stubClaim(ClaimedAiJob job) {
-		when(repository.claim(anyString(), any(UUID.class), anyLong(), anyInt())).thenReturn(List.of(job));
+		when(repository.claim(anyString(), any(UUID.class), anyLong(), anyInt(), anyInt())).thenReturn(List.of(job));
 	}
 
 	private void answerSend(SendBehaviour behaviour) {
@@ -233,7 +233,7 @@ class AiJobOutboxRelayTest {
 		relay.publishBatch();
 
 		InOrder ordered = inOrder(repository, rabbitTemplate);
-		ordered.verify(repository).claim(anyString(), any(UUID.class), anyLong(), anyInt());
+		ordered.verify(repository).claim(anyString(), any(UUID.class), anyLong(), anyInt(), anyInt());
 		ordered.verify(rabbitTemplate)
 			.send(anyString(), anyString(), any(Message.class), any(CorrelationData.class));
 		ordered.verify(repository).markPublished(eq(11L), any(UUID.class));
@@ -241,7 +241,7 @@ class AiJobOutboxRelayTest {
 
 	@Test
 	void emptyClaimDoesNotTouchTheBroker() {
-		when(repository.claim(anyString(), any(UUID.class), anyLong(), anyInt())).thenReturn(List.of());
+		when(repository.claim(anyString(), any(UUID.class), anyLong(), anyInt(), anyInt())).thenReturn(List.of());
 
 		assertThat(relay.publishBatch()).isZero();
 
