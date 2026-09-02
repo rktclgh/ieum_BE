@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.amqp.support.AmqpHeaders;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 import shinhan.fibri.ieum.ai.job.dlq.AiJobDeadLetterPublisher;
@@ -27,8 +28,15 @@ import shinhan.fibri.ieum.common.ai.job.AiJobTopology;
  * <p><b>dispatch 중 예외</b> 처리도 {@link QuestionAnswerJobMessageListener}와 같다 — {@code lane.submit(...)}
  * 밖으로 새는 {@code RuntimeException}을 잡아 {@link AiJobDeadLetterPublisher#retryOrDeadLetter}로
  * 위임한다({@link AiJobMessageSettlement#REASON_DISPATCH_EXCEPTION}), 재시도 상한을 우회하지 않도록.
+ *
+ * <p><b>{@code app.ai.dispatch.transport}는 app-ai 컨슈머의 kill switch 다</b> — 토폴로지를 선언하는
+ * {@link shinhan.fibri.ieum.ai.config.AiJobRabbitConfiguration}과 반드시 같은 조건으로 켜고 꺼야 한다.
+ * 자세한 이유는 {@link QuestionAnswerJobMessageListener}의 같은 절 참고.
  */
 @Component
+@ConditionalOnProperty(
+	prefix = "app.ai.dispatch", name = "transport", havingValue = "rabbitmq", matchIfMissing = true
+)
 public class AcceptedAnswerKnowledgeMessageListener {
 
 	private static final Logger log = LoggerFactory.getLogger(AcceptedAnswerKnowledgeMessageListener.class);
