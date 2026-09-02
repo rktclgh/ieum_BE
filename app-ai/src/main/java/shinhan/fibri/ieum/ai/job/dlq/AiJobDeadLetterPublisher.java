@@ -14,6 +14,12 @@ import org.springframework.amqp.core.Message;
  * {@code ieum.ai.dlx}의 DLQ routing key 로 republish 한 뒤 원본을 ACK 하는 것이다 — republish 가
  * 새 메시지를 broker 에 심고, ACK 가 work 큐에서 원본을 지운다. 이 두 단계 사이에 컨슈머가 죽으면
  * 원본이 work 큐에 그대로 남아 재배달될 뿐이므로(at-least-once), 메시지 유실은 없다.
+ *
+ * <p><b>republish 는 publisher confirm + mandatory 로 검증한다</b>: {@code basicPublish}는
+ * fire-and-forget 이라 라우팅 불가(토폴로지 drift 등)여도 예외를 던지지 않는다 — 확인 없이 원본을
+ * ACK 하면 메시지가 조용히 사라질 수 있다. 구현체는 republish 가 실제로 큐에 도달했음을 확인한
+ * 경우에만 원본을 ACK 하고, 확인에 실패하면(반송·타임아웃·nack) 원본을 ACK 하지 않고
+ * NACK(requeue=false)해서 retry 큐를 거쳐 재시도 기회를 준다.
  */
 public interface AiJobDeadLetterPublisher {
 
@@ -23,7 +29,8 @@ public interface AiJobDeadLetterPublisher {
 	/**
 	 * 재시도로 고칠 수 없는 조건(파싱 실패, 스키마 미지원, 잘못된 ID, 티켓 없음)을 <b>즉시</b> DLQ 로
 	 * 보낸다 — {@code x-death} 카운트를 보지 않는다. 원본을 {@code ieum.ai.dlx}의 해당 DLQ routing
-	 * key 로 republish 하고 {@link #HEADER_DLQ_REASON} 헤더를 붙인 뒤 원본을 ACK 한다.
+	 * key 로 republish 하고 {@link #HEADER_DLQ_REASON} 헤더를 붙인 뒤, republish 가 confirm 으로
+	 * 검증된 경우에만 원본을 ACK 한다 — 검증 실패 시 원본을 NACK(requeue=false)한다(클래스 Javadoc).
 	 *
 	 * @param channel     원본 메시지를 받은 채널
 	 * @param deliveryTag 원본 메시지의 delivery tag

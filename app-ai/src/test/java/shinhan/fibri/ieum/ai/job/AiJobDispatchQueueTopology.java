@@ -33,6 +33,31 @@ final class AiJobDispatchQueueTopology {
 	static void declare(
 		RabbitAdmin admin, int retryTtlMs, String workQueue, String retryQueue, String dlq, String routingKey
 	) {
+		declareWorkAndRetry(admin, retryTtlMs, workQueue, retryQueue, routingKey);
+
+		admin.declareQueue(QueueBuilder.durable(dlq).build());
+		admin.declareBinding(BindingBuilder
+			.bind(new Queue(dlq))
+			.to(new DirectExchange(AiJobTopology.EXCHANGE_DLX))
+			.with(dlq));
+	}
+
+	/**
+	 * work/retry 체인만 선언하고 <b>DLQ 큐/바인딩은 일부러 선언하지 않는다</b> — 토폴로지 drift(운영
+	 * 실수로 DLQ 바인딩이 빠진 상황)를 시뮬레이션해서, republish 가 unroutable 이어도 원본을 잃지
+	 * 않는다는 안전장치({@code RabbitAiJobDeadLetterPublisher}의 confirm+mandatory+return listener)를
+	 * 검증하는 데 쓴다. {@code EXCHANGE_DLX}는 여전히 선언한다(exchange 자체는 존재해야 mandatory
+	 * 발행이 "unroutable"로 반송되지, exchange 자체가 없으면 발행이 채널 예외로 다르게 실패한다).
+	 */
+	static void declareWithoutDlqBinding(
+		RabbitAdmin admin, int retryTtlMs, String workQueue, String retryQueue, String routingKey
+	) {
+		declareWorkAndRetry(admin, retryTtlMs, workQueue, retryQueue, routingKey);
+	}
+
+	private static void declareWorkAndRetry(
+		RabbitAdmin admin, int retryTtlMs, String workQueue, String retryQueue, String routingKey
+	) {
 		admin.declareExchange(directExchange(AiJobTopology.EXCHANGE_JOBS));
 		admin.declareExchange(directExchange(AiJobTopology.EXCHANGE_RETRY));
 		admin.declareExchange(directExchange(AiJobTopology.EXCHANGE_DLX));
@@ -57,12 +82,6 @@ final class AiJobDispatchQueueTopology {
 			.bind(new Queue(retryQueue))
 			.to(new DirectExchange(AiJobTopology.EXCHANGE_RETRY))
 			.with(retryQueue));
-
-		admin.declareQueue(QueueBuilder.durable(dlq).build());
-		admin.declareBinding(BindingBuilder
-			.bind(new Queue(dlq))
-			.to(new DirectExchange(AiJobTopology.EXCHANGE_DLX))
-			.with(dlq));
 	}
 
 	private static DirectExchange directExchange(String name) {

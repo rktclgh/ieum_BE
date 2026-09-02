@@ -60,6 +60,12 @@ class AiJobImmediateDlqIntegrationTest {
 	private static final String ROUTING_KEY = "ai.test.immediate-dlq.dispatch";
 	private static final int RETRY_TTL_MS_FOR_TEST = 1_000;
 
+	// Separate isolated name set for the "topology drift" test below — declared without a DLQ
+	// binding, so a republish there is unroutable.
+	private static final String DRIFT_WORK_QUEUE = "ieum.ai.test.immediate-dlq.drift.dispatch";
+	private static final String DRIFT_RETRY_QUEUE = DRIFT_WORK_QUEUE + ".retry";
+	private static final String DRIFT_ROUTING_KEY = "ai.test.immediate-dlq.drift.dispatch";
+
 	private final ObjectMapper objectMapper = new ObjectMapper();
 
 	private CachingConnectionFactory connectionFactory;
@@ -140,6 +146,49 @@ class AiJobImmediateDlqIntegrationTest {
 		assertThat(String.valueOf(dlqHeaders.get(0).get(AiJobDeadLetterPublisher.HEADER_DLQ_REASON)))
 			.isEqualTo(AiJobMessageSettlement.REASON_UNPARSEABLE_PAYLOAD);
 		verifyNoInteractions(dispatchService);
+	}
+
+	/**
+	 * Review fix: republish must be confirm+mandatory-verified before ACKing the original —
+	 * otherwise an unroutable DLQ (topology drift) would silently drop the message. Simulates that
+	 * drift by declaring the work/retry chain WITHOUT a DLQ binding, so the republish inside
+	 * {@code deadLetter} is unroutable. The original must then be NACKed (not ACKed), which sends
+	 * it through the work queue's own DLX to the retry queue and back — proving it survives instead
+	 * of vanishing.
+	 */
+	@Test
+	void unroutableDlqRepublishLeavesTheOriginalUnackedInsteadOfLosingIt() throws Exception {
+		AiJobDispatchQueueTopology.declareWithoutDlqBinding(
+			admin, RETRY_TTL_MS_FOR_TEST, DRIFT_WORK_QUEUE, DRIFT_RETRY_QUEUE, DRIFT_ROUTING_KEY
+		);
+		AiJobQueuePurger.purge(admin, DRIFT_WORK_QUEUE, DRIFT_RETRY_QUEUE);
+
+		QuestionAnswerJobDispatchService dispatchService = mock(QuestionAnswerJobDispatchService.class);
+		AiJobDeadLetterPublisher deadLetterPublisher = new RabbitAiJobDeadLetterPublisher();
+		QuestionAnswerJobMessageListener listener =
+			new QuestionAnswerJobMessageListener(dispatchService, deadLetterPublisher, objectMapper);
+
+		AtomicInteger workDeliveries = new AtomicInteger();
+		CountDownLatch secondDeliveryLatch = new CountDownLatch(2);
+
+		workDrainer = AiJobRawQueueDrainer.consumingWith(DRIFT_WORK_QUEUE, (channel, delivery) -> {
+			workDeliveries.incrementAndGet();
+			Message message =
+				toSpringMessage(delivery.getBody(), delivery.getProperties().getHeaders(), DRIFT_WORK_QUEUE);
+			listener.onMessage(message, channel, delivery.getEnvelope().getDeliveryTag());
+			secondDeliveryLatch.countDown();
+		});
+
+		publishRaw(DRIFT_WORK_QUEUE, "not json at all {{{".getBytes(StandardCharsets.UTF_8));
+
+		// With no DLQ binding, the republish inside deadLetter is unroutable -> NACK(requeue=false)
+		// -> the work queue's own x-dead-letter-* sends it to the retry queue -> TTL expires ->
+		// redelivered to the work queue. A second delivery proves the message was NOT acked/lost.
+		assertThat(secondDeliveryLatch.await(RETRY_TTL_MS_FOR_TEST + 5_000L, TimeUnit.MILLISECONDS))
+			.as("message must cycle back through the retry queue instead of being lost")
+			.isTrue();
+		assertThat(workDeliveries.get()).as("at least the initial delivery + one retry redelivery")
+			.isGreaterThanOrEqualTo(2);
 	}
 
 	private long queueMessageCount(String queue) {
