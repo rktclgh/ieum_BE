@@ -34,6 +34,14 @@ public enum AiJobMessageSettlement {
 	// --- RETRY 사유 코드 ---
 	public static final String REASON_DISPATCH_SATURATED = "dispatch_saturated";
 	public static final String REASON_DISPATCH_DISABLED = "dispatch_disabled";
+	/**
+	 * 리스너 밖으로 새어나온 {@code RuntimeException}(예: {@code DataAccessException}, 예상치 못한
+	 * {@code NullPointerException})을 잡아 재시도 상한을 거치도록 만들 때 쓰는 사유 코드. 컨슈머가
+	 * dispatch/submit 호출을 감싸는 {@code try-catch}에서만 쓴다 — spec.md §6.3 재시도 상한이 이
+	 * 경로에도 반드시 적용돼야 한다(리뷰 발견 사항: 예외가 그대로 새면 {@code x-death} 카운트를
+	 * 건너뛴 채 work↔retry 큐를 영원히 순환한다).
+	 */
+	public static final String REASON_DISPATCH_EXCEPTION = "dispatch_exception";
 
 	/**
 	 * 컨슈머가 받아들이는 최대 {@code schemaVersion}. spec.md §6.5: "컨슈머는 schemaVersion &gt;
