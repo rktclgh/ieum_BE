@@ -11,6 +11,11 @@ import shinhan.fibri.ieum.ai.config.QuestionAnswerDispatchProperties;
 import shinhan.fibri.ieum.ai.question.service.QuestionAnswerJobDispatchResult;
 import shinhan.fibri.ieum.ai.question.service.QuestionAnswerJobDispatchService;
 
+/**
+ * 정상 전송 경로는 RabbitMQ다. 이 경로는 {@code transport=http} 롤백 전용이며 별도 이슈(#254)에서
+ * 제거된다.
+ */
+@Deprecated
 @RestController
 @RequestMapping("/ai/v1/internal/question-answer-jobs")
 public class QuestionAnswerJobDispatchInternalController {
