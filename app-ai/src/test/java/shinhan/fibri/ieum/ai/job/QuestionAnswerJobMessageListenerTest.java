@@ -76,6 +76,20 @@ class QuestionAnswerJobMessageListenerTest {
 	}
 
 	@Test
+	void dispatchExceptionDelegatesToTheDeadLetterPublisherInsteadOfPropagating() throws Exception {
+		when(dispatchService.dispatch(42L)).thenThrow(new org.springframework.dao.QueryTimeoutException("boom"));
+		Message message = validMessage(42L);
+
+		listener.onMessage(message, channel, 7L);
+
+		verify(deadLetterPublisher).retryOrDeadLetter(
+			channel, 7L, message, AiJobMessageSettlement.REASON_DISPATCH_EXCEPTION
+		);
+		verify(channel, never()).basicAck(anyLong(), anyBoolean());
+		verify(channel, never()).basicNack(anyLong(), anyBoolean(), anyBoolean());
+	}
+
+	@Test
 	void invariantBreachIsDeadLettered() throws Exception {
 		when(dispatchService.dispatch(42L)).thenReturn(QuestionAnswerJobDispatchResult.INVARIANT_BREACH);
 		Message message = validMessage(42L);

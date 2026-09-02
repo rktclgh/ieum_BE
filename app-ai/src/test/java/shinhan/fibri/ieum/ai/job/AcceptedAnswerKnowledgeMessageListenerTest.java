@@ -74,6 +74,20 @@ class AcceptedAnswerKnowledgeMessageListenerTest {
 	}
 
 	@Test
+	void dispatchExceptionDelegatesToTheDeadLetterPublisherInsteadOfPropagating() throws Exception {
+		when(lane.submit(99L)).thenThrow(new org.springframework.dao.QueryTimeoutException("boom"));
+		Message message = validMessage(99L);
+
+		listener.onMessage(message, channel, 3L);
+
+		verify(deadLetterPublisher).retryOrDeadLetter(
+			channel, 3L, message, AiJobMessageSettlement.REASON_DISPATCH_EXCEPTION
+		);
+		verify(channel, never()).basicAck(anyLong(), anyBoolean());
+		verify(channel, never()).basicNack(anyLong(), anyBoolean(), anyBoolean());
+	}
+
+	@Test
 	void nonPositiveAnswerIdIsDeadLetteredWithoutCallingTheLane() throws Exception {
 		Message message = validMessage(0L);
 
