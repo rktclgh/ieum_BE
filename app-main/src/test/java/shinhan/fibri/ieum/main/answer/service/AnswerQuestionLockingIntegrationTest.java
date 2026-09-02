@@ -29,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
+import shinhan.fibri.ieum.main.ai.outbox.service.AiJobOutboxWriter;
 import shinhan.fibri.ieum.main.answer.dto.CreateAnswerRequest;
 import shinhan.fibri.ieum.main.notification.service.NotificationPublisher;
 import shinhan.fibri.ieum.testsupport.CanonicalPostgresContainer;
@@ -69,6 +70,9 @@ class AnswerQuestionLockingIntegrationTest {
 
 	@MockitoBean
 	private NotificationPublisher notificationPublisher;
+
+	@MockitoBean
+	private AiJobOutboxWriter aiJobOutboxWriter;
 
 	private long userId;
 	private long questionId;

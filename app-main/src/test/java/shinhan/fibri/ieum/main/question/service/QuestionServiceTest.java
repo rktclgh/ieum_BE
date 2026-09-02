@@ -28,6 +28,8 @@ import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
 import shinhan.fibri.ieum.common.file.domain.File;
 import shinhan.fibri.ieum.common.file.repository.FileRepository;
+import shinhan.fibri.ieum.main.ai.outbox.service.AiJobOutboxWriter;
+import shinhan.fibri.ieum.main.ai.outbox.service.Reason;
 import shinhan.fibri.ieum.main.ai.question.repository.QuestionAnswerTicketWriter;
 import shinhan.fibri.ieum.main.answer.domain.AnswerImage;
 import shinhan.fibri.ieum.main.answer.repository.AnswerImageRepository;
@@ -59,6 +61,7 @@ class QuestionServiceTest {
 	private final UserRepository userRepository = mock(UserRepository.class);
 	private final PinWriter pinWriter = mock(PinWriter.class);
 	private final QuestionAnswerTicketWriter questionAnswerTicketWriter = mock(QuestionAnswerTicketWriter.class);
+	private final AiJobOutboxWriter aiJobOutboxWriter = mock(AiJobOutboxWriter.class);
 	private final ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
 	private final QuestionDeletionExecutor questionDeletionExecutor = new QuestionDeletionExecutor(
 		questionRepository,
@@ -73,6 +76,7 @@ class QuestionServiceTest {
 		userRepository,
 		pinWriter,
 		questionAnswerTicketWriter,
+		aiJobOutboxWriter,
 		eventPublisher,
 		questionDeletionExecutor
 	);
@@ -116,6 +120,7 @@ class QuestionServiceTest {
 			questionRepository,
 			questionImageRepository,
 			questionAnswerTicketWriter,
+			aiJobOutboxWriter,
 			eventPublisher
 		);
 		inOrder.verify(fileRepository).findByFileIdAndUploaderId(imageId, 42L);
@@ -123,6 +128,7 @@ class QuestionServiceTest {
 		inOrder.verify(questionRepository).saveAndFlush(any(Question.class));
 		inOrder.verify(questionImageRepository).saveAll(any());
 		inOrder.verify(questionAnswerTicketWriter).create(200L);
+		inOrder.verify(aiJobOutboxWriter).enqueueQuestionAnswerDispatch(200L, Reason.CREATED);
 		inOrder.verify(eventPublisher).publishEvent(
 			new QuestionCreatedEvent(200L, 42L, "title", 37.4979, 127.0276)
 		);
@@ -382,7 +388,13 @@ class QuestionServiceTest {
 		assertThat(question.getTitle()).isEqualTo("new title");
 		assertThat(question.getContent()).isEqualTo("new content");
 		assertThat(response.questionId()).isEqualTo(200L);
-		InOrder inOrder = inOrder(questionAnswerTicketWriter, questionRepository, questionImageRepository, eventPublisher);
+		InOrder inOrder = inOrder(
+			questionAnswerTicketWriter,
+			questionRepository,
+			questionImageRepository,
+			aiJobOutboxWriter,
+			eventPublisher
+		);
 		inOrder.verify(questionAnswerTicketWriter).requestRegeneration(200L);
 		inOrder.verify(questionRepository).findByIdForUpdate(200L);
 		inOrder.verify(questionImageRepository).deleteByQuestionId(200L);
@@ -391,7 +403,8 @@ class QuestionServiceTest {
 		assertThat(imagesCaptor.getValue()).hasSize(1);
 		assertThat(imagesCaptor.getValue().get(0).getFileId()).isEqualTo(imageId);
 		assertThat(imagesCaptor.getValue().get(0).getSortOrder()).isZero();
-		verify(eventPublisher).publishEvent(
+		inOrder.verify(aiJobOutboxWriter).enqueueQuestionAnswerDispatch(200L, Reason.REGENERATED);
+		inOrder.verify(eventPublisher).publishEvent(
 			new shinhan.fibri.ieum.main.ai.question.dispatch.QuestionAnswerRegenerationRequestedEvent(200L)
 		);
 	}
@@ -415,6 +428,7 @@ class QuestionServiceTest {
 
 		assertThat(question.getTitle()).isEqualTo("new title");
 		verify(questionAnswerTicketWriter).requestRegeneration(200L);
+		verify(aiJobOutboxWriter, never()).enqueueQuestionAnswerDispatch(any(), any());
 		verify(eventPublisher, never()).publishEvent(
 			any(shinhan.fibri.ieum.main.ai.question.dispatch.QuestionAnswerRegenerationRequestedEvent.class)
 		);
