@@ -18,6 +18,8 @@ import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
 import shinhan.fibri.ieum.common.file.domain.File;
 import shinhan.fibri.ieum.common.file.repository.FileRepository;
+import shinhan.fibri.ieum.main.ai.outbox.service.AiJobOutboxWriter;
+import shinhan.fibri.ieum.main.ai.outbox.service.Reason;
 import shinhan.fibri.ieum.main.ai.question.dispatch.QuestionAnswerRegenerationRequestedEvent;
 import shinhan.fibri.ieum.main.ai.question.repository.QuestionAnswerTicketWriter;
 import shinhan.fibri.ieum.main.answer.domain.AnswerImage;
@@ -61,6 +63,7 @@ public class QuestionService {
 	private final UserRepository userRepository;
 	private final PinWriter pinWriter;
 	private final QuestionAnswerTicketWriter questionAnswerTicketWriter;
+	private final AiJobOutboxWriter aiJobOutboxWriter;
 	private final ApplicationEventPublisher eventPublisher;
 	private final QuestionDeletionExecutor questionDeletionExecutor;
 
@@ -89,6 +92,7 @@ public class QuestionService {
 		}
 		questionImageRepository.saveAll(images);
 		questionAnswerTicketWriter.create(question.getId());
+		aiJobOutboxWriter.enqueueQuestionAnswerDispatch(question.getId(), Reason.CREATED);
 		eventPublisher.publishEvent(new QuestionCreatedEvent(
 			question.getId(), principal.userId(), question.getTitle(), request.location().lat(), request.location().lng()
 		));
@@ -157,6 +161,7 @@ public class QuestionService {
 
 		// 6. afterCommit: 재무장된 경우(=status가 completed가 아니었던 경우)에만 워커 wake.
 		if (regenerationRequested) {
+			aiJobOutboxWriter.enqueueQuestionAnswerDispatch(questionId, Reason.REGENERATED);
 			eventPublisher.publishEvent(new QuestionAnswerRegenerationRequestedEvent(questionId));
 		}
 

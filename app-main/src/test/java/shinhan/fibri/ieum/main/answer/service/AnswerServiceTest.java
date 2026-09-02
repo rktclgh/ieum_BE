@@ -38,6 +38,7 @@ import shinhan.fibri.ieum.main.answer.exception.AnswerSelectionFinalizedExceptio
 import shinhan.fibri.ieum.main.answer.exception.AnswerNotFoundException;
 import shinhan.fibri.ieum.main.answer.exception.InvalidAnswerRequestException;
 import shinhan.fibri.ieum.main.answer.exception.SelfAcceptanceNotAllowedException;
+import shinhan.fibri.ieum.main.ai.outbox.service.AiJobOutboxWriter;
 import shinhan.fibri.ieum.main.answer.event.AcceptedHumanAnswerEvent;
 import shinhan.fibri.ieum.main.answer.repository.AnswerImageRepository;
 import shinhan.fibri.ieum.main.answer.repository.AnswerRepository;
@@ -59,6 +60,7 @@ class AnswerServiceTest {
 	private final UserRepository userRepository = mock(UserRepository.class);
 	private final NotificationPublisher notificationPublisher = mock(NotificationPublisher.class);
 	private final ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
+	private final AiJobOutboxWriter aiJobOutboxWriter = mock(AiJobOutboxWriter.class);
 	private final AnswerService service = new AnswerService(
 		questionRepository,
 		answerRepository,
@@ -66,7 +68,8 @@ class AnswerServiceTest {
 		fileRepository,
 		userRepository,
 		notificationPublisher,
-		eventPublisher
+		eventPublisher,
+		aiJobOutboxWriter
 	);
 
 	@Test
@@ -329,6 +332,8 @@ class AnswerServiceTest {
 		);
 		verify(eventPublisher).publishEvent(new AcceptedHumanAnswerEvent(300L));
 		verify(eventPublisher).publishEvent(new AcceptedHumanAnswerEvent(302L));
+		verify(aiJobOutboxWriter).enqueueAcceptedAnswerKnowledge(300L);
+		verify(aiJobOutboxWriter).enqueueAcceptedAnswerKnowledge(302L);
 		verify(notificationPublisher, never()).publishDurableOnce(
 			any(),
 			any(),
@@ -338,6 +343,7 @@ class AnswerServiceTest {
 			org.mockito.ArgumentMatchers.eq("answer-accepted:301")
 		);
 		verify(eventPublisher, never()).publishEvent(new AcceptedHumanAnswerEvent(301L));
+		verify(aiJobOutboxWriter, never()).enqueueAcceptedAnswerKnowledge(301L);
 		InOrder inOrder = inOrder(questionRepository, answerRepository, userRepository);
 		inOrder.verify(questionRepository).findByIdForUpdate(200L);
 		inOrder.verify(answerRepository).findAcceptedIdsByQuestionIdOrderByIdAsc(200L);
@@ -543,6 +549,8 @@ class AnswerServiceTest {
 		);
 		verify(eventPublisher).publishEvent(new AcceptedHumanAnswerEvent(300L));
 		verify(eventPublisher).publishEvent(new AcceptedHumanAnswerEvent(301L));
+		verify(aiJobOutboxWriter).enqueueAcceptedAnswerKnowledge(300L);
+		verify(aiJobOutboxWriter).enqueueAcceptedAnswerKnowledge(301L);
 	}
 
 	private AuthenticatedUser principal() {

@@ -29,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
+import shinhan.fibri.ieum.main.ai.outbox.service.AiJobOutboxWriter;
 import shinhan.fibri.ieum.main.answer.dto.CreateAnswerRequest;
 import shinhan.fibri.ieum.main.answer.dto.FinalizeAcceptedAnswersRequest;
 import shinhan.fibri.ieum.main.answer.exception.AnswerSelectionFinalizedException;
@@ -71,6 +72,9 @@ class AnswerFinalizationConcurrencyIntegrationTest {
 
 	@MockitoBean
 	private NotificationPublisher notificationPublisher;
+
+	@MockitoBean
+	private AiJobOutboxWriter aiJobOutboxWriter;
 
 	private long ownerId;
 	private long answererId;
