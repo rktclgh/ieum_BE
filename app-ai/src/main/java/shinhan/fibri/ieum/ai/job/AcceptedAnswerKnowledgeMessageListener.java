@@ -75,15 +75,20 @@ public class AcceptedAnswerKnowledgeMessageListener {
 		AcceptedAnswerKnowledgeTaskSubmission submission = lane.submit(answerId);
 		log.info("event=ai_job_consumed jobType=accepted_answer_knowledge_ingest answerId={} result={}",
 			answerId, submission);
-		settle(submission, channel, deliveryTag);
+		settle(submission, message, channel, deliveryTag);
 	}
 
-	private void settle(AcceptedAnswerKnowledgeTaskSubmission submission, Channel channel, long deliveryTag)
-		throws IOException {
+	private void settle(AcceptedAnswerKnowledgeTaskSubmission submission, Message message, Channel channel,
+		long deliveryTag) throws IOException {
 		switch (submission) {
 			case ENQUEUED, ALREADY_ACTIVE -> channel.basicAck(deliveryTag, false);
-			case SATURATED, DISABLED -> channel.basicNack(deliveryTag, false, false);
+			case SATURATED -> retry(message, channel, deliveryTag, AiJobMessageSettlement.REASON_DISPATCH_SATURATED);
+			case DISABLED -> retry(message, channel, deliveryTag, AiJobMessageSettlement.REASON_DISPATCH_DISABLED);
 		}
+	}
+
+	private void retry(Message message, Channel channel, long deliveryTag, String reasonCode) throws IOException {
+		deadLetterPublisher.retryOrDeadLetter(channel, deliveryTag, message, reasonCode);
 	}
 
 	private void dlq(Message message, Channel channel, long deliveryTag, String reasonCode) throws IOException {

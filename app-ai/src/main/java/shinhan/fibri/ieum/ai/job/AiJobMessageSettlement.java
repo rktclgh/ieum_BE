@@ -9,12 +9,14 @@ import shinhan.fibri.ieum.common.ai.job.AiJobTopology;
  * <ul>
  *   <li>{@link #ACK} — 메시지를 큐에서 제거하고 재시도하지 않는다. 성공 종결(lane 제출 성공) 또는
  *       terminal 상태(이미 완료/취소/삭제/DEAD/이미 처리 중) 흡수를 뜻한다. spec.md §8.3 "ACK 시점".</li>
- *   <li>{@link #RETRY} — {@code channel.basicNack(tag, false, false)} 로 work 큐의
- *       {@code x-dead-letter-exchange}를 통해 retry 큐(TTL 30s)로 보낸다. lane 포화/기능 비활성처럼
- *       재시도하면 나아질 수 있는 일시적 실패다.</li>
+ *   <li>{@link #RETRY} — 재시도하면 나아질 수 있는 일시적 실패다(lane 포화/기능 비활성). 컨슈머는
+ *       {@code AiJobDeadLetterPublisher#retryOrDeadLetter}에 위임한다 — {@code x-death} 카운트가
+ *       {@code AiJobTopology.MAX_DELIVERY_ATTEMPTS}(5) 미만이면 {@code channel.basicNack(tag, false,
+ *       false)}로 work 큐의 {@code x-dead-letter-exchange}를 통해 retry 큐(TTL 30s)로 보내고, 도달했으면
+ *       DLQ 경로로 전환한다(spec.md §6.3).</li>
  *   <li>{@link #DLQ} — 재시도로 고칠 수 없는 조건이다(파싱 실패, 스키마 미지원, 잘못된 ID, 티켓 없음).
- *       Task 6 이전까지는 {@code AiJobDeadLetterPublisher}의 임시 구현이 {@link #RETRY}와 동일하게
- *       NACK 하지만, 판정 자체는 이 값으로 {@link #RETRY}와 구분된다(브리프 "구현 단계" 4번).</li>
+ *       {@code x-death} 카운트를 보지 않고 {@code AiJobDeadLetterPublisher#deadLetter}로 즉시 DLQ 로
+ *       보낸다.</li>
  * </ul>
  */
 public enum AiJobMessageSettlement {

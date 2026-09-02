@@ -29,7 +29,9 @@ import shinhan.fibri.ieum.common.ai.job.AiJobTopology;
  *       이 진짜 fencing 이고, 크래시 시 lease 만료 복구가 그 일을 한다. 메시지는 "작업 실행"이 아니라
  *       "작업 wake"를 전달할 뿐이다.</li>
  * </ol>
- * NACK 하는 유일한 경우는 wake 자체가 실패했을 때(lane 포화, 기능 비활성)다.
+ * NACK 하는 유일한 경우는 wake 자체가 실패했을 때(lane 포화, 기능 비활성)다 — 다만 {@code x-death}
+ * 카운트가 상한({@code AiJobTopology.MAX_DELIVERY_ATTEMPTS})에 도달하면 {@link AiJobDeadLetterPublisher}가
+ * NACK 대신 DLQ 경로로 전환한다(spec.md §6.3).
  *
  * <p>멱등성은 {@code jobId}가 아니라 {@code ai_question_tasks}의 DB 상태 머신이 보장한다
  * (spec.md §8.2) — {@link QuestionAnswerJobDispatchService#dispatch(long)}가 이미 이 판단을 한다.
@@ -93,10 +95,15 @@ public class QuestionAnswerJobMessageListener {
 		switch (result) {
 			case ENQUEUED, ALREADY_ACTIVE, ALREADY_COMPLETED, CANCELLED_OR_DELETED, DEAD ->
 				channel.basicAck(deliveryTag, false);
-			case SATURATED, DISABLED -> channel.basicNack(deliveryTag, false, false);
+			case SATURATED -> retry(message, channel, deliveryTag, AiJobMessageSettlement.REASON_DISPATCH_SATURATED);
+			case DISABLED -> retry(message, channel, deliveryTag, AiJobMessageSettlement.REASON_DISPATCH_DISABLED);
 			case INVARIANT_BREACH ->
 				dlq(message, channel, deliveryTag, AiJobMessageSettlement.REASON_TICKET_NOT_FOUND);
 		}
+	}
+
+	private void retry(Message message, Channel channel, long deliveryTag, String reasonCode) throws IOException {
+		deadLetterPublisher.retryOrDeadLetter(channel, deliveryTag, message, reasonCode);
 	}
 
 	private void dlq(Message message, Channel channel, long deliveryTag, String reasonCode) throws IOException {
