@@ -18,7 +18,7 @@ VISUDO_LOG="$TMP_DIR/visudo.log"
 mkdir -p "$SOURCE_ROOT/deploy/onprem/scripts" "$INSTALL_ROOT" "$SRV_ROOT" \
   "$STATE_ROOT" "$ETC_ROOT" "$BIN_ROOT" "$SUDOERS_ROOT" "$RUNNER_HOME"
 
-for name in deploy-release.sh db-preflight.sh install-staging-nginx.sh install-production-nginx.sh object-store-mirror.sh ieum-release-dispatch.sh db-restore-rehearsal.sh db-restore-production.sh db-verify.sh provision-existing-postgres.sh provision-runtime-env.sh validate-runtime-env.sh install-self-hosted-runner.sh; do
+for name in deploy-release.sh db-preflight.sh install-staging-nginx.sh install-production-nginx.sh object-store-mirror.sh ieum-release-dispatch.sh db-restore-rehearsal.sh db-restore-production.sh db-verify.sh provision-existing-postgres.sh provision-runtime-env.sh provision-rabbitmq.sh validate-runtime-env.sh install-self-hosted-runner.sh; do
   printf '#!/usr/bin/env bash\nexit 0\n' >"$SOURCE_ROOT/deploy/onprem/scripts/$name"
   chmod 700 "$SOURCE_ROOT/deploy/onprem/scripts/$name"
 done
@@ -44,6 +44,7 @@ if [[ "${1-}" == compose && "${2-}" == version && "${FAKE_DOCKER_COMPOSE:-presen
 printf '%s\n' "$*" >>"${FAKE_DOCKER_LOG:?}"
 if [[ "${1-}" == network && "${2-}" == inspect ]]; then
   network=${3-}
+  format=${5-}
   if [[ "${network}" == collision-network && "${FAKE_DOCKER_NETWORK_INSPECT_FAIL:-}" == 1 ]]; then
     exit 1
   fi
@@ -53,7 +54,14 @@ if [[ "${1-}" == network && "${2-}" == inspect ]]; then
   fi
   if [[ "$network" == ieum && "${FAKE_DOCKER_IEUM:-present}" == missing ]]; then exit 1; fi
   if [[ "$network" == ieum && "${4-}" == --format ]]; then
-    [[ "${FAKE_DOCKER_IEUM:-present}" == invalid ]] && printf 'bridge|172.31.0.0/24\n' || printf 'bridge|172.30.0.0/24\n'
+    case "$format" in
+      *Containers*)
+        [[ "${FAKE_DOCKER_RABBITMQ:-present}" == missing ]] || printf '/rabbitmq-container\n'
+        ;;
+      *)
+        [[ "${FAKE_DOCKER_IEUM:-present}" == invalid ]] && printf 'bridge|172.31.0.0/24\n' || printf 'bridge|172.30.0.0/24\n'
+        ;;
+    esac
   fi
   exit 0
 fi
@@ -63,13 +71,27 @@ if [[ "${1-}" == network && "${2-}" == ls ]]; then
 fi
 if [[ "${1-}" == network && "${2-}" == create ]]; then printf '%s\n' "$*" >>"${FAKE_DOCKER_LOG:?}"; exit 0; fi
 if [[ "${1-}" == inspect ]]; then
-  if [[ "$*" == *NetworkSettings* ]]; then
-    if [[ "${FAKE_DOCKER_MINIO:-present}" == missing-alias ]]; then printf 'other\n'; else printf 'minio\n'; fi
-  elif [[ "${FAKE_DOCKER_MINIO:-present}" == unhealthy ]]; then printf 'false\n'; else printf 'true\n'; fi
+  container=${*: -1}
+  case "$container" in
+    */minio-container)
+      if [[ "$*" == *NetworkSettings* ]]; then
+        if [[ "${FAKE_DOCKER_MINIO:-present}" == missing-alias ]]; then printf 'other\n'; else printf 'minio\n'; fi
+      elif [[ "${FAKE_DOCKER_MINIO:-present}" == unhealthy ]]; then printf 'false\n'; else printf 'true\n'; fi
+      ;;
+    */rabbitmq-container)
+      if [[ "$*" == *NetworkSettings* ]]; then
+        if [[ "${FAKE_DOCKER_RABBITMQ:-present}" == missing-alias ]]; then printf 'other\n'; else printf 'rabbitmq\n'; fi
+      elif [[ "${FAKE_DOCKER_RABBITMQ:-present}" == unhealthy ]]; then printf 'false\n'; else printf 'true\n'; fi
+      ;;
+  esac
   exit 0
 fi
 if [[ "${1-}" == exec ]]; then
-  [[ "${FAKE_DOCKER_MINIO:-present}" == unreachable ]] && exit 1
+  container=${2-}
+  case "$container" in
+    */minio-container) [[ "${FAKE_DOCKER_MINIO:-present}" == unreachable ]] && exit 1 ;;
+    */rabbitmq-container) [[ "${FAKE_DOCKER_RABBITMQ:-present}" == unreachable ]] && exit 1 ;;
+  esac
   exit 0
 fi
 exit 0
@@ -139,6 +161,7 @@ run_bootstrap() {
   VISUDO_LOG="$VISUDO_LOG" \
   FAKE_DOCKER_LOG="$TMP_DIR/docker.log" \
   FAKE_DOCKER_MINIO="${FAKE_DOCKER_MINIO:-present}" \
+  FAKE_DOCKER_RABBITMQ="${FAKE_DOCKER_RABBITMQ:-present}" \
   FAKE_DOCKER_IEUM="${FAKE_DOCKER_IEUM:-present}" \
   FAKE_DOCKER_COMPOSE="${FAKE_DOCKER_COMPOSE:-present}" \
   FAKE_DOCKER_NETWORK_ENUM="${FAKE_DOCKER_NETWORK_ENUM:-}" \
@@ -184,11 +207,11 @@ ln -s source-real "$SOURCE_ROOT"
 assert_failure run_bootstrap
 rm "$SOURCE_ROOT"
 mv "$TMP_DIR/source-real" "$SOURCE_ROOT"
-for name in ieum-deploy-release ieum-db-preflight ieum-install-staging-nginx ieum-install-production-nginx ieum-object-store-mirror ieum-release-dispatch ieum-db-restore-rehearsal ieum-db-restore-production ieum-db-verify ieum-provision-existing-postgres ieum-provision-runtime-env ieum-validate-runtime-env ieum-minio-presign-smoke ieum-install-self-hosted-runner; do
+for name in ieum-deploy-release ieum-db-preflight ieum-install-staging-nginx ieum-install-production-nginx ieum-object-store-mirror ieum-release-dispatch ieum-db-restore-rehearsal ieum-db-restore-production ieum-db-verify ieum-provision-existing-postgres ieum-provision-runtime-env ieum-provision-rabbitmq ieum-validate-runtime-env ieum-minio-presign-smoke ieum-install-self-hosted-runner; do
   [[ -f "$INSTALL_ROOT/$name" && ! -L "$INSTALL_ROOT/$name" ]] || { printf 'FAIL missing helper %s\n' "$name" >&2; fail=$((fail + 1)); }
   [[ "$(stat -c '%a' "$INSTALL_ROOT/$name" 2>/dev/null || stat -f '%Lp' "$INSTALL_ROOT/$name")" == 755 ]] || { printf 'FAIL helper mode %s\n' "$name" >&2; fail=$((fail + 1)); }
 done
-for source_name in deploy-release.sh db-preflight.sh install-staging-nginx.sh install-production-nginx.sh object-store-mirror.sh ieum-release-dispatch.sh db-restore-rehearsal.sh db-restore-production.sh db-verify.sh provision-existing-postgres.sh provision-runtime-env.sh validate-runtime-env.sh install-self-hosted-runner.sh; do
+for source_name in deploy-release.sh db-preflight.sh install-staging-nginx.sh install-production-nginx.sh object-store-mirror.sh ieum-release-dispatch.sh db-restore-rehearsal.sh db-restore-production.sh db-verify.sh provision-existing-postgres.sh provision-runtime-env.sh provision-rabbitmq.sh validate-runtime-env.sh install-self-hosted-runner.sh; do
   grep -Fq "deploy/onprem/scripts/$source_name" "$SOURCE_ROOT/.ieum-source.sha256" || { printf 'FAIL checksum manifest missing %s\n' "$source_name" >&2; fail=$((fail + 1)); }
 done
 grep -Fq 'deploy/onprem/scripts/minio-presign-smoke.py' "$SOURCE_ROOT/.ieum-source.sha256" || { printf 'FAIL checksum manifest missing minio presign smoke\n' >&2; fail=$((fail + 1)); }
@@ -233,6 +256,34 @@ unset FAKE_DOCKER_MINIO
 FAKE_DOCKER_MINIO=unreachable
 assert_failure run_bootstrap
 unset FAKE_DOCKER_MINIO
+
+# RabbitMQ fail-closed preflight (docs/rabbitmq-dispatch/spec.md §11.2 Option A):
+# same read-only fail-closed contract as the MinIO check above, applied to the
+# `ieum` network's `rabbitmq` alias instead of `ieum-minio`'s `minio` alias.
+FAKE_DOCKER_RABBITMQ=missing
+assert_failure run_bootstrap
+unset FAKE_DOCKER_RABBITMQ
+
+FAKE_DOCKER_RABBITMQ=missing-alias
+assert_failure run_bootstrap
+unset FAKE_DOCKER_RABBITMQ
+
+FAKE_DOCKER_RABBITMQ=unhealthy
+assert_failure run_bootstrap
+unset FAKE_DOCKER_RABBITMQ
+
+FAKE_DOCKER_RABBITMQ=unreachable
+assert_failure run_bootstrap
+unset FAKE_DOCKER_RABBITMQ
+
+: >"$TMP_DIR/docker.log"
+assert_success run_bootstrap
+grep -Fq 'exec /rabbitmq-container rabbitmq-diagnostics -q check_running' "$TMP_DIR/docker.log" || {
+  printf 'FAIL rabbitmq preflight did not check rabbitmq-diagnostics\n' >&2; fail=$((fail + 1));
+}
+if grep -Eq '(^|[[:space:]])(start|stop|rm)([[:space:]]|$)' "$TMP_DIR/docker.log"; then
+  printf 'FAIL preflight started, stopped, or removed a container\n' >&2; fail=$((fail + 1))
+fi
 
 FAKE_DOCKER_COMPOSE=missing
 assert_failure run_bootstrap

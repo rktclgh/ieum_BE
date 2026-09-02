@@ -58,6 +58,7 @@ readonly DISPATCH_HELPERS=(
   'db-verify.sh:ieum-db-verify'
   'provision-existing-postgres.sh:ieum-provision-existing-postgres'
   'provision-runtime-env.sh:ieum-provision-runtime-env'
+  'provision-rabbitmq.sh:ieum-provision-rabbitmq'
   'validate-runtime-env.sh:ieum-validate-runtime-env'
   'minio-presign-smoke.py:ieum-minio-presign-smoke'
   'install-self-hosted-runner.sh:ieum-install-self-hosted-runner'
@@ -128,6 +129,37 @@ prepare_docker_networks() {
   [[ "$ieum_attributes" == "bridge|$desired_subnet" ]] || die 'ieum Docker network has unexpected driver or subnet'
 }
 prepare_docker_networks
+
+require_rabbitmq() {
+  # RabbitMQ runs as a separate `ieum-broker` compose project (docs
+  # /rabbitmq-dispatch/spec.md §11.2 Option A) that only attaches to the
+  # `ieum` network under the `rabbitmq` DNS alias; it is provisioned and
+  # started by provision-rabbitmq.sh, never here. This mirrors the MinIO
+  # check above: fail closed unless a running broker container owns that
+  # alias and answers rabbitmq-diagnostics from inside the network. No
+  # container is attached, restarted, or otherwise modified here.
+  local records candidate aliases rabbitmq_container rabbitmq_running alias_count=0
+  records=$("$DOCKER_BIN" network inspect ieum \
+    --format '{{range .Containers}}{{.Name}}{{"\n"}}{{end}}' \
+    2>/dev/null) || die 'unable to inspect ieum network containers'
+  while IFS= read -r candidate; do
+    [[ -n "$candidate" ]] || continue
+    aliases=$("$DOCKER_BIN" inspect --format \
+      '{{range $network, $config := .NetworkSettings.Networks}}{{if eq $network "ieum"}}{{range $config.Aliases}}{{.}}{{"\n"}}{{end}}{{end}}{{end}}' \
+      "$candidate" 2>/dev/null) || die 'unable to inspect an ieum network container'
+    if printf '%s\n' "$aliases" | grep -Fqx rabbitmq; then
+      rabbitmq_container=$candidate
+      alias_count=$((alias_count + 1))
+    fi
+  done <<<"$records"
+  [[ "$alias_count" -eq 1 ]] || die 'ieum network must expose exactly one container with the rabbitmq DNS alias'
+  rabbitmq_running=$("$DOCKER_BIN" inspect --format '{{.State.Running}}' "$rabbitmq_container" 2>/dev/null) || \
+    die 'unable to inspect the RabbitMQ container state'
+  [[ "$rabbitmq_running" == true ]] || die 'RabbitMQ container is not running'
+  "$DOCKER_BIN" exec "$rabbitmq_container" rabbitmq-diagnostics -q check_running \
+    >/dev/null 2>&1 || die 'RabbitMQ is not reachable through the rabbitmq Docker DNS alias'
+}
+require_rabbitmq
 
 safe_dir() {
   local path=$1
