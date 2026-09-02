@@ -2,7 +2,9 @@ package shinhan.fibri.ieum.ai.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
@@ -21,6 +23,11 @@ import org.springframework.boot.amqp.autoconfigure.RabbitAutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.convert.ApplicationConversionService;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import shinhan.fibri.ieum.ai.job.AcceptedAnswerKnowledgeMessageListener;
+import shinhan.fibri.ieum.ai.job.QuestionAnswerJobMessageListener;
+import shinhan.fibri.ieum.ai.job.dlq.AiJobDeadLetterPublisher;
+import shinhan.fibri.ieum.ai.knowledge.accepted.service.AcceptedAnswerKnowledgeTaskLane;
+import shinhan.fibri.ieum.ai.question.service.QuestionAnswerJobDispatchService;
 import shinhan.fibri.ieum.common.ai.job.AiJobTopology;
 import shinhan.fibri.ieum.testsupport.AiJobRabbitContainer;
 import shinhan.fibri.ieum.testsupport.DockerAvailability;
@@ -82,6 +89,33 @@ class AiJobRabbitTopologyTest {
 				"spring.rabbitmq.username=" + AiJobRabbitContainer.username(),
 				"spring.rabbitmq.password=" + AiJobRabbitContainer.password()
 			);
+	}
+
+	/**
+	 * 리뷰 발견 사항 검증용: {@link AiJobRabbitConfiguration}(토폴로지)과 두 {@code @RabbitListener}
+	 * 컴포넌트를 <b>같은</b> {@code ApplicationContextRunner}에 함께 등록해, {@code
+	 * app.ai.dispatch.transport}가 둘을 항상 같은 방향으로 켜고 끄는지 검증한다 — 토폴로지만 꺼지고
+	 * 리스너는 무조건 등록되는 불일치(리뷰 발견 사항)가 재발하면 이 테스트가 실패한다.
+	 *
+	 * <p>리스너의 협력자(dispatch service, lane, dead-letter publisher)는 모킹한다 — 이 테스트는 빈
+	 * 등록 여부만 검증하고, 실제 소비 동작은 {@code QuestionAnswerJobMessageListenerTest} 등 전용
+	 * 유닛 테스트가 커버한다. {@code auto-startup=false}로 실제 컨테이너 기동(브로커 연결 시도)을
+	 * 막아 이 테스트를 브로커 상태와 무관하게 만든다.
+	 */
+	private ApplicationContextRunner listenerRunner() {
+		return new ApplicationContextRunner()
+			.withInitializer(bootConversionService())
+			.withConfiguration(AutoConfigurations.of(RabbitAutoConfiguration.class))
+			.withUserConfiguration(
+				AiJobRabbitConfiguration.class,
+				QuestionAnswerJobMessageListener.class,
+				AcceptedAnswerKnowledgeMessageListener.class
+			)
+			.withBean(ObjectMapper.class, ObjectMapper::new)
+			.withBean(QuestionAnswerJobDispatchService.class, () -> mock(QuestionAnswerJobDispatchService.class))
+			.withBean(AcceptedAnswerKnowledgeTaskLane.class, () -> mock(AcceptedAnswerKnowledgeTaskLane.class))
+			.withBean(AiJobDeadLetterPublisher.class, () -> mock(AiJobDeadLetterPublisher.class))
+			.withPropertyValues("spring.rabbitmq.listener.simple.auto-startup=false");
 	}
 
 	@Test
@@ -147,22 +181,44 @@ class AiJobRabbitTopologyTest {
 	@Test
 	@Order(5)
 	void topologyIsNotDeclaredWhenTransportIsHttp() {
-		new ApplicationContextRunner()
-			.withInitializer(bootConversionService())
-			.withConfiguration(AutoConfigurations.of(RabbitAutoConfiguration.class))
-			.withUserConfiguration(AiJobRabbitConfiguration.class)
+		listenerRunner()
 			.withPropertyValues("app.ai.dispatch.transport=http")
-			.run(context -> assertThat(context.getBeansOfType(Queue.class)).isEmpty());
+			.run(context -> {
+				assertThat(context.getBeansOfType(Queue.class)).isEmpty();
+				assertThat(context.getBeansOfType(QuestionAnswerJobMessageListener.class))
+					.as("question-answer dispatch listener must be gated off with the topology in http mode")
+					.isEmpty();
+				assertThat(context.getBeansOfType(AcceptedAnswerKnowledgeMessageListener.class))
+					.as("accepted-answer ingest listener must be gated off with the topology in http mode")
+					.isEmpty();
+			});
 	}
 
 	@Test
 	@Order(6)
 	void topologyIsDeclaredByDefaultWithoutAnExplicitTransportProperty() {
-		new ApplicationContextRunner()
-			.withInitializer(bootConversionService())
-			.withConfiguration(AutoConfigurations.of(RabbitAutoConfiguration.class))
-			.withUserConfiguration(AiJobRabbitConfiguration.class)
-			.run(context -> assertThat(context.getBeansOfType(Queue.class)).hasSize(ALL_QUEUES.size()));
+		listenerRunner()
+			.run(context -> {
+				assertThat(context.getBeansOfType(Queue.class)).hasSize(ALL_QUEUES.size());
+				assertThat(context.getBeansOfType(QuestionAnswerJobMessageListener.class))
+					.as("question-answer dispatch listener must be registered alongside the topology by default")
+					.hasSize(1);
+				assertThat(context.getBeansOfType(AcceptedAnswerKnowledgeMessageListener.class))
+					.as("accepted-answer ingest listener must be registered alongside the topology by default")
+					.hasSize(1);
+			});
+	}
+
+	@Test
+	@Order(7)
+	void listenersAreRegisteredWhenTransportIsExplicitlyRabbitmq() {
+		listenerRunner()
+			.withPropertyValues("app.ai.dispatch.transport=rabbitmq")
+			.run(context -> {
+				assertThat(context.getBeansOfType(Queue.class)).hasSize(ALL_QUEUES.size());
+				assertThat(context.getBeansOfType(QuestionAnswerJobMessageListener.class)).hasSize(1);
+				assertThat(context.getBeansOfType(AcceptedAnswerKnowledgeMessageListener.class)).hasSize(1);
+			});
 	}
 
 	private static Map<String, Map<String, Object>> expectedQueueArguments() {

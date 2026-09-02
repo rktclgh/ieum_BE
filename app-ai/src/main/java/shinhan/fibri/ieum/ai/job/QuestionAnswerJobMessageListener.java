@@ -5,11 +5,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rabbitmq.client.Channel;
 import java.io.IOException;
 import java.util.Optional;
+import java.util.OptionalLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.support.AmqpHeaders;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 import shinhan.fibri.ieum.ai.job.dlq.AiJobDeadLetterPublisher;
@@ -42,8 +44,18 @@ import shinhan.fibri.ieum.common.ai.job.AiJobTopology;
  *
  * <p>멱등성은 {@code jobId}가 아니라 {@code ai_question_tasks}의 DB 상태 머신이 보장한다
  * (spec.md §8.2) — {@link QuestionAnswerJobDispatchService#dispatch(long)}가 이미 이 판단을 한다.
+ *
+ * <p><b>{@code app.ai.dispatch.transport}는 app-ai 컨슈머의 kill switch 다</b> — {@link
+ * shinhan.fibri.ieum.ai.config.AiJobRabbitConfiguration}이 선언하는 토폴로지와 <b>반드시 같은
+ * 조건</b>으로 켜고 꺼야 한다({@code rabbitmq}(기본값)일 때만 빈이 등록된다). 이 리스너가 토폴로지
+ * 없이 무조건 등록되면, transport 가 {@code http}로 바뀐 새 브로커에서 선언되지 않은 큐를 구독하려다
+ * 실패한다(리뷰 발견 사항). app-main 의 outbox/transport 플래그와는 별개다 — app-main 만
+ * HTTP/rabbitmq 를 오가고, app-ai 는 이 프로퍼티로만 컨슈머 자체를 켜고 끈다.
  */
 @Component
+@ConditionalOnProperty(
+	prefix = "app.ai.dispatch", name = "transport", havingValue = "rabbitmq", matchIfMissing = true
+)
 public class QuestionAnswerJobMessageListener {
 
 	private static final Logger log = LoggerFactory.getLogger(QuestionAnswerJobMessageListener.class);
@@ -85,11 +97,12 @@ public class QuestionAnswerJobMessageListener {
 			return;
 		}
 
-		long questionId = root.path("questionId").asLong(0);
-		if (questionId <= 0) {
+		OptionalLong questionIdField = AiJobMessageSettlement.readPositiveIntegralId(root, "questionId");
+		if (questionIdField.isEmpty()) {
 			dlq(message, channel, deliveryTag, AiJobMessageSettlement.REASON_INVALID_PAYLOAD);
 			return;
 		}
+		long questionId = questionIdField.getAsLong();
 
 		try {
 			QuestionAnswerJobDispatchResult result = dispatchService.dispatch(questionId);

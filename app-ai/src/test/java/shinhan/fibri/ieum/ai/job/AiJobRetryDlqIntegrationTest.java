@@ -18,6 +18,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -97,8 +98,39 @@ class AiJobRetryDlqIntegrationTest {
 
 	@Test
 	void messageIsRetriedFiveTimesThenLandsInTheDlqExactlyOnce() throws Exception {
+		assertMessageIsRetriedFiveTimesThenLandsInTheDlq(
+			777L,
+			dispatchService -> when(dispatchService.dispatch(777L)).thenReturn(QuestionAnswerJobDispatchResult.SATURATED),
+			AiJobMessageSettlement.REASON_DISPATCH_SATURATED
+		);
+	}
+
+	/**
+	 * 리뷰 발견 사항 보강: {@code dispatchService.dispatch(...)}가 매번 {@code RuntimeException}을
+	 * 던지는 경우도 위 SATURATED 시나리오와 동일하게 재시도 상한을 거쳐 DLQ 에 도착해야 한다 — 리스너가
+	 * 이 예외를 잡지 않고 그대로 흘려보내면 Spring 의 {@code default-requeue-rejected=false} 처리기가
+	 * {@code x-death}를 보지 않고 NACK 하므로 상한에 도달하지 못한 채 work↔retry 큐를 영원히 순환한다.
+	 */
+	@Test
+	void messageWhoseDispatchThrowsIsRetriedFiveTimesThenLandsInTheDlqExactlyOnce() throws Exception {
+		assertMessageIsRetriedFiveTimesThenLandsInTheDlq(
+			778L,
+			dispatchService -> when(dispatchService.dispatch(778L)).thenThrow(new IllegalStateException("boom")),
+			AiJobMessageSettlement.REASON_DISPATCH_EXCEPTION
+		);
+	}
+
+	/**
+	 * 위 두 테스트(SATURATED 판정 vs dispatch 중 예외)가 공유하는 시나리오. 유일한 차이는
+	 * {@code dispatchService}를 어떻게 모킹하는지와, 그 결과 DLQ 헤더에 남아야 할 사유 코드뿐이다 —
+	 * 나머지(워커 드레이너 배선, 발행, latch 대기, TTL 만큼 기다린 뒤 재배달이 없는지 확인, 큐 상태
+	 * 검증)는 완전히 같다. (코드리뷰 nitpick: 두 테스트에 걸쳐 중복되던 ~40줄을 여기로 뽑았다.)
+	 */
+	private void assertMessageIsRetriedFiveTimesThenLandsInTheDlq(
+		long questionId, Consumer<QuestionAnswerJobDispatchService> stubDispatch, String expectedDlqReasonCode
+	) throws Exception {
 		QuestionAnswerJobDispatchService dispatchService = mock(QuestionAnswerJobDispatchService.class);
-		when(dispatchService.dispatch(777L)).thenReturn(QuestionAnswerJobDispatchResult.SATURATED);
+		stubDispatch.accept(dispatchService);
 		AiJobDeadLetterPublisher deadLetterPublisher = new RabbitAiJobDeadLetterPublisher();
 		QuestionAnswerJobMessageListener listener =
 			new QuestionAnswerJobMessageListener(dispatchService, deadLetterPublisher, objectMapper);
@@ -121,7 +153,7 @@ class AiJobRetryDlqIntegrationTest {
 			dlqLatch.countDown();
 		});
 
-		publishRaw(dispatchMessageJson(777L).getBytes(StandardCharsets.UTF_8));
+		publishRaw(dispatchMessageJson(questionId).getBytes(StandardCharsets.UTF_8));
 
 		assertThat(dlqLatch.await(20, TimeUnit.SECONDS))
 			.as("message must land in the DLQ after MAX_DELIVERY_ATTEMPTS retries")
@@ -145,59 +177,7 @@ class AiJobRetryDlqIntegrationTest {
 		// raw rabbitmq-client decodes AMQP header string values as LongString, not java.lang.String —
 		// compare via toString() rather than isEqualTo(String) reference/type equality.
 		assertThat(String.valueOf(dlqHeaders.get(0).get(AiJobDeadLetterPublisher.HEADER_DLQ_REASON)))
-			.isEqualTo(AiJobMessageSettlement.REASON_DISPATCH_SATURATED);
-		assertThat(dlqHeaders.get(0).get("x-death")).as("x-death must be preserved on the DLQ message").isNotNull();
-		assertThat(queueMessageCount(WORK_QUEUE)).isZero();
-		assertThat(queueMessageCount(RETRY_QUEUE)).isZero();
-		assertThat(queueMessageCount(DLQ)).isEqualTo(1);
-	}
-
-	/**
-	 * 리뷰 발견 사항 보강: {@code dispatchService.dispatch(...)}가 매번 {@code RuntimeException}을
-	 * 던지는 경우도 위 SATURATED 시나리오와 동일하게 재시도 상한을 거쳐 DLQ 에 도착해야 한다 — 리스너가
-	 * 이 예외를 잡지 않고 그대로 흘려보내면 Spring 의 {@code default-requeue-rejected=false} 처리기가
-	 * {@code x-death}를 보지 않고 NACK 하므로 상한에 도달하지 못한 채 work↔retry 큐를 영원히 순환한다.
-	 */
-	@Test
-	void messageWhoseDispatchThrowsIsRetriedFiveTimesThenLandsInTheDlqExactlyOnce() throws Exception {
-		QuestionAnswerJobDispatchService dispatchService = mock(QuestionAnswerJobDispatchService.class);
-		when(dispatchService.dispatch(778L)).thenThrow(new IllegalStateException("boom"));
-		AiJobDeadLetterPublisher deadLetterPublisher = new RabbitAiJobDeadLetterPublisher();
-		QuestionAnswerJobMessageListener listener =
-			new QuestionAnswerJobMessageListener(dispatchService, deadLetterPublisher, objectMapper);
-
-		AtomicInteger workDeliveries = new AtomicInteger();
-		CountDownLatch dlqLatch = new CountDownLatch(1);
-		List<Map<String, Object>> dlqHeaders = new CopyOnWriteArrayList<>();
-
-		workDrainer = AiJobRawQueueDrainer.consumingWith(WORK_QUEUE, (channel, delivery) -> {
-			workDeliveries.incrementAndGet();
-			Message message = toSpringMessage(delivery.getBody(), delivery.getProperties().getHeaders(), WORK_QUEUE);
-			listener.onMessage(message, channel, delivery.getEnvelope().getDeliveryTag());
-		});
-		dlqDrainer = AiJobRawQueueDrainer.consumingWith(DLQ, (channel, delivery) -> {
-			dlqHeaders.add(delivery.getProperties().getHeaders());
-			dlqLatch.countDown();
-		});
-
-		publishRaw(dispatchMessageJson(778L).getBytes(StandardCharsets.UTF_8));
-
-		assertThat(dlqLatch.await(20, TimeUnit.SECONDS))
-			.as("message must land in the DLQ after MAX_DELIVERY_ATTEMPTS retries even when dispatch throws")
-			.isTrue();
-
-		Thread.sleep(RETRY_TTL_MS_FOR_TEST + 500L);
-
-		dlqDrainer.stop();
-		dlqDrainer = null;
-		Thread.sleep(200);
-
-		assertThat(workDeliveries.get())
-			.as("exactly one initial delivery + MAX_DELIVERY_ATTEMPTS retries")
-			.isEqualTo(1 + AiJobTopology.MAX_DELIVERY_ATTEMPTS);
-		assertThat(dlqHeaders).hasSize(1);
-		assertThat(String.valueOf(dlqHeaders.get(0).get(AiJobDeadLetterPublisher.HEADER_DLQ_REASON)))
-			.isEqualTo(AiJobMessageSettlement.REASON_DISPATCH_EXCEPTION);
+			.isEqualTo(expectedDlqReasonCode);
 		assertThat(dlqHeaders.get(0).get("x-death")).as("x-death must be preserved on the DLQ message").isNotNull();
 		assertThat(queueMessageCount(WORK_QUEUE)).isZero();
 		assertThat(queueMessageCount(RETRY_QUEUE)).isZero();
