@@ -1,8 +1,10 @@
 package shinhan.fibri.ieum.ai.question.callback;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.concurrent.ThreadPoolExecutor;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -11,13 +13,30 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
+/**
+ * transport 선택: {@code app.ai.question-answer.callback.transport}. 브리프 "구현 단계" 3번.
+ *
+ * <p><b>기본값은 {@code http}다</b> — Task 8 이 이 값을 뒤집기 전까지 오늘의 HTTP 콜백 동작을
+ * 그대로 유지한다({@code matchIfMissing = true}). {@code rabbitmq}로 바뀌면
+ * {@link RabbitQuestionCompletionCallbackClient} 빈이 대신 선택된다. 두 조건이 상호 배타적이므로
+ * {@link QuestionCompletionCallbackClient} 빈은 항상 정확히 하나만 존재한다.
+ */
 @Configuration
 @ConditionalOnProperty(name = "app.ai.features.question-answer-enabled", havingValue = "true")
 public class QuestionCompletionCallbackConfiguration {
 
 	private static final int CALLBACK_QUEUE_CAPACITY = 32;
+	private static final String TRANSPORT_PROPERTY = "app.ai.question-answer.callback.transport";
 
+	/**
+	 * {@code transport=rabbitmq}일 때는 만들지 않는다(CodeRabbit PR #257 finding 2). 이 빈이 무조건
+	 * 만들어지던 시절엔 {@code base-origin}/{@code allowed-origins}/{@code internal-token}이 비어 있으면
+	 * {@link QuestionCompletionCallbackProperties#create}가 즉시 던져 — Rabbit 클라이언트를 쓰기로 한
+	 * 배포에서도 HTTP 콜백 설정을 채우지 않으면 컨텍스트 기동 자체가 실패했다. HTTP 콜백값은 HTTP
+	 * transport 를 고를 때만 의미가 있으므로 조건을 맞춘다.
+	 */
 	@Bean
+	@ConditionalOnProperty(name = TRANSPORT_PROPERTY, havingValue = "http", matchIfMissing = true)
 	QuestionCompletionCallbackProperties questionCompletionCallbackProperties(
 		@Value("${app.ai.question-answer.callback.base-origin:}") String baseOrigin,
 		@Value("${app.ai.question-answer.callback.allowed-origins:}") String allowedOrigins,
@@ -34,7 +53,9 @@ public class QuestionCompletionCallbackConfiguration {
 		);
 	}
 
+	/** {@code questionCompletionCallbackProperties}와 같은 이유로 같은 조건을 건다 — 그 빈에 의존한다. */
 	@Bean("questionCompletionCallbackHttpClient")
+	@ConditionalOnProperty(name = TRANSPORT_PROPERTY, havingValue = "http", matchIfMissing = true)
 	HttpClient questionCompletionCallbackHttpClient(QuestionCompletionCallbackProperties properties) {
 		return HttpClient.newBuilder()
 			.connectTimeout(properties.connectTimeout())
@@ -57,11 +78,24 @@ public class QuestionCompletionCallbackConfiguration {
 	}
 
 	@Bean
-	QuestionCompletionCallbackClient questionCompletionCallbackClient(
+	@ConditionalOnProperty(name = TRANSPORT_PROPERTY, havingValue = "http", matchIfMissing = true)
+	QuestionCompletionCallbackClient httpQuestionCompletionCallbackClient(
 		@Qualifier("questionCompletionCallbackHttpClient") HttpClient httpClient,
 		QuestionCompletionCallbackProperties properties
 	) {
 		return new HttpQuestionCompletionCallbackClient(httpClient, properties);
+	}
+
+	@Bean
+	@ConditionalOnProperty(name = TRANSPORT_PROPERTY, havingValue = "rabbitmq")
+	QuestionCompletionCallbackClient rabbitQuestionCompletionCallbackClient(
+		RabbitTemplate rabbitTemplate,
+		ObjectMapper objectMapper,
+		@Value("${app.ai.question-answer.callback.confirm-timeout:5s}") String confirmTimeout
+	) {
+		return new RabbitQuestionCompletionCallbackClient(
+			rabbitTemplate, objectMapper, parseDuration(confirmTimeout, "confirm timeout")
+		);
 	}
 
 	@Bean

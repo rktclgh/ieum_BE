@@ -1,0 +1,58 @@
+# RabbitMQ broker for AI job dispatch (docs/rabbitmq-dispatch/spec.md §11.2 Option A).
+#
+# This is a SEPARATE compose project (`ieum-broker`), not part of the
+# `ieum` release bundle (`deploy/onprem/compose.yml`). Do not merge the two:
+# `deploy-release.sh` runs `compose ... down --remove-orphans` followed by
+# `compose ... up -d --remove-orphans app-ai`/`app-main` by explicit service
+# name on the `ieum` project. A `rabbitmq` service living in that project
+# would be torn down on the first release and never come back up. Keeping
+# this broker in its own project isolates it from that lifecycle entirely,
+# the same pattern already used for the externally-owned `ieum-minio`
+# network/container.
+#
+# Operator bring-up (see docs/rabbitmq-dispatch/spec.md §11.3):
+#   docker compose --project-name ieum-broker \
+#     --env-file /etc/ieum/rabbitmq.env \
+#     --file /srv/ieum/broker/compose.yml up -d
+#
+# Do not modify deploy/onprem/compose.yml or deploy-release.sh for this file.
+
+services:
+  rabbitmq:
+    image: ${RABBITMQ_IMAGE_DIGEST}
+    # Data directory naming is derived from the node name, which defaults to
+    # the container hostname. Changing this after first boot orphans the
+    # existing data volume, so it is pinned here permanently.
+    hostname: ieum-rabbitmq
+    env_file:
+      - /etc/ieum/rabbitmq.env
+    ports:
+      - "127.0.0.1:15672:15672" # management UI: loopback only, SSH-tunnel access
+      # AMQP (5672) is intentionally NOT published to the host. It is only
+      # reachable from other containers on the `ieum` network via the
+      # `rabbitmq` DNS alias below.
+    volumes:
+      - ieum-rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      ieum:
+        aliases:
+          - rabbitmq
+    restart: unless-stopped
+    healthcheck:
+      # CMD-SHELL is required here: exec-form CMD has no shell, so a literal
+      # "&&" token is passed straight through to rabbitmq-diagnostics as a
+      # positional argument (it then exits 64, "too many arguments"), and the
+      # container never reports healthy.
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q check_running && rabbitmq-diagnostics -q check_local_alarms"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+volumes:
+  ieum-rabbitmq-data:
+
+networks:
+  ieum:
+    external: true
+    name: ieum

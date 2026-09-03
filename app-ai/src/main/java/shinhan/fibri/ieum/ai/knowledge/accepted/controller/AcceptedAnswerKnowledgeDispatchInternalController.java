@@ -11,6 +11,11 @@ import shinhan.fibri.ieum.ai.config.AcceptedAnswerKnowledgeDispatchProperties;
 import shinhan.fibri.ieum.ai.knowledge.accepted.service.AcceptedAnswerKnowledgeTaskLane;
 import shinhan.fibri.ieum.ai.knowledge.accepted.service.AcceptedAnswerKnowledgeTaskSubmission;
 
+/**
+ * 정상 전송 경로는 RabbitMQ다. 이 경로는 {@code transport=http} 롤백 전용이며 별도 이슈(#254)에서
+ * 제거된다.
+ */
+@Deprecated
 @RestController
 @RequestMapping("/ai/v1/internal/accepted-answer-jobs")
 public class AcceptedAnswerKnowledgeDispatchInternalController {

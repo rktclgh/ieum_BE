@@ -16,7 +16,10 @@ import org.springframework.amqp.core.ReturnedMessage;
 import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Bean;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.stereotype.Service;
 import shinhan.fibri.ieum.common.ai.job.AiJobTopology;
 import shinhan.fibri.ieum.main.ai.outbox.repository.AiJobOutboxRepository;
@@ -37,9 +40,20 @@ import shinhan.fibri.ieum.main.ai.outbox.repository.ClaimedAiJob;
  * 애플리케이션 전체가 같이 죽는다. {@code ReportAiWorkProcessor}가 HTTP 호출에 대해 지키는 규칙과 같다.
  *
  * <p>의미론은 정확히 at-least-once 다(spec.md §7.4). 중복 발행은 소비 측 멱등성이 흡수한다.
+ *
+ * <p><b>lease 갱신(renewal)은 의도적으로 구현하지 않는다.</b> 이 relay 는 단일 인스턴스 배포를
+ * 전제로 한다 — 여러 인스턴스가 늘어도 {@code FOR UPDATE SKIP LOCKED} + lease 로 이미 동시 클레임은
+ * 안전하지만(spec.md §7.2), 배치 처리 도중 lease 를 연장해 만료를 미루는 로직은 없다. 처리 중
+ * lease 가 만료되면 {@code recoverExpiredLeases}가 그 row 를 {@code retry}로 되돌리고, 원래
+ * 처리자의 뒤늦은 정산(UPDATE)은 {@code markPublished}/{@code markRetry}/{@code markDead}의
+ * {@code leaseToken} WHERE 절(펜싱)에 막혀 0행으로 끝난다({@code logStale} 참고) — 그 결과가
+ * 중복 발행일지언정 유실은 아니다(spec.md §7.4의 at-least-once). {@link AiJobOutboxProperties}의
+ * lease invariant(CodeRabbit PR #257 finding 4)가 이 배치 처리 시간이 lease 를 넘지 않도록
+ * 정적으로 보장하는 이유가 여기 있다 — 갱신이 없으니 애초에 lease 를 넘기지 않게 설정값을
+ * 강제해야 한다.
  */
 @Service
-@ConditionalOnProperty(prefix = "app.ai.outbox", name = "enabled", havingValue = "true")
+@ConditionalOnProperty(name = "app.ai.dispatch.transport", havingValue = "rabbitmq")
 public class AiJobOutboxRelay {
 
 	/** AMQP {@code app_id}. 어느 앱이 발행했는지 브로커에서 바로 보이게 한다(spec.md §6.5). */
@@ -52,6 +66,18 @@ public class AiJobOutboxRelay {
 
 	/** {@code last_error_message}에 브로커 원문을 그대로 넣지 않는다 — 길이·내용 모두 통제 밖이다. */
 	private static final String SAFE_ERROR_MESSAGE = "AI job publish failed";
+
+	/**
+	 * relay 전용 단일 스레드 스케줄러 빈 이름(CodeRabbit PR #257 finding 1). {@code pollAndPublish}는
+	 * 배치당 최대 {@code batchSize}개 job 을 직렬로 발행하며 각 confirm 대기가 최대
+	 * {@code confirmTimeout}(기본 5초)까지 걸릴 수 있다. app-main 의 공유 기본
+	 * {@code TaskScheduler}({@link shinhan.fibri.ieum.config.SchedulingConfig}, 풀 크기 1)를 그대로
+	 * 쓰면 이 배치 하나가 {@code SseHeartbeatScheduler}, {@code ContentPurgeScheduler},
+	 * {@code ReportAiDispatchScheduler} 등 같은 풀을 쓰는 다른 모든 {@code @Scheduled} 작업을 몇
+	 * 분씩 밀어낼 수 있다. 이 클래스의 세 {@code @Scheduled} 메서드를 전부 전용 스레드로 옮겨 다른
+	 * 스케줄과 서로 영향을 주지 않게 한다.
+	 */
+	public static final String OUTBOX_SCHEDULER_BEAN_NAME = "aiJobOutboxScheduler";
 
 	private final AiJobOutboxRepository repository;
 	private final RabbitTemplate rabbitTemplate;
@@ -83,7 +109,17 @@ public class AiJobOutboxRelay {
 		return Math.min(1L << (attempts - 1), MAX_BACKOFF_SECONDS);
 	}
 
+	/** {@link #OUTBOX_SCHEDULER_BEAN_NAME} 참고 — app-main 공유 기본 스케줄러를 쓰지 않는다. */
+	@Bean(OUTBOX_SCHEDULER_BEAN_NAME)
+	TaskScheduler aiJobOutboxScheduler() {
+		ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+		scheduler.setPoolSize(1);
+		scheduler.setThreadNamePrefix("ai-job-outbox-");
+		return scheduler;
+	}
+
 	@Scheduled(
+		scheduler = OUTBOX_SCHEDULER_BEAN_NAME,
 		fixedDelayString = "${app.ai.outbox.poll-delay-ms:500}",
 		initialDelayString = "${app.ai.outbox.poll-initial-delay-ms:5000}"
 	)
@@ -132,6 +168,7 @@ public class AiJobOutboxRelay {
 	}
 
 	@Scheduled(
+		scheduler = OUTBOX_SCHEDULER_BEAN_NAME,
 		fixedDelayString = "${app.ai.outbox.recovery-interval-ms:60000}",
 		initialDelayString = "${app.ai.outbox.recovery-initial-delay-ms:60000}"
 	)
@@ -162,6 +199,7 @@ public class AiJobOutboxRelay {
 
 	/** 보존 삭제. {@code published}만 배치로 지운다 — {@code dead}는 운영 증거로 남긴다(spec.md §7.5). */
 	@Scheduled(
+		scheduler = OUTBOX_SCHEDULER_BEAN_NAME,
 		fixedDelayString = "${app.ai.outbox.retention-interval-ms:3600000}",
 		initialDelayString = "${app.ai.outbox.retention-initial-delay-ms:3600000}"
 	)

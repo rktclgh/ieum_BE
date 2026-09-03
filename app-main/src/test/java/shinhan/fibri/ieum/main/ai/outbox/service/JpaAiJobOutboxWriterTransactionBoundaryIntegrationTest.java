@@ -33,9 +33,9 @@ import shinhan.fibri.ieum.testsupport.CanonicalPostgresDataSource;
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import({AiJobOutboxWriter.class, AiJobOutboxWriterTransactionBoundaryIntegrationTest.ObjectMapperConfiguration.class})
+@Import({JpaAiJobOutboxWriter.class, JpaAiJobOutboxWriterTransactionBoundaryIntegrationTest.ObjectMapperConfiguration.class})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-class AiJobOutboxWriterTransactionBoundaryIntegrationTest {
+class JpaAiJobOutboxWriterTransactionBoundaryIntegrationTest {
 
 	@TestConfiguration
 	static class ObjectMapperConfiguration {
@@ -52,6 +52,9 @@ class AiJobOutboxWriterTransactionBoundaryIntegrationTest {
 	static void registerDataSourceProperties(DynamicPropertyRegistry registry) {
 		CanonicalPostgresDataSource.recreateAndRegister(registry, DATABASE);
 		registry.add("spring.jpa.hibernate.ddl-auto", () -> "none");
+		// JpaAiJobOutboxWriter는 @ConditionalOnProperty(app.ai.dispatch.transport=rabbitmq)다 —
+		// @Import로 직접 등록해도 이 조건은 그대로 평가되므로 켜야 빈이 실제로 생긴다.
+		registry.add("app.ai.dispatch.transport", () -> "rabbitmq");
 	}
 
 	@Autowired

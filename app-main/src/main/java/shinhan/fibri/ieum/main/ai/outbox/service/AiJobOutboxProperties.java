@@ -29,6 +29,20 @@ public record AiJobOutboxProperties(
 	 */
 	static final Duration SETTLEMENT_HEADROOM = Duration.ofSeconds(30);
 
+	/**
+	 * row 하나를 정산(markPublished/markRetry/markDead의 UPDATE 커밋)하는 데 걸리는 시간의 예산.
+	 *
+	 * <p>{@link #SETTLEMENT_HEADROOM}은 배치 전체에 <b>한 번만</b> 더하는 여유다 — row마다 반복되는
+	 * {@code publishAndAwaitConfirm} 직후의 DB 정산 왕복 자체는 원래 계산에 들어 있지 않았다. confirm
+	 * 대기가 row마다 {@code confirmTimeout}만큼 걸리는 최악의 경우, 그 뒤에 바로 이어지는 정산
+	 * UPDATE 도 row마다 어느 정도(네트워크 왕복 + 커밋) 시간이 들고, 이 시간이 batchSize번 누적되면
+	 * 배치 전체에 한 번뿐인 헤드룸만으로는 흡수되지 않는다. lease 갱신(renewal)을 구현하지 않기로 한
+	 * 이상({@link AiJobOutboxRelay} Javadoc의 "lease renewal 미구현" 참고) 이 예산을 배치 크기만큼
+	 * 곱해 invariant 에 반영해야, 최악의 경우에도 lease 안에 배치 전체 정산이 끝난다는 보장이
+	 * 선다(CodeRabbit PR #257 finding 4).
+	 */
+	static final Duration SETTLEMENT_BUDGET_PER_ROW = Duration.ofMillis(500);
+
 	public AiJobOutboxProperties {
 		if (workerId == null || workerId.isBlank() || workerId.length() > 120) {
 			throw new IllegalArgumentException("workerId must contain 1 to 120 characters");
@@ -45,16 +59,22 @@ public record AiJobOutboxProperties(
 		if (confirmTimeout == null || confirmTimeout.isZero() || confirmTimeout.isNegative()) {
 			throw new IllegalArgumentException("confirmTimeout must be positive");
 		}
-		Duration worstCaseWithHeadroom = confirmTimeout.multipliedBy(batchSize).plus(SETTLEMENT_HEADROOM);
+		Duration perRowBudget = confirmTimeout.plus(SETTLEMENT_BUDGET_PER_ROW);
+		Duration worstCaseWithHeadroom = perRowBudget.multipliedBy(batchSize).plus(SETTLEMENT_HEADROOM);
 		if (worstCaseWithHeadroom.compareTo(lease) > 0) {
 			// 클레임한 배치의 마지막 row는 앞선 (batchSize-1)개가 전부 confirmTimeout 을 다 채우는
-			// 최악의 경우 그만큼 늦게 처리된다. 거기에 SETTLEMENT_HEADROOM(DB 정산 커밋 왕복 +
-			// 시계 스큐 여유)까지 더한 총 시간이 lease 를 넘으면(등호 포함) 처리 도중 lease 가 만료돼
-			// (1) 뒤늦은 confirm 이 펜싱에 막혀 버려지고 (2) lease 복구가 같은 row 를 재발행 대상으로
-			// 되돌려 중복 발행을 일으킨다.
+			// 최악의 경우 그만큼 늦게 처리된다. 거기에 row마다 SETTLEMENT_BUDGET_PER_ROW(정산 UPDATE
+			// 왕복)를 더하고, 배치 전체에 SETTLEMENT_HEADROOM(커밋 왕복 + 시계 스큐 여유)까지 더한
+			// 총 시간이 lease 를 넘으면(등호 포함) 처리 도중 lease 가 만료돼 (1) 뒤늦은 confirm 이
+			// 펜싱에 막혀 버려지고 (2) lease 복구가 같은 row 를 재발행 대상으로 되돌려 중복 발행을
+			// 일으킨다.
 			throw new IllegalArgumentException(
-				"confirmTimeout (%s) x batchSize (%d) + settlement headroom (%s) = %s must not exceed lease (%s)"
-					.formatted(confirmTimeout, batchSize, SETTLEMENT_HEADROOM, worstCaseWithHeadroom, lease)
+				("confirmTimeout (%s) + settlement budget per row (%s) x batchSize (%d)"
+					+ " + settlement headroom (%s) = %s must not exceed lease (%s)")
+					.formatted(
+						confirmTimeout, SETTLEMENT_BUDGET_PER_ROW, batchSize, SETTLEMENT_HEADROOM,
+						worstCaseWithHeadroom, lease
+					)
 			);
 		}
 		if (retentionDays < 1) {

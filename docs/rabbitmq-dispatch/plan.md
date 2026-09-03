@@ -336,7 +336,7 @@ test: outbox 릴레이 확인·재시도 경로 보강
 - [ ] 위 테스트 전부 GREEN
 - [ ] 브로커 왕복이 DB 트랜잭션 **밖**에서 일어남을 테스트가 증명
 - [ ] `publisher-confirm-type=correlated`, `publisher-returns=true`, `template.mandatory=true` 설정됨
-- [ ] `app.ai.outbox.enabled` 기본값이 `false`
+- [ ] `app.ai.dispatch.transport` 기본값이 `http`(outbox 비활성)
 - [ ] `management.health.rabbit.enabled=false` (배포 health gate 보호)
 - [ ] Testcontainers 정리 완료 (Postgres + RabbitMQ 둘 다)
 

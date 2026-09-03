@@ -62,6 +62,12 @@ AWS_S3_REGION=us-east-1
 AWS_S3_API_CALL_TIMEOUT_SECONDS=10
 AWS_S3_API_CALL_ATTEMPT_TIMEOUT_SECONDS=3
 APP_AI_INTERNAL_CALLBACK_TOKEN=shared-token
+APP_AI_DISPATCH_TRANSPORT=http
+RABBITMQ_HOST=rabbitmq
+RABBITMQ_PORT=5672
+RABBITMQ_VIRTUAL_HOST=/ieum
+RABBITMQ_USERNAME=ieum_main
+RABBITMQ_PASSWORD=fixture-rabbitmq-main-password
 EOF
 cat >"$TMP_DIR/ai.env" <<'EOF'
 SERVER_PORT=8081
@@ -80,6 +86,12 @@ APP_AI_QUESTION_CALLBACK_ALLOWED_ORIGINS=http://app-main:8080
 APP_AI_QUESTION_CALLBACK_CONNECT_TIMEOUT=2s
 APP_AI_QUESTION_CALLBACK_READ_TIMEOUT=5s
 APP_AI_INTERNAL_CALLBACK_TOKEN=shared-token
+APP_AI_DISPATCH_TRANSPORT=rabbitmq
+RABBITMQ_HOST=rabbitmq
+RABBITMQ_PORT=5672
+RABBITMQ_VIRTUAL_HOST=/ieum
+RABBITMQ_USERNAME=ieum_ai
+RABBITMQ_PASSWORD=fixture-rabbitmq-ai-password
 EOF
 
 assert_success "$VALIDATOR" app-main "$TMP_DIR/main.env" "$TMP_DIR/ai.env"
@@ -186,8 +198,167 @@ cp "$TMP_DIR/main.env" "$TMP_DIR/mismatch.env"
 replace_line "$TMP_DIR/mismatch.env" APP_AI_INTERNAL_CALLBACK_TOKEN APP_AI_INTERNAL_CALLBACK_TOKEN=different-token
 assert_failure "$VALIDATOR" app-main "$TMP_DIR/main.env" "$TMP_DIR/mismatch.env"
 
+cp "$TMP_DIR/main.env" "$TMP_DIR/missing-rabbitmq-host.env"
+grep -v '^RABBITMQ_HOST=' "$TMP_DIR/main.env" > "$TMP_DIR/missing-rabbitmq-host.env"
+assert_failure "$VALIDATOR" app-main "$TMP_DIR/missing-rabbitmq-host.env"
+
+cp "$TMP_DIR/main.env" "$TMP_DIR/wrong-rabbitmq-host.env"
+replace_line "$TMP_DIR/wrong-rabbitmq-host.env" RABBITMQ_HOST RABBITMQ_HOST=localhost
+assert_failure "$VALIDATOR" app-main "$TMP_DIR/wrong-rabbitmq-host.env"
+
+cp "$TMP_DIR/main.env" "$TMP_DIR/wrong-rabbitmq-vhost.env"
+replace_line "$TMP_DIR/wrong-rabbitmq-vhost.env" RABBITMQ_VIRTUAL_HOST RABBITMQ_VIRTUAL_HOST=/
+assert_failure "$VALIDATOR" app-main "$TMP_DIR/wrong-rabbitmq-vhost.env"
+
+cp "$TMP_DIR/main.env" "$TMP_DIR/wrong-rabbitmq-port.env"
+replace_line "$TMP_DIR/wrong-rabbitmq-port.env" RABBITMQ_PORT RABBITMQ_PORT=5673
+assert_failure "$VALIDATOR" app-main "$TMP_DIR/wrong-rabbitmq-port.env"
+
+cp "$TMP_DIR/main.env" "$TMP_DIR/blank-rabbitmq-password.env"
+replace_line "$TMP_DIR/blank-rabbitmq-password.env" RABBITMQ_PASSWORD RABBITMQ_PASSWORD=
+assert_failure "$VALIDATOR" app-main "$TMP_DIR/blank-rabbitmq-password.env"
+
+# Cross-credential protection: an app-ai username must never validate for
+# app-main, and vice versa.
+cp "$TMP_DIR/main.env" "$TMP_DIR/main-with-ai-username.env"
+replace_line "$TMP_DIR/main-with-ai-username.env" RABBITMQ_USERNAME RABBITMQ_USERNAME=ieum_ai
+assert_failure "$VALIDATOR" app-main "$TMP_DIR/main-with-ai-username.env"
+
+cp "$TMP_DIR/ai.env" "$TMP_DIR/ai-with-main-username.env"
+replace_line "$TMP_DIR/ai-with-main-username.env" RABBITMQ_USERNAME RABBITMQ_USERNAME=ieum_main
+assert_failure "$VALIDATOR" app-ai "$TMP_DIR/ai-with-main-username.env"
+
+# scan_unsafe_addresses already scans *_HOST keys; an AWS private RabbitMQ
+# host must be rejected the same way as any other unsafe host value.
+cp "$TMP_DIR/main.env" "$TMP_DIR/unsafe-rabbitmq-host.env"
+replace_line "$TMP_DIR/unsafe-rabbitmq-host.env" RABBITMQ_HOST RABBITMQ_HOST=broker.internal.ap-northeast-2.rds.amazonaws.com
+assert_failure "$VALIDATOR" app-main "$TMP_DIR/unsafe-rabbitmq-host.env"
+
+cp "$TMP_DIR/main.env" "$TMP_DIR/missing-dispatch-transport.env"
+grep -v '^APP_AI_DISPATCH_TRANSPORT=' "$TMP_DIR/main.env" > "$TMP_DIR/missing-dispatch-transport.env"
+assert_failure "$VALIDATOR" app-main "$TMP_DIR/missing-dispatch-transport.env"
+
+# APP_AI_DISPATCH_TRANSPORT must be one of the two values the app actually
+# understands (finding I4) — a typo used to pass this validator (it only
+# checked the key existed) and would only be caught by a startup failure
+# deep inside the app much later.
+cp "$TMP_DIR/main.env" "$TMP_DIR/bad-dispatch-transport.env"
+replace_line "$TMP_DIR/bad-dispatch-transport.env" APP_AI_DISPATCH_TRANSPORT APP_AI_DISPATCH_TRANSPORT=carrier-pigeon
+assert_failure "$VALIDATOR" app-main "$TMP_DIR/bad-dispatch-transport.env"
+
+cp "$TMP_DIR/ai.env" "$TMP_DIR/ai-bad-dispatch-transport.env"
+replace_line "$TMP_DIR/ai-bad-dispatch-transport.env" APP_AI_DISPATCH_TRANSPORT APP_AI_DISPATCH_TRANSPORT=carrier-pigeon
+assert_failure "$VALIDATOR" app-ai "$TMP_DIR/ai-bad-dispatch-transport.env"
+
+cp "$TMP_DIR/ai.env" "$TMP_DIR/ai-good-dispatch-transport.env"
+replace_line "$TMP_DIR/ai-good-dispatch-transport.env" APP_AI_DISPATCH_TRANSPORT APP_AI_DISPATCH_TRANSPORT=http
+assert_success "$VALIDATOR" app-ai "$TMP_DIR/ai-good-dispatch-transport.env"
+
+# --- CodeRabbit PR #257 finding 6: broker credentials must not be required
+# in pure HTTP mode, but must still be required whenever anything actually
+# dials the broker (rabbitmq transport, or app-main's result consumer left
+# at its default-enabled value). ---
+
+# app-main default (APP_AI_RESULT_CONSUMER_ENABLED unset -> defaults to
+# true, per application.properties) still requires RabbitMQ even though
+# dispatch transport is http — the result consumer opens a listener
+# connection regardless of the dispatch direction.
+cp "$TMP_DIR/main.env" "$TMP_DIR/main-default-consumer-no-rabbitmq.env"
+grep -vE '^RABBITMQ_(HOST|PORT|VIRTUAL_HOST|USERNAME|PASSWORD)=' "$TMP_DIR/main.env" \
+  > "$TMP_DIR/main-default-consumer-no-rabbitmq.env"
+assert_failure "$VALIDATOR" app-main "$TMP_DIR/main-default-consumer-no-rabbitmq.env"
+
+# app-main with the result consumer explicitly turned off and dispatch
+# transport=http is pure HTTP mode: no RabbitMQ keys needed at all.
+cp "$TMP_DIR/main.env" "$TMP_DIR/main-pure-http.env"
+grep -vE '^RABBITMQ_(HOST|PORT|VIRTUAL_HOST|USERNAME|PASSWORD)=' "$TMP_DIR/main.env" \
+  > "$TMP_DIR/main-pure-http.env.tmp"
+mv "$TMP_DIR/main-pure-http.env.tmp" "$TMP_DIR/main-pure-http.env"
+printf 'APP_AI_RESULT_CONSUMER_ENABLED=false\n' >> "$TMP_DIR/main-pure-http.env"
+assert_success "$VALIDATOR" app-main "$TMP_DIR/main-pure-http.env"
+
+# Same pure-HTTP env but dispatch transport flipped to rabbitmq must still
+# require the broker keys — rabbitmq mode always requires them regardless
+# of the consumer flag.
+cp "$TMP_DIR/main-pure-http.env" "$TMP_DIR/main-rabbitmq-transport-no-keys.env"
+replace_line "$TMP_DIR/main-rabbitmq-transport-no-keys.env" APP_AI_DISPATCH_TRANSPORT \
+  APP_AI_DISPATCH_TRANSPORT=rabbitmq
+assert_failure "$VALIDATOR" app-main "$TMP_DIR/main-rabbitmq-transport-no-keys.env"
+
+# app-ai in full-http mode (dispatch=http, callback transport unset/http,
+# completion relay unset/off) needs no RabbitMQ keys either.
+cp "$TMP_DIR/ai.env" "$TMP_DIR/ai-pure-http.env"
+replace_line "$TMP_DIR/ai-pure-http.env" APP_AI_DISPATCH_TRANSPORT APP_AI_DISPATCH_TRANSPORT=http
+grep -vE '^RABBITMQ_(HOST|PORT|VIRTUAL_HOST|USERNAME|PASSWORD)=' "$TMP_DIR/ai-pure-http.env" \
+  > "$TMP_DIR/ai-pure-http.env.tmp"
+mv "$TMP_DIR/ai-pure-http.env.tmp" "$TMP_DIR/ai-pure-http.env"
+assert_success "$VALIDATOR" app-ai "$TMP_DIR/ai-pure-http.env"
+
+# app-ai with dispatch=http but the completion relay explicitly turned on
+# still needs the broker (the relay publishes over RabbitMQ regardless of
+# dispatch direction).
+cp "$TMP_DIR/ai-pure-http.env" "$TMP_DIR/ai-relay-enabled-no-keys.env"
+printf 'APP_AI_COMPLETION_RELAY_ENABLED=true\n' >> "$TMP_DIR/ai-relay-enabled-no-keys.env"
+assert_failure "$VALIDATOR" app-ai "$TMP_DIR/ai-relay-enabled-no-keys.env"
+
+# app-ai with dispatch=http but callback transport explicitly rabbitmq also
+# needs the broker.
+cp "$TMP_DIR/ai-pure-http.env" "$TMP_DIR/ai-callback-rabbitmq-no-keys.env"
+printf 'APP_AI_QUESTION_CALLBACK_TRANSPORT=rabbitmq\n' >> "$TMP_DIR/ai-callback-rabbitmq-no-keys.env"
+assert_failure "$VALIDATOR" app-ai "$TMP_DIR/ai-callback-rabbitmq-no-keys.env"
+
+# app-ai's own dispatch transport=rabbitmq (its default) always requires the
+# broker even with the RabbitMQ keys present, unchanged (regression guard).
+assert_success "$VALIDATOR" app-ai "$TMP_DIR/ai.env"
+
+# --- Direct unit test of broker_required()'s "key entirely absent" default.
+# Unreachable via the CLI entrypoint above (require_enum already forces
+# APP_AI_DISPATCH_TRANSPORT to exist before broker_required ever runs), but
+# the function must still default a missing key the same way
+# bootstrap-control-plane.sh's broker_required_for_env_file does (app-ai:
+# rabbitmq: matchIfMissing=true; app-main: http) so the two hand-kept copies
+# of this rule cannot silently drift apart. See both scripts' comments
+# pointing at "broker_required" / "broker_required_for_env_file".
+extract_broker_required() {
+  awk '/^broker_required\(\) \{/{flag=1} flag{print} flag && /^}/{exit}' "$VALIDATOR"
+}
+run_broker_required_unit() {
+  local svc=$1 fixture=$2
+  (
+    service=$svc
+    env_file=$fixture
+    has_key() { awk -F= -v wanted="$1" '$1 == wanted { found=1 } END { exit(found ? 0 : 1) }' "$env_file"; }
+    value_of() { awk -F= -v wanted="$1" '$1 == wanted { value=substr($0, index($0, "=") + 1); found=1 } END { if (found) printf "%s", value }' "$env_file"; }
+    eval "$(extract_broker_required)"
+    broker_required
+  )
+}
+
+# app-ai fixture: file exists but omits APP_AI_DISPATCH_TRANSPORT entirely,
+# and no callback/relay keys either. The missing key must resolve to app-ai's
+# own default (rabbitmq), so the broker is required.
+printf 'APP_AI_INTERNAL_CALLBACK_TOKEN=shared-token\n' >"$TMP_DIR/ai-missing-transport-key.env"
+if run_broker_required_unit app-ai "$TMP_DIR/ai-missing-transport-key.env"; then
+  pass=$((pass + 1))
+else
+  printf 'FAIL (expected broker required): app-ai with APP_AI_DISPATCH_TRANSPORT key absent\n' >&2
+  fail=$((fail + 1))
+fi
+
+# app-main fixture: file exists, key absent, but the result consumer is
+# explicitly disabled. The missing key must resolve to app-main's own
+# default (http), so with the consumer off the broker is not required.
+printf 'APP_AI_INTERNAL_CALLBACK_TOKEN=shared-token\nAPP_AI_RESULT_CONSUMER_ENABLED=false\n' \
+  >"$TMP_DIR/main-missing-transport-key-consumer-off.env"
+if run_broker_required_unit app-main "$TMP_DIR/main-missing-transport-key-consumer-off.env"; then
+  printf 'FAIL (expected broker not required): app-main with APP_AI_DISPATCH_TRANSPORT key absent and consumer disabled\n' >&2
+  fail=$((fail + 1))
+else
+  pass=$((pass + 1))
+fi
+
 output=$({ "$VALIDATOR" app-main "$TMP_DIR/bad.env"; } 2>&1 || true)
-if printf '%s' "$output" | grep -Eq 'redacted|shared-token|different-token'; then
+if printf '%s' "$output" | grep -Eq 'redacted|shared-token|different-token|fixture-rabbitmq-(main|ai)-password'; then
   printf 'FAIL (secret leaked in validator output)\n' >&2; fail=$((fail + 1))
 else pass=$((pass + 1)); fi
 

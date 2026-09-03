@@ -32,9 +32,14 @@ import shinhan.fibri.ieum.testsupport.CanonicalPostgresDataSource;
 /**
  * Task 3 브리프: {@code QuestionService.create()}/{@code update()}가 도메인 변경과 같은 트랜잭션 안에서
  * {@code ai_job_outbox} row를 쓰는지 확인한다(spec.md §7.3/§8.1). 실제 Postgres 위에서 커밋/롤백을
- * 관찰해야 하므로 Testcontainers + 전체 앱 컨텍스트를 쓴다.
+ * 관찰해야 하므로 Testcontainers + 전체 앱 컨텍스트를 쓴다. Task 8 이후 {@code app.ai.dispatch.transport}의
+ * 기본값이 {@code http}(=outbox writer 가 no-op)로 바뀌었으므로, 실제로 row 가 쓰이는지 검증하려면
+ * {@code rabbitmq}로 명시해야 한다.
  */
-@SpringBootTest(properties = "spring.task.scheduling.enabled=false")
+@SpringBootTest(properties = {
+	"spring.task.scheduling.enabled=false",
+	"app.ai.dispatch.transport=rabbitmq"
+})
 class QuestionServiceOutboxTransactionTest {
 
 	private static final LocationSnapshot LOCATION =

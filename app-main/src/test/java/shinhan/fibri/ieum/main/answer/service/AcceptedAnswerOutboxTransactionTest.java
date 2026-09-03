@@ -26,9 +26,13 @@ import shinhan.fibri.ieum.testsupport.CanonicalPostgresDataSource;
 /**
  * Task 3 브리프: 답변 채택 트랜잭션 커밋 시 {@code ai_job_outbox}에
  * {@code job_type=accepted_answer_knowledge_ingest}, {@code job_key=answerId} row가 동반 커밋되는지 확인한다
- * (spec.md §7.3/§8.1).
+ * (spec.md §7.3/§8.1). Task 8 이후 {@code app.ai.dispatch.transport}의 기본값이 {@code http}(=outbox
+ * writer 가 no-op)로 바뀌었으므로, 실제로 row 가 쓰이는지 검증하려면 {@code rabbitmq}로 명시해야 한다.
  */
-@SpringBootTest(properties = "spring.task.scheduling.enabled=false")
+@SpringBootTest(properties = {
+	"spring.task.scheduling.enabled=false",
+	"app.ai.dispatch.transport=rabbitmq"
+})
 class AcceptedAnswerOutboxTransactionTest {
 
 	@DynamicPropertySource

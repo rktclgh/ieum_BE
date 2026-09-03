@@ -1,5 +1,6 @@
 package shinhan.fibri.ieum.ai.question.callback;
 
+import java.util.List;
 import java.util.Optional;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -44,6 +45,28 @@ public class JdbcQuestionCompletionCallbackRepository implements QuestionComplet
 			.param("questionId", questionId)
 			.query(Boolean.class)
 			.single();
+	}
+
+	@Override
+	public List<PendingQuestionCompletion> findPendingBatch(int limit) {
+		if (limit <= 0) {
+			throw new IllegalArgumentException("limit must be positive");
+		}
+		return jdbc.sql("""
+			SELECT question_id, answer_id
+			FROM ai_question_tasks
+			WHERE status = 'completed'
+			  AND answer_id IS NOT NULL
+			  AND answer_notification_processed_at IS NULL
+			ORDER BY question_id
+			LIMIT :limit
+			""")
+			.param("limit", limit)
+			.query((resultSet, rowNumber) -> new PendingQuestionCompletion(
+				resultSet.getLong("question_id"),
+				resultSet.getLong("answer_id")
+			))
+			.list();
 	}
 
 	private static void validateQuestionId(long questionId) {
