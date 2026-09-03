@@ -27,6 +27,7 @@ import shinhan.fibri.ieum.main.answer.exception.AnswerNotFoundException;
 import shinhan.fibri.ieum.main.answer.exception.AnswerSelectionFinalizedException;
 import shinhan.fibri.ieum.main.answer.exception.InvalidAnswerRequestException;
 import shinhan.fibri.ieum.main.answer.exception.SelfAcceptanceNotAllowedException;
+import shinhan.fibri.ieum.main.ai.outbox.service.AiJobOutboxWriter;
 import shinhan.fibri.ieum.main.answer.event.AcceptedHumanAnswerEvent;
 import shinhan.fibri.ieum.main.answer.repository.AnswerImageRepository;
 import shinhan.fibri.ieum.main.answer.repository.AnswerRepository;
@@ -50,6 +51,7 @@ public class AnswerService {
 	private final UserRepository userRepository;
 	private final NotificationPublisher notificationPublisher;
 	private final ApplicationEventPublisher eventPublisher;
+	private final AiJobOutboxWriter aiJobOutboxWriter;
 
 	@Transactional(timeout = 30)
 	public CreateAnswerResponse create(AuthenticatedUser principal, Long questionId, CreateAnswerRequest request) {
@@ -133,6 +135,7 @@ public class AnswerService {
 				"answer-accepted:%d".formatted(answer.getId())
 			);
 			eventPublisher.publishEvent(new AcceptedHumanAnswerEvent(answer.getId()));
+			aiJobOutboxWriter.enqueueAcceptedAnswerKnowledge(answer.getId());
 		}
 		return new FinalizeAcceptedAnswersResponse(questionId, true, answerIds);
 	}

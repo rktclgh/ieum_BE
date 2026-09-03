@@ -9,6 +9,11 @@ import java.nio.charset.StandardCharsets;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * 정상 전송 경로는 RabbitMQ다. 이 경로는 {@code transport=http} 롤백 전용이며 별도 이슈(#254)에서
+ * 제거된다.
+ */
+@Deprecated
 public class HttpQuestionCompletionCallbackClient implements QuestionCompletionCallbackClient {
 
 	private static final Logger log = LoggerFactory.getLogger(HttpQuestionCompletionCallbackClient.class);

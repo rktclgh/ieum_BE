@@ -58,6 +58,7 @@ readonly DISPATCH_HELPERS=(
   'db-verify.sh:ieum-db-verify'
   'provision-existing-postgres.sh:ieum-provision-existing-postgres'
   'provision-runtime-env.sh:ieum-provision-runtime-env'
+  'provision-rabbitmq.sh:ieum-provision-rabbitmq'
   'validate-runtime-env.sh:ieum-validate-runtime-env'
   'minio-presign-smoke.py:ieum-minio-presign-smoke'
   'install-self-hosted-runner.sh:ieum-install-self-hosted-runner'
@@ -128,6 +129,86 @@ prepare_docker_networks() {
   [[ "$ieum_attributes" == "bridge|$desired_subnet" ]] || die 'ieum Docker network has unexpected driver or subnet'
 }
 prepare_docker_networks
+
+# Whether ANY per-service runtime env file this control plane manages
+# (ETC_ROOT/app-main.env, ETC_ROOT/app-ai.env) will ever dial the broker
+# (CodeRabbit PR #257 finding 6). Kept in sync by hand with
+# validate-runtime-env.sh's copy of the same rule (search that script for
+# "broker_required") — this script cannot source that one because it
+# installs validate-runtime-env.sh itself and must not depend on it being
+# present yet. A file that does not exist yet (fresh host, first bootstrap
+# before ieum-provision-runtime-env has ever run) or cannot be read is
+# treated as "required" to preserve today's fail-closed default.
+env_value_of() {
+  awk -F= -v wanted="$2" '$1 == wanted { value=substr($0, index($0, "=") + 1); found=1 } END { if (found) printf "%s", value }' "$1"
+}
+env_has_key() {
+  awk -F= -v wanted="$2" '$1 == wanted { found=1 } END { exit(found ? 0 : 1) }' "$1"
+}
+broker_required_for_env_file() {
+  local env_file=$1 svc=$2
+  if [[ ! -f "$env_file" || ! -r "$env_file" ]]; then return 0; fi
+  # A key that is missing entirely is not "http" — it is whatever that
+  # service's own Spring default is (app-ai: rabbitmq, matchIfMissing=true;
+  # app-main: http). Treating a missing key as if it were explicit "http"
+  # here would fail open for app-ai. See application.properties in each
+  # module for the defaults this mirrors.
+  local dispatch_transport=http
+  [[ "$svc" == app-ai ]] && dispatch_transport=rabbitmq
+  if env_has_key "$env_file" APP_AI_DISPATCH_TRANSPORT; then
+    dispatch_transport=$(env_value_of "$env_file" APP_AI_DISPATCH_TRANSPORT)
+  fi
+  if [[ "$dispatch_transport" == rabbitmq ]]; then return 0; fi
+  if [[ "$svc" == app-main ]]; then
+    local consumer_enabled=true
+    if env_has_key "$env_file" APP_AI_RESULT_CONSUMER_ENABLED; then
+      consumer_enabled=$(env_value_of "$env_file" APP_AI_RESULT_CONSUMER_ENABLED)
+    fi
+    if [[ "$consumer_enabled" != false ]]; then return 0; else return 1; fi
+  fi
+  local callback_transport=http relay_enabled=false
+  if env_has_key "$env_file" APP_AI_QUESTION_CALLBACK_TRANSPORT; then
+    callback_transport=$(env_value_of "$env_file" APP_AI_QUESTION_CALLBACK_TRANSPORT)
+  fi
+  if env_has_key "$env_file" APP_AI_COMPLETION_RELAY_ENABLED; then
+    relay_enabled=$(env_value_of "$env_file" APP_AI_COMPLETION_RELAY_ENABLED)
+  fi
+  if [[ "$callback_transport" == rabbitmq || "$relay_enabled" == true ]]; then return 0; else return 1; fi
+}
+broker_required() {
+  if broker_required_for_env_file "$ETC_ROOT/app-main.env" app-main; then return 0; fi
+  broker_required_for_env_file "$ETC_ROOT/app-ai.env" app-ai
+}
+
+require_rabbitmq() {
+  # RabbitMQ runs as a separate `ieum-broker` compose project (docs
+  # /rabbitmq-dispatch/spec.md §11.2 Option A) that only attaches to the
+  # `ieum` network under the `rabbitmq` DNS alias; it is provisioned and
+  # started by provision-rabbitmq.sh, never here. This mirrors the MinIO
+  # check above: fail closed unless a running broker container owns that
+  # alias and answers rabbitmq-diagnostics from inside the network. No
+  # container is attached, restarted, or otherwise modified here.
+  local records candidate aliases rabbitmq_container rabbitmq_running alias_count=0
+  records=$("$DOCKER_BIN" network inspect ieum \
+    --format '{{range .Containers}}{{.Name}}{{"\n"}}{{end}}' \
+    2>/dev/null) || die 'unable to inspect ieum network containers'
+  while IFS= read -r candidate; do
+    [[ -n "$candidate" ]] || continue
+    aliases=$("$DOCKER_BIN" inspect --format \
+      '{{range $network, $config := .NetworkSettings.Networks}}{{if eq $network "ieum"}}{{range $config.Aliases}}{{.}}{{"\n"}}{{end}}{{end}}{{end}}' \
+      "$candidate" 2>/dev/null) || die 'unable to inspect an ieum network container'
+    if printf '%s\n' "$aliases" | grep -Fqx rabbitmq; then
+      rabbitmq_container=$candidate
+      alias_count=$((alias_count + 1))
+    fi
+  done <<<"$records"
+  [[ "$alias_count" -eq 1 ]] || die 'ieum network must expose exactly one container with the rabbitmq DNS alias — run ieum-provision-rabbitmq first'
+  rabbitmq_running=$("$DOCKER_BIN" inspect --format '{{.State.Running}}' "$rabbitmq_container" 2>/dev/null) || \
+    die 'unable to inspect the RabbitMQ container state'
+  [[ "$rabbitmq_running" == true ]] || die 'RabbitMQ container is not running — run ieum-provision-rabbitmq first'
+  "$DOCKER_BIN" exec "$rabbitmq_container" rabbitmq-diagnostics -q check_running \
+    >/dev/null 2>&1 || die 'RabbitMQ is not reachable through the rabbitmq Docker DNS alias — run ieum-provision-rabbitmq first'
+}
 
 safe_dir() {
   local path=$1
@@ -228,6 +309,21 @@ for item in "${DISPATCH_HELPERS[@]}"; do
   [[ -f "$target_path" && ! -L "$target_path" ]] || die "helper installation failed: $target_path"
   [[ "$(owner_of "$target_path")" == "$EXPECTED_OWNER" ]] || die "helper destination has unexpected owner: $target_path"
 done
+
+# Checked only after the helpers above are installed (finding I3): the
+# RabbitMQ preflight used to run before ieum-provision-rabbitmq existed on
+# disk, so a fresh host with no broker yet could never get past this script
+# to install the very tool that provisions one. An operator hitting this
+# failure now has ieum-provision-rabbitmq already in place to run.
+#
+# Only run it when something will actually dial the broker (finding 6) — a
+# host running both services in pure HTTP mode has no reason to require a
+# RabbitMQ container to exist at all.
+if broker_required; then
+  require_rabbitmq
+else
+  printf 'ieum control-plane bootstrap: INFO pure HTTP mode detected; skipping RabbitMQ preflight\n'
+fi
 
 if [[ "$install_runner_user" == true ]]; then
   runner_user='ieum-runner'

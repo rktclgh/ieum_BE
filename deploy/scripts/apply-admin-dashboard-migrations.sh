@@ -1806,6 +1806,7 @@ SELECT (
 \endif
 \i db/migrations/v40_admin_content_file_cleanup_tasks.sql
 \i db/migrations/v41_admin_audit_content_management.sql
+\i db/migrations/v42_ai_job_outbox.sql
 
 DO $verify$
 BEGIN

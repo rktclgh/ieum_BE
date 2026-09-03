@@ -1,5 +1,10 @@
 -- ============================================================
--- FiBri Schema v23
+-- FiBri Schema v24
+-- v23 대비 변경:
+--   [25] AI 작업 outbox:
+--        app-main이 도메인 TX와 함께 커밋하는 ai_job_outbox를 추가한다.
+--        릴레이가 이 row를 RabbitMQ로 발행하며 at-least-once를 보장한다.
+--        기존 DB 증분: db/migrations/v42_ai_job_outbox.sql
 -- v22 대비 변경:
 --   [24] 모임 일정 날짜·시간 분리 (시간 미정 지원):
 --        meeting_schedules.starts_on(DATE) + start_time/end_time(TIME)이 저장 정본.
@@ -1291,6 +1296,63 @@ CREATE INDEX idx_file_cleanup_tasks_claim
 CREATE INDEX idx_file_cleanup_tasks_expired_lease
     ON file_cleanup_tasks (lease_until)
     WHERE status = 'processing';
+
+-- ============================================================
+-- AI 작업 outbox (RabbitMQ 디스패치)
+-- ============================================================
+CREATE TABLE ai_job_outbox (
+    outbox_id          BIGSERIAL PRIMARY KEY,
+    job_id             UUID NOT NULL,
+    job_type           TEXT NOT NULL,
+    job_key            BIGINT NOT NULL,
+    routing_key        TEXT NOT NULL,
+    schema_version     SMALLINT NOT NULL DEFAULT 1,
+    payload            JSONB NOT NULL,
+    status             TEXT NOT NULL DEFAULT 'pending',
+    attempts           SMALLINT NOT NULL DEFAULT 0,
+    next_attempt_at    TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    lease_token        UUID,
+    lease_until        TIMESTAMPTZ,
+    locked_by          TEXT,
+    last_error_code    VARCHAR(80),
+    last_error_message TEXT,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at         TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    published_at       TIMESTAMPTZ,
+    CONSTRAINT uq_ai_job_outbox_job_id UNIQUE (job_id),
+    CONSTRAINT ck_ai_job_outbox_job_type
+        CHECK (job_type IN ('question_answer_dispatch', 'accepted_answer_knowledge_ingest')),
+    CONSTRAINT ck_ai_job_outbox_status
+        CHECK (status IN ('pending', 'publishing', 'retry', 'published', 'dead')),
+    CONSTRAINT ck_ai_job_outbox_attempts
+        CHECK (attempts >= 0 AND attempts <= 20),
+    CONSTRAINT ck_ai_job_outbox_job_key_positive
+        CHECK (job_key > 0),
+    CONSTRAINT ck_ai_job_outbox_schema_version
+        CHECK (schema_version >= 1),
+    CONSTRAINT ck_ai_job_outbox_payload_object
+        CHECK (jsonb_typeof(payload) = 'object'),
+    CONSTRAINT ck_ai_job_outbox_routing_key
+        CHECK (btrim(routing_key) <> ''),
+    CONSTRAINT ck_ai_job_outbox_publishing_lease
+        CHECK ((status = 'publishing')
+               = (lease_until IS NOT NULL AND locked_by IS NOT NULL AND lease_token IS NOT NULL)),
+    CONSTRAINT ck_ai_job_outbox_published_at_status
+        CHECK ((status <> 'published' AND published_at IS NULL)
+               OR (status = 'published' AND published_at IS NOT NULL))
+);
+
+CREATE INDEX idx_ai_job_outbox_claim
+    ON ai_job_outbox (next_attempt_at, outbox_id)
+    WHERE status IN ('pending', 'retry');
+
+CREATE INDEX idx_ai_job_outbox_expired_lease
+    ON ai_job_outbox (lease_until)
+    WHERE status = 'publishing';
+
+CREATE INDEX idx_ai_job_outbox_retention
+    ON ai_job_outbox (published_at)
+    WHERE status = 'published';
 
 CREATE TABLE notifications (
     notification_id BIGSERIAL PRIMARY KEY,
