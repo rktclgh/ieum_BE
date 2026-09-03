@@ -338,6 +338,36 @@ FAKE_DOCKER_RABBITMQ=missing
 assert_failure run_bootstrap
 unset FAKE_DOCKER_RABBITMQ
 
+# app-ai.env exists but omits APP_AI_DISPATCH_TRANSPORT entirely: the key's
+# absence must be read as app-ai's own Spring default (rabbitmq,
+# matchIfMissing=true — application.properties), not as "http". A prior bug
+# treated a missing key as not-rabbitmq and fell through to the
+# callback/relay checks, fail-opening the preflight even though the app
+# would actually dial the broker on startup.
+printf 'APP_AI_DISPATCH_TRANSPORT=http\nAPP_AI_RESULT_CONSUMER_ENABLED=false\n' >"$ETC_ROOT/app-main.env"
+: >"$ETC_ROOT/app-ai.env"
+FAKE_DOCKER_RABBITMQ=missing
+assert_failure run_bootstrap
+grep -Fq 'ieum-provision-rabbitmq' "$TMP_DIR/stderr" || {
+  printf 'FAIL app-ai with missing dispatch-transport key did not require the rabbitmq preflight\n' >&2; fail=$((fail + 1));
+}
+unset FAKE_DOCKER_RABBITMQ
+
+# app-main.env omits APP_AI_DISPATCH_TRANSPORT entirely but explicitly
+# disables the result consumer, and app-ai is in full pure-HTTP mode: the
+# missing key must be read as app-main's own default (http), so the
+# preflight is still skipped — the missing-key default is per-service, not
+# a blanket "always required".
+: >"$ETC_ROOT/app-main.env"
+printf 'APP_AI_RESULT_CONSUMER_ENABLED=false\n' >>"$ETC_ROOT/app-main.env"
+printf 'APP_AI_DISPATCH_TRANSPORT=http\n' >"$ETC_ROOT/app-ai.env"
+FAKE_DOCKER_RABBITMQ=missing
+assert_success run_bootstrap
+grep -Fq 'pure HTTP mode detected; skipping RabbitMQ preflight' "$TMP_DIR/stdout" || {
+  printf 'FAIL app-main with missing dispatch-transport key and consumer disabled did not skip the rabbitmq preflight\n' >&2; fail=$((fail + 1));
+}
+unset FAKE_DOCKER_RABBITMQ
+
 # Reset back to "no env files yet" (the fresh-host case) for every test
 # below, matching this suite's baseline fixture state.
 rm -f "$ETC_ROOT/app-main.env" "$ETC_ROOT/app-ai.env"

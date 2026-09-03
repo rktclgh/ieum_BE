@@ -114,7 +114,19 @@ require_enum APP_AI_DISPATCH_TRANSPORT http rabbitmq
 # script cannot source this one because it runs before any per-service env
 # file necessarily exists on a fresh host.
 broker_required() {
-  if [[ "$(value_of APP_AI_DISPATCH_TRANSPORT)" == rabbitmq ]]; then return 0; fi
+  # A key that is missing entirely is not "http" — it is whatever that
+  # service's own Spring default is (app-ai: rabbitmq, matchIfMissing=true;
+  # app-main: http). In this script's normal flow require_enum above already
+  # forces the key to exist, so this default is unreachable via the CLI
+  # entrypoint — it exists purely so this copy stays in lockstep with
+  # bootstrap-control-plane.sh's copy of the same rule (search that script
+  # for "broker_required_for_env_file"), which cannot rely on that gate.
+  local dispatch_transport=http
+  [[ "$service" == app-ai ]] && dispatch_transport=rabbitmq
+  if has_key APP_AI_DISPATCH_TRANSPORT; then
+    dispatch_transport=$(value_of APP_AI_DISPATCH_TRANSPORT)
+  fi
+  if [[ "$dispatch_transport" == rabbitmq ]]; then return 0; fi
   if [[ "$service" == app-main ]]; then
     # app-main's result consumer (QuestionAnswerCompletedMessageListener /
     # AiResultRabbitConfig) defaults to enabled and opens a listener

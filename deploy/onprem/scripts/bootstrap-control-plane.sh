@@ -148,7 +148,17 @@ env_has_key() {
 broker_required_for_env_file() {
   local env_file=$1 svc=$2
   if [[ ! -f "$env_file" || ! -r "$env_file" ]]; then return 0; fi
-  if [[ "$(env_value_of "$env_file" APP_AI_DISPATCH_TRANSPORT)" == rabbitmq ]]; then return 0; fi
+  # A key that is missing entirely is not "http" — it is whatever that
+  # service's own Spring default is (app-ai: rabbitmq, matchIfMissing=true;
+  # app-main: http). Treating a missing key as if it were explicit "http"
+  # here would fail open for app-ai. See application.properties in each
+  # module for the defaults this mirrors.
+  local dispatch_transport=http
+  [[ "$svc" == app-ai ]] && dispatch_transport=rabbitmq
+  if env_has_key "$env_file" APP_AI_DISPATCH_TRANSPORT; then
+    dispatch_transport=$(env_value_of "$env_file" APP_AI_DISPATCH_TRANSPORT)
+  fi
+  if [[ "$dispatch_transport" == rabbitmq ]]; then return 0; fi
   if [[ "$svc" == app-main ]]; then
     local consumer_enabled=true
     if env_has_key "$env_file" APP_AI_RESULT_CONSUMER_ENABLED; then

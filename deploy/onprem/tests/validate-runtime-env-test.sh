@@ -311,6 +311,52 @@ assert_failure "$VALIDATOR" app-ai "$TMP_DIR/ai-callback-rabbitmq-no-keys.env"
 # broker even with the RabbitMQ keys present, unchanged (regression guard).
 assert_success "$VALIDATOR" app-ai "$TMP_DIR/ai.env"
 
+# --- Direct unit test of broker_required()'s "key entirely absent" default.
+# Unreachable via the CLI entrypoint above (require_enum already forces
+# APP_AI_DISPATCH_TRANSPORT to exist before broker_required ever runs), but
+# the function must still default a missing key the same way
+# bootstrap-control-plane.sh's broker_required_for_env_file does (app-ai:
+# rabbitmq: matchIfMissing=true; app-main: http) so the two hand-kept copies
+# of this rule cannot silently drift apart. See both scripts' comments
+# pointing at "broker_required" / "broker_required_for_env_file".
+extract_broker_required() {
+  awk '/^broker_required\(\) \{/{flag=1} flag{print} flag && /^}/{exit}' "$VALIDATOR"
+}
+run_broker_required_unit() {
+  local svc=$1 fixture=$2
+  (
+    service=$svc
+    env_file=$fixture
+    has_key() { awk -F= -v wanted="$1" '$1 == wanted { found=1 } END { exit(found ? 0 : 1) }' "$env_file"; }
+    value_of() { awk -F= -v wanted="$1" '$1 == wanted { value=substr($0, index($0, "=") + 1); found=1 } END { if (found) printf "%s", value }' "$env_file"; }
+    eval "$(extract_broker_required)"
+    broker_required
+  )
+}
+
+# app-ai fixture: file exists but omits APP_AI_DISPATCH_TRANSPORT entirely,
+# and no callback/relay keys either. The missing key must resolve to app-ai's
+# own default (rabbitmq), so the broker is required.
+printf 'APP_AI_INTERNAL_CALLBACK_TOKEN=shared-token\n' >"$TMP_DIR/ai-missing-transport-key.env"
+if run_broker_required_unit app-ai "$TMP_DIR/ai-missing-transport-key.env"; then
+  pass=$((pass + 1))
+else
+  printf 'FAIL (expected broker required): app-ai with APP_AI_DISPATCH_TRANSPORT key absent\n' >&2
+  fail=$((fail + 1))
+fi
+
+# app-main fixture: file exists, key absent, but the result consumer is
+# explicitly disabled. The missing key must resolve to app-main's own
+# default (http), so with the consumer off the broker is not required.
+printf 'APP_AI_INTERNAL_CALLBACK_TOKEN=shared-token\nAPP_AI_RESULT_CONSUMER_ENABLED=false\n' \
+  >"$TMP_DIR/main-missing-transport-key-consumer-off.env"
+if run_broker_required_unit app-main "$TMP_DIR/main-missing-transport-key-consumer-off.env"; then
+  printf 'FAIL (expected broker not required): app-main with APP_AI_DISPATCH_TRANSPORT key absent and consumer disabled\n' >&2
+  fail=$((fail + 1))
+else
+  pass=$((pass + 1))
+fi
+
 output=$({ "$VALIDATOR" app-main "$TMP_DIR/bad.env"; } 2>&1 || true)
 if printf '%s' "$output" | grep -Eq 'redacted|shared-token|different-token|fixture-rabbitmq-(main|ai)-password'; then
   printf 'FAIL (secret leaked in validator output)\n' >&2; fail=$((fail + 1))
