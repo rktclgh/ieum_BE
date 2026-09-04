@@ -188,34 +188,49 @@ main() {
   # Idempotent: `|| true` tolerates an already-deleted guest account.
   exec_rmq delete_user guest >/dev/null 2>&1 || true
 
-  # RabbitMQ's `queue.bind` checks WRITE on the queue being bound and READ on
-  # the exchange it is bound *from* (only `basic.publish` needs write on an
-  # exchange) — the previous regexes below granted write on exchanges and
-  # read on the wrong namespace, so every `queue.bind` call either app makes
-  # at startup was refused (spec.md §10.1, finding C1). Both app-main
-  # (AiJobRabbitConfig + AiResultRabbitConfig) and app-ai
-  # (AiJobRabbitConfiguration) declare the FULL topology — all 9 queues,
-  # bound from all 4 exchanges — so both accounts need write on every queue
-  # (bind-write-on-queue) in addition to the one exchange each actually
-  # publishes to (basic.publish), and read on all 4 exchanges
-  # (bind-read-on-exchange) in addition to the queue(s) each actually
-  # consumes (basic.consume).
+  # Both accounts get the SAME regex for configure, write and read: the whole
+  # `ieum.ai.*` / `ieum.main.*` namespace, nothing outside it.
+  #
+  # The rule, as the broker actually enforces it (observed 2026-09-04, not
+  # theory): declaring topology needs READ on the resource, not just
+  # configure/write. A `queue.declare` — passive or active — is checked
+  # against READ on the queue, and `queue.bind` is checked against WRITE on
+  # the queue plus READ on the exchange it binds from. Only `basic.publish`
+  # needs WRITE on an exchange.
+  #
+  # And both apps declare the FULL topology: app-main via AiJobRabbitConfig +
+  # AiResultRabbitConfig, app-ai via AiJobRabbitConfiguration — all 9 queues
+  # and all 4 exchanges of AiJobTopology, regardless of which ones each
+  # actually publishes to or consumes from. So narrowing read to "the queues
+  # this app consumes" (the previous revision) breaks the app that only
+  # DECLARES the rest: ieum_ai's queue.declare of
+  # `ieum.ai.question-answer.dispatch.retry` was refused 403 "read access to
+  # queue ... refused for user 'ieum_ai'", RabbitAdmin aborted after 5 of 9
+  # queues, and every later operation on an undeclared queue 404'd.
+  #
+  # Confining all three regexes to the namespace prefix is what keeps other
+  # projects' queues out of reach; per-app narrowing inside the namespace buys
+  # nothing here because every name inside it is one both apps must declare.
   ensure_user ieum_main
   ensure_permissions ieum_main \
     '^ieum\.(ai|main)\..*$' \
     '^ieum\.(ai|main)\..*$' \
-    '^ieum\.ai\.(jobs|results|retry|dlx)$|^ieum\.main\.question-answer\.completed$'
+    '^ieum\.(ai|main)\..*$'
   ensure_no_tags ieum_main
 
   ensure_user ieum_ai
   ensure_permissions ieum_ai \
     '^ieum\.(ai|main)\..*$' \
     '^ieum\.(ai|main)\..*$' \
-    '^ieum\.ai\.(jobs|results|retry|dlx|question-answer\.dispatch|accepted-answer\.ingest)$'
+    '^ieum\.(ai|main)\..*$'
   ensure_no_tags ieum_ai
 
   exec_rmq set_vm_memory_high_watermark absolute 512MB >/dev/null
-  exec_rmq set_disk_free_limit absolute 5GB >/dev/null
+  # `absolute` is a keyword of set_vm_memory_high_watermark only.
+  # `set_disk_free_limit` takes the limit directly (or `mem_relative
+  # <fraction>`) and rejects the extra token with "Error: too many
+  # arguments", which killed the whole provisioning run.
+  exec_rmq set_disk_free_limit 5GB >/dev/null
 
   printf 'ieum provision rabbitmq: PASS\n'
 }
