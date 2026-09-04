@@ -3,6 +3,7 @@ set -u
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ONPREM_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+REPO_ROOT=$(CDPATH= cd -- "$ONPREM_DIR/../.." && pwd)
 SCRIPT="$ONPREM_DIR/scripts/provision-rabbitmq.sh"
 BROKER_COMPOSE="$ONPREM_DIR/rabbitmq/compose.yml"
 TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/ieum-provision-rabbitmq.XXXXXX")
@@ -94,6 +95,50 @@ chmod 600 "$BROKER_ENV_FILE"
 DOCKER_LOG="$TMP_DIR/docker.log"
 : >"$DOCKER_LOG"
 
+# Argument validator standing in for the real rabbitmqctl's own CLI parser,
+# for exactly the subcommands this script issues. The real tool rejects a
+# malformed invocation before touching the broker, so a fake that swallows
+# every argv (the previous fixture) let `set_disk_free_limit absolute 5GB`
+# — which the real rabbitmqctl refuses with "Error: too many arguments" —
+# pass the suite while failing in production. Every fake `docker` below
+# routes its `exec <cid> rabbitmqctl ...` through this.
+RABBITMQCTL_VALIDATE="$BIN_DIR/rabbitmqctl-validate"
+cat >"$RABBITMQCTL_VALIDATE" <<'EOF'
+#!/usr/bin/env bash
+set -u
+usage_die() { printf 'Error: too many arguments.\nUsage: %s\n' "$1" >&2; exit 64; }
+cmd=${1-}
+shift 2>/dev/null || true
+case "$cmd" in
+  set_disk_free_limit)
+    # Real usage: set_disk_free_limit <disk_limit>
+    #          |  set_disk_free_limit mem_relative <fraction>
+    # There is NO `absolute` keyword here — only set_vm_memory_high_watermark
+    # takes one.
+    if [[ "${1-}" == mem_relative ]]; then
+      [[ $# -eq 2 ]] || usage_die 'set_disk_free_limit <disk_limit> | set_disk_free_limit mem_relative <fraction>'
+    else
+      [[ $# -eq 1 ]] || usage_die 'set_disk_free_limit <disk_limit> | set_disk_free_limit mem_relative <fraction>'
+    fi
+    ;;
+  set_vm_memory_high_watermark)
+    # Real usage: set_vm_memory_high_watermark <fraction>
+    #          |  set_vm_memory_high_watermark absolute <memory_limit>
+    if [[ "${1-}" == absolute ]]; then
+      [[ $# -eq 2 ]] || usage_die 'set_vm_memory_high_watermark <fraction> | set_vm_memory_high_watermark absolute <memory_limit>'
+    else
+      [[ $# -eq 1 ]] || usage_die 'set_vm_memory_high_watermark <fraction> | set_vm_memory_high_watermark absolute <memory_limit>'
+    fi
+    ;;
+  set_permissions)
+    [[ "${1-}" == -p && $# -eq 6 ]] \
+      || usage_die 'set_permissions [-p <vhost>] <username> <conf> <write> <read>'
+    ;;
+esac
+exit 0
+EOF
+chmod 700 "$RABBITMQCTL_VALIDATE"
+
 cat >"$BIN_DIR/docker" <<'EOF'
 #!/usr/bin/env bash
 set -u
@@ -121,6 +166,7 @@ case "${1-}" in
     exit 0
     ;;
   exec)
+    if [[ "${3-}" == rabbitmqctl ]]; then "${FAKE_RABBITMQCTL_VALIDATE:?}" "${@:4}" || exit $?; fi
     [[ "${FAKE_RABBITMQCTL_FAIL:-}" == 1 ]] && exit 1
     exit 0
     ;;
@@ -147,6 +193,7 @@ run_provision() {
   IEUM_PROVISION_RABBITMQ_OPENSSL_BIN="$BIN_DIR/openssl" \
   IEUM_PROVISION_RABBITMQ_EXPECTED_OWNER="$(id -u)" \
   FAKE_DOCKER_LOG="$DOCKER_LOG" \
+  FAKE_RABBITMQCTL_VALIDATE="$RABBITMQCTL_VALIDATE" \
   FAKE_DOCKER_HEALTH="${FAKE_DOCKER_HEALTH:-healthy}" \
   FAKE_RABBITMQCTL_FAIL="${FAKE_RABBITMQCTL_FAIL:-}" \
   "$SCRIPT" "$@"
@@ -173,19 +220,72 @@ if grep -Fq 'management' "$DOCKER_LOG" || grep -Fq 'administrator' "$DOCKER_LOG"
   fail "an app account was granted a management/administrator tag"
 fi
 
-# permissions must be scoped per spec.md §10.1. queue.bind needs WRITE on the
-# queue and READ on the exchange it binds from — both apps declare the full
-# topology (all 9 queues, all 4 exchanges), so write must cover every queue
-# (plus each app's publish exchange) and read must cover every exchange
-# (plus each app's consumed queue(s)).
-grep -Fq 'set_permissions -p /ieum ieum_main ^ieum\.(ai|main)\..*$ ^ieum\.(ai|main)\..*$ ^ieum\.ai\.(jobs|results|retry|dlx)$|^ieum\.main\.question-answer\.completed$' "$DOCKER_LOG" \
+# permissions must be scoped per spec.md §10.1. Both app-main
+# (AiJobRabbitConfig + AiResultRabbitConfig) and app-ai
+# (AiJobRabbitConfiguration) declare the FULL topology, and a `queue.declare`
+# — passive or active — is checked against READ on the queue, exactly like
+# `queue.bind` is (observed on the live broker 2026-09-04: ieum_ai's
+# queue.declare of ieum.ai.question-answer.dispatch.retry was refused 403
+# "read access to queue ... refused"). So configure/write/read must ALL cover
+# the whole namespace for both accounts.
+# Every exchange and queue either app declares must match all three regexes
+# actually handed to set_permissions — not just the two strings above. The
+# names come from AiJobTopology.java (the shared SSOT); the hard-coded list
+# is the fallback and is asserted to have the expected size either way.
+TOPOLOGY_JAVA="$REPO_ROOT/common/src/main/java/shinhan/fibri/ieum/common/ai/job/AiJobTopology.java"
+topology_names=()
+if [[ -f "$TOPOLOGY_JAVA" ]]; then
+  while IFS= read -r topology_name; do
+    topology_names+=("$topology_name")
+  done < <(grep -oE '"ieum\.[A-Za-z0-9.-]+"' "$TOPOLOGY_JAVA" | tr -d '"' | sort -u)
+fi
+if [[ ${#topology_names[@]} -eq 0 ]]; then
+  # Fallback — keep in sync with
+  # common/src/main/java/shinhan/fibri/ieum/common/ai/job/AiJobTopology.java
+  topology_names=(
+    'ieum.ai.jobs' 'ieum.ai.results' 'ieum.ai.retry' 'ieum.ai.dlx'
+    'ieum.ai.question-answer.dispatch' 'ieum.ai.question-answer.dispatch.retry' 'ieum.ai.question-answer.dispatch.dlq'
+    'ieum.ai.accepted-answer.ingest' 'ieum.ai.accepted-answer.ingest.retry' 'ieum.ai.accepted-answer.ingest.dlq'
+    'ieum.main.question-answer.completed' 'ieum.main.question-answer.completed.retry' 'ieum.main.question-answer.completed.dlq'
+  )
+fi
+[[ ${#topology_names[@]} -eq 13 ]] \
+  || fail "expected 13 topology names (4 exchanges + 9 queues), found ${#topology_names[@]}"
+
+assert_permissions_cover_topology() {
+  user=$1
+  perm_line=$(grep -E "rabbitmqctl set_permissions -p /ieum ${user} " "$DOCKER_LOG" | tail -n 1)
+  [[ -n "$perm_line" ]] || fail "no set_permissions call logged for $user"
+  # `exec <cid> rabbitmqctl set_permissions -p <vhost> <user> <conf> <write> <read>`
+  set -- $perm_line
+  [[ $# -eq 10 ]] || fail "unexpected set_permissions argv for $user: $perm_line"
+  conf_re=$8
+  write_re=$9
+  read_re=${10}
+  for topology_name in "${topology_names[@]}"; do
+    [[ "$topology_name" =~ $conf_re ]] \
+      || fail "$user configure regex ($conf_re) does not cover $topology_name"
+    [[ "$topology_name" =~ $write_re ]] \
+      || fail "$user write regex ($write_re) does not cover $topology_name"
+    [[ "$topology_name" =~ $read_re ]] \
+      || fail "$user read regex ($read_re) does not cover $topology_name"
+  done
+}
+assert_permissions_cover_topology ieum_main
+assert_permissions_cover_topology ieum_ai
+
+grep -Fq 'set_permissions -p /ieum ieum_main ^ieum\.(ai|main)\..*$ ^ieum\.(ai|main)\..*$ ^ieum\.(ai|main)\..*$' "$DOCKER_LOG" \
   || fail "ieum_main permissions do not match spec.md §10.1"
-grep -Fq 'set_permissions -p /ieum ieum_ai ^ieum\.(ai|main)\..*$ ^ieum\.(ai|main)\..*$ ^ieum\.ai\.(jobs|results|retry|dlx|question-answer\.dispatch|accepted-answer\.ingest)$' "$DOCKER_LOG" \
+grep -Fq 'set_permissions -p /ieum ieum_ai ^ieum\.(ai|main)\..*$ ^ieum\.(ai|main)\..*$ ^ieum\.(ai|main)\..*$' "$DOCKER_LOG" \
   || fail "ieum_ai permissions do not match spec.md §10.1"
 
-# memory/disk limits from spec.md §11.3.
+# memory/disk limits from spec.md §11.3. `set_vm_memory_high_watermark` takes
+# the `absolute` keyword; `set_disk_free_limit` does not — passing it there is
+# rejected by rabbitmqctl as "too many arguments".
 grep -Fq 'set_vm_memory_high_watermark absolute 512MB' "$DOCKER_LOG" || fail "memory watermark was not set"
-grep -Fq 'set_disk_free_limit absolute 5GB' "$DOCKER_LOG" || fail "disk free limit was not set"
+grep -Eq 'set_disk_free_limit 5GB$' "$DOCKER_LOG" || fail "disk free limit was not set"
+grep -Fq 'set_disk_free_limit absolute' "$DOCKER_LOG" \
+  && fail "set_disk_free_limit was called with the bogus 'absolute' keyword (rabbitmqctl rejects it)"
 
 # The broker admin password lives only in the env file passed by path
 # (--env-file <path>), never as a literal argument, so it must never appear
@@ -239,6 +339,7 @@ case "${1-}" in
     exit 0
     ;;
   exec)
+    if [[ "${3-}" == rabbitmqctl ]]; then "${FAKE_RABBITMQCTL_VALIDATE:?}" "${@:4}" || exit $?; fi
     if [[ "${*}" == *'list_users'* ]]; then
       printf 'ieum_main\t[]\n'
       printf 'ieum_ai\t[]\n'
@@ -374,6 +475,7 @@ case "${1-}" in
     exit 0
     ;;
   exec)
+    if [[ "${3-}" == rabbitmqctl ]]; then "${FAKE_RABBITMQCTL_VALIDATE:?}" "${@:4}" || exit $?; fi
     if [[ "${*}" == *'list_users'* ]]; then
       # Fresh broker: neither account exists yet.
       exit 0
