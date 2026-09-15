@@ -14,12 +14,12 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 /**
- * transport 선택: {@code app.ai.question-answer.callback.transport}. 브리프 "구현 단계" 3번.
+ * transport 선택: {@code app.ai.question-answer.callback.transport}.
  *
- * <p><b>기본값은 {@code http}다</b> — Task 8 이 이 값을 뒤집기 전까지 오늘의 HTTP 콜백 동작을
- * 그대로 유지한다({@code matchIfMissing = true}). {@code rabbitmq}로 바뀌면
- * {@link RabbitQuestionCompletionCallbackClient} 빈이 대신 선택된다. 두 조건이 상호 배타적이므로
- * {@link QuestionCompletionCallbackClient} 빈은 항상 정확히 하나만 존재한다.
+ * <p>운영은 {@code rabbitmq}다 — {@link RabbitQuestionCompletionCallbackClient} 빈이 선택된다.
+ * <b>코드 기본값은 {@code http}</b>({@code matchIfMissing = true})로, 브로커 없는 로컬 개발·운영 롤백
+ * 모드에서 {@code @Deprecated} HTTP 콜백 클라이언트(#254 에서 제거)를 선택한다. 두 조건이 상호
+ * 배타적이므로 {@link QuestionCompletionCallbackClient} 빈은 항상 정확히 하나만 존재한다.
  */
 @Configuration
 @ConditionalOnProperty(name = "app.ai.features.question-answer-enabled", havingValue = "true")
