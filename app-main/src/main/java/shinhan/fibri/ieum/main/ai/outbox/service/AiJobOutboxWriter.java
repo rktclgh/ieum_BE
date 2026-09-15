@@ -1,7 +1,7 @@
 package shinhan.fibri.ieum.main.ai.outbox.service;
 
 /**
- * 도메인 트랜잭션 안에서 AI 작업을 큐잉한다. spec.md §7.3/§8.1, Task 8.
+ * 도메인 트랜잭션 안에서 AI 작업을 큐잉한다. spec.md §7.3/§8.1.
  *
  * <p>구현은 {@code app.ai.dispatch.transport}로 갈린다(application.properties의 해당 프로퍼티 주석이
  * 단일 진실 원천):
@@ -14,7 +14,7 @@ package shinhan.fibri.ieum.main.ai.outbox.service;
  *
  * <p>{@link shinhan.fibri.ieum.main.question.service.QuestionService}/
  * {@link shinhan.fibri.ieum.main.answer.service.AnswerService}는 이 인터페이스에만 의존한다 —
- * 전송 방식이 바뀌어도 호출부는 고치지 않는다(Task 8 브리프).
+ * 전송 방식이 바뀌어도 호출부는 고치지 않는다.
  */
 public interface AiJobOutboxWriter {
 

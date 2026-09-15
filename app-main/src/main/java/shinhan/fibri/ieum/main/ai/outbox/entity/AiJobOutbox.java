@@ -16,8 +16,8 @@ import org.hibernate.type.SqlTypes;
 /**
  * {@code ai_job_outbox} 매핑. spec.md §5.2/§5.3, db/migrations/v42_ai_job_outbox.sql.
  *
- * <p>이 태스크(Task 3)는 쓰기 경로만 담당한다 — 클레임/정산 컬럼(status 전이, lease, attempts 증가 등)은
- * Task 4(publisher relay)가 네이티브 SQL로 직접 다룬다. 이 엔티티는 그 컬럼들도 매핑하지만
+ * <p>이 엔티티는 쓰기 경로만 담당한다 — 클레임/정산 컬럼(status 전이, lease, attempts 증가 등)은
+ * publisher relay({@code AiJobOutboxRelay})가 네이티브 SQL로 직접 다룬다. 이 엔티티는 그 컬럼들도 매핑하지만
  * 여기서는 {@link #pending} 으로 생성한 뒤 저장만 한다.
  *
  * <p>{@code job_type}/{@code status}/{@code routing_key}/{@code locked_by}는 Postgres enum이 아니라

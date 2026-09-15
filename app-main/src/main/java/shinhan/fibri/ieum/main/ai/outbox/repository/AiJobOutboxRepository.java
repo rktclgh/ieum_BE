@@ -10,12 +10,12 @@ import org.springframework.transaction.annotation.Transactional;
 import shinhan.fibri.ieum.main.ai.outbox.entity.AiJobOutbox;
 
 /**
- * outbox 쓰기(Task 3)와 relay 클레임·정산(Task 4)을 함께 담는다.
+ * outbox 쓰기와 relay 클레임·정산을 함께 담는다.
  *
  * <p><b>시간은 전부 DB 쪽 {@code now()}로 통일한다.</b> {@code next_attempt_at}은 앱 시계로 찍히는데
  * 클레임 술어가 앱 시계와 비교하면 두 시계의 스큐만큼 늦거나 이르게 잡힌다. 모든 비교·스탬프를
  * 트랜잭션 시작 시각({@code now()})으로 맞추면 relay 인스턴스가 늘어나도 판단 기준이 하나로 남는다.
- * (Task 3 리뷰의 이월 사항. 남는 스큐는 "row 최초 생성 시각을 앱이 찍는다" 한 군데뿐이고, 그 값은
+ * (남는 스큐는 "row 최초 생성 시각을 앱이 찍는다" 한 군데뿐이고, 그 값은
  * 최소 backoff 1초보다 작은 스큐라면 관측 가능한 차이를 만들지 않는다.)
  *
  * <p>정산 쿼리는 모두 {@code lease_token}으로 펜싱한다 — lease가 만료돼 다른 워커가 다시 클레임한

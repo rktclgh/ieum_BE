@@ -6,7 +6,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * {@code app.ai.dispatch.transport} 값을 기동 시점에 검증한다. Task 8 브리프 "알 수 없는 값 → 컨텍스트
+ * {@code app.ai.dispatch.transport} 값을 기동 시점에 검증한다. "알 수 없는 값 → 컨텍스트
  * 기동 실패" 요구사항 — 오타로 조용히 {@code http}(기본값)로 떨어지는 사고를 막는다.
  *
  * <p>허용값·각 값의 의미는 {@code application.properties}의 {@code app.ai.dispatch.transport} 주석이

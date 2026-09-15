@@ -18,7 +18,7 @@ import shinhan.fibri.ieum.main.ai.question.dispatch.QuestionAnswerJobDispatchLis
 import shinhan.fibri.ieum.main.ai.question.dispatch.RestClientQuestionAnswerJobDispatchClient;
 
 /**
- * app-ai로의 질문 답변 작업 디스패치 HTTP 경로(리스너 + REST client). Task 8 — {@code transport=http}
+ * app-ai로의 질문 답변 작업 디스패치 HTTP 경로(리스너 + REST client). {@code transport=http}
  * 롤백 전용이며, 정상 경로는 {@code app.ai.dispatch.transport=rabbitmq}(application.properties 주석
  * 참고). 기존 {@code app.ai.question-answer-dispatch.enabled} 조건은 그대로 유지한다 — 운영 env가
  * 이미 {@code true}로 켜져 있으므로 이 조건 하나만 바꾸면 배포가 깨진다. 두 조건은 AND다: 전송이

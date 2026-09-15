@@ -10,8 +10,8 @@ import org.springframework.stereotype.Service;
  * {@code app.ai.dispatch.transport=http}(기본값)일 때의 outbox writer. 아무 row도 쓰지 않는다.
  *
  * <p><b>존재 이유</b>: HTTP 디스패치 경로가 살아 있는 동안 {@code ai_job_outbox}에 발행 워커
- * ({@link AiJobOutboxRelay})가 꺼진 채로 row 만 쌓이면 고아 row가 무한히 늘어난다(Task 8 브리프
- * Done-check "transport=http에서 outbox row가 생기지 않음").
+ * ({@link AiJobOutboxRelay})가 꺼진 채로 row 만 쌓이면 고아 row가 무한히 늘어난다(불변식:
+ * "transport=http에서 outbox row가 생기지 않음").
  * {@link shinhan.fibri.ieum.main.question.service.QuestionService}/
  * {@link shinhan.fibri.ieum.main.answer.service.AnswerService}는 이 인터페이스에만 의존하므로
  * 이 구현으로 바뀌어도 호출부는 그대로다.

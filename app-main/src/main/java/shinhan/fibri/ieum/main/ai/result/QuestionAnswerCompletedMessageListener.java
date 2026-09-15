@@ -23,12 +23,12 @@ import shinhan.fibri.ieum.main.notification.internal.AiQuestionAnswerTicketNotFo
  * {@code ai.question-answer.completed} 결과 큐 컨슈머. spec.md §8.4.
  *
  * <p>기존 {@link AiQuestionAnswerCompletionService#complete(Long, Long)}을 <b>그대로 재사용</b>한다 —
- * 새 도메인 로직을 두지 않는다. 오늘의 HTTP 콜백 컨트롤러가 하는 일과 정확히 같은 서비스 호출이고,
- * 정산만 HTTP 상태 코드 대신 AMQP ACK/NACK/DLQ 로 매핑한다:
+ * 새 도메인 로직을 두지 않는다. 롤백 전용 HTTP 콜백 컨트롤러({@code @Deprecated}, #254 에서 제거)가
+ * 하는 일과 정확히 같은 서비스 호출이고, 정산만 HTTP 상태 코드 대신 AMQP ACK/NACK/DLQ 로 매핑한다:
  *
  * <table>
  *   <caption>spec.md §8.4 매핑</caption>
- *   <tr><th>결과</th><th>오늘의 HTTP</th><th>MQ 정산</th></tr>
+ *   <tr><th>결과</th><th>HTTP(롤백 경로)</th><th>MQ 정산</th></tr>
  *   <tr><td>정상 완료</td><td>204</td><td>ACK</td></tr>
  *   <tr><td>이미 ACK된 멱등 재시도</td><td>204</td><td>ACK</td></tr>
  *   <tr><td>삭제된 질문(알림 없이 티켓만 ACK)</td><td>204</td><td>ACK</td></tr>
@@ -40,7 +40,7 @@ import shinhan.fibri.ieum.main.notification.internal.AiQuestionAnswerTicketNotFo
  *   <tr><td>DB transient 오류</td><td>5xx</td><td>NACK → retry 큐</td></tr>
  * </table>
  *
- * <p><b>{@code InvalidInternalAiTokenException}(오늘의 401)은 이 경로에 존재하지 않는다.</b> 토큰
+ * <p><b>{@code InvalidInternalAiTokenException}(HTTP 경로의 401)은 이 경로에 존재하지 않는다.</b> 토큰
  * 검증은 HTTP 표면 전용이다 — MQ 경로의 인증은 브로커 자격증명 + vhost 권한이 대신한다(spec.md §10).
  *
  * <p>처음 세 행(정상 완료/멱등 재시도/삭제된 질문)은 리스너 입장에서 구분되지 않는다 —
@@ -49,15 +49,14 @@ import shinhan.fibri.ieum.main.notification.internal.AiQuestionAnswerTicketNotFo
  * 개입하지 않는다.
  *
  * <p><b>활성 플래그는 {@code app.ai.dispatch.transport}가 아니다.</b> 그 플래그는 app-main 의 디스패치
- * 발행 relay(Stage 3, spec.md §11.5, {@code rabbitmq} 값)를 켠다. 이 리스너는 별도의
- * {@code app.ai.result.consumer.enabled}로 게이트된다(기본값 {@code true}) — spec.md §11.5 롤아웃
- * Stage 2는 app-ai 쪽 플래그(`APP_AI_QUESTION_CALLBACK_TRANSPORT=rabbitmq`,
- * `APP_AI_COMPLETION_RELAY_ENABLED=true`)만 뒤집고 app-main 은 아무 것도 바꾸지 않은 채로
- * "app-main 결과 컨슈머가 받는다"고 명시하므로, 이 리스너는 디스패치 transport 와 무관하게 기본적으로
- * 켜져 있어야 한다 — app-ai 의 디스패치 컨슈머가 항상 켜져 있는 것과 같은 이유·같은 패턴이다. 이
- * 리스너가 필요로 하는 큐/exchange 토폴로지는
- * {@link shinhan.fibri.ieum.config.AiResultRabbitConfig}가 같은 이름의 프로퍼티(둘 중 하나라도
- * 참이면) 로 독립적으로 선언한다 — 리뷰 라운드 1 finding.
+ * 발행 relay({@code rabbitmq} 값, spec.md §11.5)를 켠다. 이 리스너는 별도의
+ * {@code app.ai.result.consumer.enabled}로 게이트된다(기본값 {@code true}). 결과 소비 경로는 디스패치
+ * 발행 스위치와 독립적으로 항상 켜져 있어야 한다 — app-ai 가 완료 통보를 브로커로 발행하므로
+ * (`APP_AI_QUESTION_CALLBACK_TRANSPORT=rabbitmq`, `APP_AI_COMPLETION_RELAY_ENABLED=true`), app-main 이
+ * 디스패치를 {@code http}로 롤백한 동안에도 이 리스너가 없으면 완료 메시지가 소비자 없이 쌓인다.
+ * app-ai 의 디스패치 컨슈머가 항상 켜져 있는 것과 같은 이유·같은 패턴이다. 이 리스너가 필요로 하는
+ * 큐/exchange 토폴로지는 {@link shinhan.fibri.ieum.config.AiResultRabbitConfig}가 같은 이름의
+ * 프로퍼티(둘 중 하나라도 참이면) 로 독립적으로 선언한다.
  */
 @Component
 @ConditionalOnProperty(name = "app.ai.result.consumer.enabled", havingValue = "true", matchIfMissing = true)

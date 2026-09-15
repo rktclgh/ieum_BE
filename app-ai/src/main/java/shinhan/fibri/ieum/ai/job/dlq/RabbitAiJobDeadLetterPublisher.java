@@ -19,7 +19,7 @@ import org.springframework.stereotype.Component;
 import shinhan.fibri.ieum.common.ai.job.AiJobTopology;
 
 /**
- * {@link AiJobDeadLetterPublisher}의 Task 6 구현. spec.md §6.3.
+ * {@link AiJobDeadLetterPublisher}의 RabbitMQ 구현. spec.md §6.3.
  *
  * <p>DLQ 큐는 원본 work 큐 이름 뒤에 {@code .dlq}를 붙인 이름이다({@code AiJobTopology} 명명 규칙 —
  * 예: {@code ieum.ai.question-answer.dispatch} → {@code ieum.ai.question-answer.dispatch.dlq}).
