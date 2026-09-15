@@ -339,7 +339,7 @@ public class AiJobOutboxRelay {
 	 *
 	 * <p>{@code convertAndSend}로 보내면 {@code MessageConverter}가 이 JSON <b>문자열</b>을 다시
 	 * 직렬화해 따옴표로 감싼 문자열 하나가 본문이 된다 — 소비 측이 파싱할 수 없다. 그래서
-	 * {@code send}로 바이트를 그대로 싣는다. outbox row 가 곧 wire 메시지라는 Task 3 의 계약이다.
+	 * {@code send}로 바이트를 그대로 싣는다. outbox row 가 곧 wire 메시지라는 계약이다.
 	 *
 	 * <p>다만 컬럼이 {@code jsonb}라 저장 시점에 키 순서·공백은 Postgres 가 정규화한다. 즉 바이트가
 	 * 아니라 <b>JSON 값</b>이 보존된다. 소비 측은 Jackson 으로 파싱하므로 문제되지 않고,

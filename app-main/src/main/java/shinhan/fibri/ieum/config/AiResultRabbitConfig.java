@@ -19,19 +19,18 @@ import shinhan.fibri.ieum.common.ai.job.AiJobTopology;
 /**
  * 완료 결과(콜백) 토폴로지 + 공유 exchange(retry/dlx). spec.md §6.2, §11.5.
  *
- * <p><b>왜 {@link AiJobRabbitConfig}(디스패치 전용)와 분리했는가</b>: spec.md §11.5 롤아웃 표는
- * Stage 2에서 app-ai 쪽 플래그(`APP_AI_QUESTION_CALLBACK_TRANSPORT=rabbitmq`,
- * `APP_AI_COMPLETION_RELAY_ENABLED=true`)만 뒤집고 app-main 은 아무 것도 바꾸지 않은 채로 "완료
- * 통보만 MQ 로. app-main 결과 컨슈머가 받는다"고 명시한다. app-main 의 `APP_AI_DISPATCH_TRANSPORT`
- * (디스패치 발행, {@code rabbitmq} 값)는 Stage 3 에서야 뒤집힌다. 즉 결과 소비 경로는 디스패치 발행
- * 경로보다 먼저, 독립적으로 살아 있어야 한다 — 전체 토폴로지를 이 스위치 하나에만 묶어 두면 Stage 2
- * 의 완료 메시지가 소비자 없이 큐에 쌓이기만 한다(리뷰 라운드 1 finding).
+ * <p><b>왜 {@link AiJobRabbitConfig}(디스패치 전용)와 분리했는가</b>: app-ai 는 완료 통보를 브로커로
+ * 발행한다(`APP_AI_QUESTION_CALLBACK_TRANSPORT=rabbitmq`, `APP_AI_COMPLETION_RELAY_ENABLED=true`).
+ * 그 메시지를 받는 app-main 결과 컨슈머는 app-main 의 디스패치 발행 스위치
+ * (`APP_AI_DISPATCH_TRANSPORT`)와 무관하게 항상 살아 있어야 한다 — 그 스위치를 {@code http}로 롤백해도
+ * app-ai 는 여전히 브로커로 완료를 발행하기 때문이다. 전체 토폴로지를 디스패치 스위치 하나에만 묶어 두면
+ * 롤백 중 완료 메시지가 소비자 없이 큐에 쌓이기만 한다.
  *
  * <p>이 클래스는 {@code app.ai.dispatch.transport=rabbitmq} 또는 {@code app.ai.result.consumer.enabled}
  * (기본값 {@code true} — app-ai 디스패치 컨슈머가 항상 켜져 있는 것과 같은 패턴이다. app-main
  * {@code shinhan.fibri.ieum.main.ai.result.QuestionAnswerCompletedMessageListener}도 같은 이름의
  * 프로퍼티로 게이트된다) 중 <b>하나라도</b> 참이면 활성화된다({@link RabbitTopologyRequiredCondition}).
- * Task 8 이전에는 첫 조건이 {@code app.ai.outbox.enabled=true}였다 — app-main 전체의 전송 스위치를
+ * 예전에는 첫 조건이 {@code app.ai.outbox.enabled=true}였다 — app-main 전체의 전송 스위치를
  * {@code app.ai.dispatch.transport} 하나로 모으면서 대체했다(application.properties 참고).
  * {@code aiRetryExchange}/{@code aiDlxExchange}는 디스패치 큐({@link AiJobRabbitConfig})도 참조하는
  * <b>공유</b> exchange라서, 결과 컨슈머를 명시적으로 꺼도(outbox 만 켜진 경우) 반드시 여기서 선언돼야
@@ -149,7 +148,7 @@ public class AiResultRabbitConfig {
 	 * 재평가한다({@code ConfigurationClassBeanDefinitionReader#loadBeanDefinitionsForBeanMethod}가
 	 * 메서드 자체의 {@code AnnotatedTypeMetadata}만 보고, 클래스 레벨 {@code @Conditional}은 그
 	 * 메타데이터에 없다) — 그래서 {@code REGISTER_BEAN}으로 두면 이 조건이 사실상 한 번도 평가되지
-	 * 않아 프로퍼티 값과 무관하게 모든 빈이 등록돼 버린다(리뷰 라운드 1 재발 픽스에서 실측 확인).
+	 * 않아 프로퍼티 값과 무관하게 모든 빈이 등록돼 버린다(실측 확인).
 	 * 이 조건은 다른 빈의 존재 여부를 보지 않고 프로퍼티 값만 보므로, 클래스 파싱 시점에 평가되는
 	 * {@code PARSE_CONFIGURATION}이 정확하고 유일하게 맞는 선택이다.
 	 */
